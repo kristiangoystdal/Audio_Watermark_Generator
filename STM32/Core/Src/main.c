@@ -38,11 +38,13 @@
 #define pi 3.14159265358979323846
 #define MAX_SAMPLES_21k 48
 #define MAX_SAMPLES_22k 45
-#define NUM_CHARS 32
+#define MAX_SAMPLES_25k 40
+#define NUM_CHARS 16
 #define BITSTREAM_LENGTH (NUM_CHARS * 8)
 
 #define NUM_PERIODS_21k 30
 #define NUM_PERIODS_22k 32
+#define NUM_PERIODS_25k 36
 
 /* USER CODE END PD */
 
@@ -65,11 +67,12 @@ TIM_HandleTypeDef htim8;
 
 uint16_t sine_val_21k[MAX_SAMPLES_21k];
 uint16_t sine_val_22k[MAX_SAMPLES_22k];
+uint16_t sine_val_25k[MAX_SAMPLES_25k];
 
 uint16_t bitstream[BITSTREAM_LENGTH];
 
 static uint32_t current_period = 0;
-static uint32_t current_bit = 0; // 0: 21kHz, 1: 22kHz
+static uint32_t current_bit = 0; // 0: 21kHz, 1: 22kHz, 2: 25kHz
 static uint32_t current_idx = 0; // Current index of the bitstream
 
 /* USER CODE END PV */
@@ -114,8 +117,17 @@ void get_sineval_22k(void) {
   }
 }
 
+void get_sineval_25k(void) {
+  for (int i = 0; i < MAX_SAMPLES_25k; i++) {
+    sine_val_25k[i] = (uint16_t)((4095.0 / 2.0) *
+                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_25k)));
+  }
+}
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
+    // HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_25k,
+    //                   MAX_SAMPLES_25k, DAC_ALIGN_12B_R);
   }
 
   if (htim->Instance == TIM2) {
@@ -123,15 +135,27 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 }
 
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
-  // HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
   current_period++;
 
   if ((current_bit == 0 && current_period >= NUM_PERIODS_21k) ||
-      (current_bit == 1 && current_period >= NUM_PERIODS_22k)) {
+      (current_bit == 1 && current_period >= NUM_PERIODS_22k) ||
+      (current_bit == 2 && current_period >= NUM_PERIODS_25k)) {
+
+    uint32_t next_bit;
+    // Check if the current_idx is at the end of the bitstream
+    // if (current_idx == BITSTREAM_LENGTH - 1) {
+    //   // HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+    //   next_bit = 2; // Reset to 25kHz
+    //   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+
+    //   // return; // Stop processing if at the end
+    // } else {
+
     current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
     current_period = 0;
-    uint32_t next_bit = bitstream[current_idx];
+    next_bit = bitstream[current_idx];
+    // }
 
     if (next_bit != current_bit) {
       HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
@@ -139,6 +163,9 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
       if (next_bit == 1) {
         HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_22k,
                           MAX_SAMPLES_22k, DAC_ALIGN_12B_R);
+      } else if (next_bit == 2) {
+        HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_25k,
+                          MAX_SAMPLES_25k, DAC_ALIGN_12B_R);
       } else {
         HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_21k,
                           MAX_SAMPLES_21k, DAC_ALIGN_12B_R);
@@ -212,7 +239,7 @@ int main(void) {
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
-  const char *input_string = "Hello"; // Example input string
+  const char *input_string = "Hello World"; // Example input string
   make_bitstream_from_string(input_string);
   // make_random_bitstream(); // or fill bitstream[] your way
 
@@ -222,13 +249,23 @@ int main(void) {
 
   get_sineval_21k();
   get_sineval_22k();
+  get_sineval_25k();
 
   //-------------------------------------------------------------------------------------------//
-  // Generate the sine wave lookup table
+  // Start the DAC in DMA mode with the first bit (0: 21kHz, 1: 22kHz)
   //-------------------------------------------------------------------------------------------//
 
-  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_21k,
-                    MAX_SAMPLES_21k, DAC_ALIGN_12B_R);
+  current_bit = bitstream[0];
+  if (current_bit == 1) {
+    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_22k,
+                      MAX_SAMPLES_22k, DAC_ALIGN_12B_R);
+  } else {
+    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_21k,
+                      MAX_SAMPLES_21k, DAC_ALIGN_12B_R);
+  }
+
+  // HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_25k,
+  //                   MAX_SAMPLES_25k, DAC_ALIGN_12B_R);
 
   //-------------------------------------------------------------------------------------------//
   // STARTING TIMERS AND INTERRUPTS
@@ -426,7 +463,7 @@ static void MX_TIM8_Init(void) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 10000;
+  sConfigOC.Pulse = 7000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
