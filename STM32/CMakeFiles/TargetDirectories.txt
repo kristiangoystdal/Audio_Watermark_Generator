@@ -1,0 +1,6 @@
+/Users/kristiangoystdal/Developer/Git/STM_TESTING/CMakeFiles/STM_TESTING.dir
+/Users/kristiangoystdal/Developer/Git/STM_TESTING/CMakeFiles/edit_cache.dir
+/Users/kristiangoystdal/Developer/Git/STM_TESTING/CMakeFiles/rebuild_cache.dir
+/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
+/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/CMakeFiles/edit_cache.dir
+/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/CMakeFiles/rebuild_cache.dir
