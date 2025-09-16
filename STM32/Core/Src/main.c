@@ -50,12 +50,13 @@
 #define MAX_SAMPLES_22k 45
 #define MAX_SAMPLES_MID_VAL 20
 
+#define REPEAT_HALF 4
 #define PER_HALF_21K 15
 #define PER_HALF_22K 16
 #define PER_HALF_SIL 18
-#define PERIODS_PER_BIT_21K 30
-#define PERIODS_PER_BIT_22K 32
-#define PERIODS_PER_BIT_SIL 36
+#define PERIODS_PER_BIT_21K (PER_HALF_21K * REPEAT_HALF)
+#define PERIODS_PER_BIT_22K (PER_HALF_22K * REPEAT_HALF)
+#define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
 
 /* USER CODE END PD */
 
@@ -76,6 +77,7 @@ TIM_HandleTypeDef htim8;
 
 /* USER CODE BEGIN PV */
 
+// Circular buffer for DAC output
 __ALIGN_BEGIN __IO uint16_t output_buffer[2 * BUF_LEN] __ALIGN_END;
 
 uint16_t sine_val_21k[MAX_SAMPLES_21k];
@@ -89,7 +91,7 @@ static volatile uint32_t current_bit = 2;
 static volatile uint32_t current_idx = 0;
 
 float total_time = 0.0;
-uint32_t pulse_time = 1000; // in ms, default value
+uint32_t pulse_time = 1000; // in ms, will be updated later
 
 /* USER CODE END PV */
 
@@ -111,7 +113,7 @@ static void MX_TIM8_Init(void);
 void make_bitstream_from_string(const char *str) {
   int k = 0;
 
-  // Start identifier
+  // Start identifier (10101010)
   for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = 1;
     bitstream[k++] = 0;
@@ -123,7 +125,7 @@ void make_bitstream_from_string(const char *str) {
     }
   }
 
-  // End identifier
+  // End identifier (10101010)
   for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = 1;
     bitstream[k++] = 0;
@@ -154,13 +156,11 @@ void get_dc_mid(void) {
 }
 
 void calculate_pulse_time(void) {
-
   float f21k = 21000.0;
   float f22k = 22000.0;
   float f25k = 25000.0;
 
   // Find out the time it takes to send the bitstream
-
   for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
     if (bitstream[i] == 0) {
       total_time += (float)PERIODS_PER_BIT_21K / f21k;
