@@ -38,22 +38,18 @@
 /* USER CODE BEGIN PD */
 
 #define pi 3.14159265358979323846
-#define MAX_SAMPLES_21k 48
-#define MAX_SAMPLES_22k 45
-#define MAX_SAMPLES_25k 40
-#define MAX_SAMPLES_MID_VAL 20
+
 #define NUM_CHARS 48
 #define BITSTREAM_LENGTH (NUM_CHARS * 8)
-
-#define NUM_PERIODS_21k 30
-#define NUM_PERIODS_22k 32
-#define NUM_PERIODS_25k 36
 
 #define MID_12B 2048
 
 #define BUF_LEN 720
 
-// how many waveform periods each half-buffer emits
+#define MAX_SAMPLES_21k 48
+#define MAX_SAMPLES_22k 45
+#define MAX_SAMPLES_MID_VAL 20
+
 #define PER_HALF_21K 15
 #define PER_HALF_22K 16
 #define PER_HALF_SIL 18
@@ -80,11 +76,10 @@ TIM_HandleTypeDef htim8;
 
 /* USER CODE BEGIN PV */
 
-__ALIGN_BEGIN __IO uint16_t outbuf[2 * BUF_LEN] __ALIGN_END;
+__ALIGN_BEGIN __IO uint16_t output_buffer[2 * BUF_LEN] __ALIGN_END;
 
 uint16_t sine_val_21k[MAX_SAMPLES_21k];
 uint16_t sine_val_22k[MAX_SAMPLES_22k];
-uint16_t sine_val_25k[MAX_SAMPLES_25k];
 uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
 
 uint16_t bitstream[BITSTREAM_LENGTH];
@@ -93,9 +88,13 @@ static volatile uint32_t current_period = 0;
 static volatile uint32_t current_bit = 2;
 static volatile uint32_t current_idx = 0;
 
+float total_time = 0.0;
+uint32_t pulse_time = 1000; // in ms, default value
+
 /* USER CODE END PV */
 
-/* Private function prototypes -----------------------------------------------*/
+/* Private function prototypes
+   -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
@@ -113,8 +112,8 @@ void make_bitstream_from_string(const char *str) {
   int k = 0;
 
   // Start identifier
-  if (k < BITSTREAM_LENGTH)
-    bitstream[k++] = 2;
+  // if (k < BITSTREAM_LENGTH)
+  //   bitstream[k++] = 2;
 
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
     for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
@@ -123,8 +122,8 @@ void make_bitstream_from_string(const char *str) {
   }
 
   // End identifier
-  if (k < BITSTREAM_LENGTH)
-    bitstream[k++] = 2;
+  // if (k < BITSTREAM_LENGTH)
+  //   bitstream[k++] = 2;
 
   // Fill the rest with mid-scale values if needed
   while (k < BITSTREAM_LENGTH)
@@ -150,11 +149,35 @@ void get_dc_mid(void) {
     dc_mid[i] = MID_12B;
 }
 
-static inline void fill_lut_repeated(uint16_t *dst, size_t n,
+void calculate_pulse_time(void) {
+
+  float f21k = 21000.0;
+  float f22k = 22000.0;
+  float f25k = 25000.0;
+
+  // Find out the time it takes to send the bitstream
+
+  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
+    if (bitstream[i] == 0) {
+      total_time += (float)PERIODS_PER_BIT_21K / f21k;
+    } else if (bitstream[i] == 1) {
+      total_time += (float)PERIODS_PER_BIT_22K / f22k;
+    }
+  }
+
+  // Add time for silence after bitstream
+  total_time += 2 * (float)PERIODS_PER_BIT_SIL / f25k;
+
+  // Set the pulse time for TIM8
+  pulse_time = (uint32_t)(total_time * 10000.0); // in ms
+  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
+}
+
+static inline void fill_lut_repeated(uint16_t *dst, size_t buffer_len,
                                      const uint16_t *lut, size_t lut_len) {
   size_t k = 0;
-  while (k < n) {
-    size_t to_copy = (n - k < lut_len) ? (n - k) : lut_len;
+  while (k < buffer_len) {
+    size_t to_copy = (buffer_len - k < lut_len) ? (buffer_len - k) : lut_len;
     memcpy(&dst[k], lut, to_copy * sizeof(uint16_t));
     k += to_copy;
   }
@@ -173,7 +196,7 @@ static inline void fill_half(uint16_t *dst, uint32_t bit) {
 
 void start_dac_dma_once(void) {
   // start once, never stop
-  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)outbuf, 2 * BUF_LEN,
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer, 2 * BUF_LEN,
                     DAC_ALIGN_12B_R);
 }
 
@@ -191,7 +214,7 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
     current_bit = bitstream[current_idx];
   }
 
-  fill_half((uint16_t *)&outbuf[0], current_bit);
+  fill_half((uint16_t *)&output_buffer[0], current_bit);
 }
 
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
@@ -207,7 +230,7 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
     current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
     current_bit = bitstream[current_idx];
   }
-  fill_half((uint16_t *)&outbuf[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
@@ -219,11 +242,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     current_period = 0;
     current_bit = bitstream[0];
 
-    fill_half((uint16_t *)&outbuf[0], current_bit);
-    fill_half((uint16_t *)&outbuf[BUF_LEN], current_bit);
+    fill_half((uint16_t *)&output_buffer[0], current_bit);
+    fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
 
-    // Fresh start so the DMA pointer = beginning of outbuf
-    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)outbuf, 2 * BUF_LEN,
+    // Fresh start so the DMA pointer = beginning of output_buffer
+    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer, 2 * BUF_LEN,
                       DAC_ALIGN_12B_R);
   }
 
@@ -298,9 +321,15 @@ int main(void) {
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
-  const char *input_string = "Hello World"; // Example input string
+  const char *input_string =
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijk"; // 48 chars
   make_bitstream_from_string(input_string);
-  // make_random_bitstream(); // or fill bitstream[] your way
+
+  //-------------------------------------------------------------------------------------------//
+  // Calculate the total time it takes to send the bitstream
+  //-------------------------------------------------------------------------------------------//
+
+  calculate_pulse_time();
 
   //-------------------------------------------------------------------------------------------//
   // Generate the sine wave lookup table
@@ -308,34 +337,20 @@ int main(void) {
 
   get_sineval_21k();
   get_sineval_22k();
-  // get_sineval_25k();
   get_dc_mid();
 
   //-------------------------------------------------------------------------------------------//
-  // Generate the sine wave lookup table
+  // Filling the circular buffer for the DAC
   //-------------------------------------------------------------------------------------------//
 
-  // current_bit = bitstream[0];
-  // if (current_bit == 1) {
-  //   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_22k,
-  //                     MAX_SAMPLES_22k, DAC_ALIGN_12B_R);
-
-  // } else if (current_bit == 2) {
-  //   // Set DAC output to mid-scale (silence) between samples
-  //   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)dc_mid_25k,
-  //                     MAX_SAMPLES_MID_VAL, DAC_ALIGN_12B_R);
-  // } else {
-  //   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)sine_val_21k,
-  //                     MAX_SAMPLES_21k, DAC_ALIGN_12B_R);
-  // }
-
+  // initialize state variables
   current_idx = 0;
   current_period = 0;
   current_bit = bitstream[current_idx];
 
   // prefill both halves of the circular buffer with the first bit
-  fill_half((uint16_t *)&outbuf[0], current_bit);
-  fill_half((uint16_t *)&outbuf[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[0], current_bit);
+  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
 
   // start DAC once with the circular buffer
   start_dac_dma_once();
@@ -538,7 +553,7 @@ static void MX_TIM8_Init(void) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 10000;
+  sConfigOC.Pulse = 7000;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
