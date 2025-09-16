@@ -40,42 +40,34 @@ def goertzel(samples, sample_rate, target_frequency):
     magnitude_squared = q1**2 + q2**2 - q1 * q2 * coeff
     return magnitude_squared
 
-filename = "signal_out_6.wav"
+f_0 = 20833
+f_1 = 22222
 
+filename = "signal_out_6.wav"
 data, sampling_rate = sf.read(filename)
 
-
+seconds_per_bit = 0.00288003
+samples_per_bit = round(sampling_rate*seconds_per_bit)
 
 if np.issubdtype(data.dtype, np.integer):
     data = data / np.iinfo(data.dtype).max
 data = data.astype(np.float64)
 
-data_cropped = data[11:25957]*20
-
+data_cropped = data[11:20000]*20
 data_centered = data_cropped - np.mean(data_cropped)
 
-for symbol_index in range(24):
-    start_sample = symbol_index*140
-    end_sample = (symbol_index+1)*140-1
+message = ""
 
+for byte_index in range(15):
+    bitstring=""
+    for bit_index in range(8):
+        start_sample = (byte_index*8 + bit_index)*samples_per_bit
+        end_sample = start_sample+samples_per_bit
+        g_0 = goertzel(data_centered[start_sample:end_sample],sampling_rate,f_0)
+        g_1 = goertzel(data_centered[start_sample:end_sample],sampling_rate,f_1)
+        bitstring += "0" if g_0 > g_1 else "1"
+    message += chr(int(bitstring,2))
 
-    #print(f"Symbol {symbol_index} going from sample {start_sample} to {end_sample}")
-
-
-    mag_0 = goertzel(data_centered[start_sample:end_sample],sampling_rate,20833)
-    mag_1 = goertzel(data_centered[start_sample:end_sample],sampling_rate,22222)
-    if(mag_0 > mag_1):
-        print(0, end="")
-    else:
-        print(1, end="")
-    
-
-
-freq = []
-g = []
-
-for tf in range(20000,25000,1):
-    mag_sq = goertzel(data_centered,sampling_rate,tf)
-    freq.append(tf)
-    g.append(mag_sq)
-
+print()
+print(message)
+print()
