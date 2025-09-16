@@ -39,7 +39,7 @@
 
 #define pi 3.14159265358979323846
 
-#define NUM_CHARS 48
+#define NUM_CHARS (48 + 4) // 48 chars + start/end identifiers (16 bits each)
 #define BITSTREAM_LENGTH (NUM_CHARS * 8)
 
 #define MID_12B 2048
@@ -112,8 +112,10 @@ void make_bitstream_from_string(const char *str) {
   int k = 0;
 
   // Start identifier
-  // if (k < BITSTREAM_LENGTH)
-  //   bitstream[k++] = 2;
+  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = 1;
+    bitstream[k++] = 0;
+  }
 
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
     for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
@@ -122,8 +124,10 @@ void make_bitstream_from_string(const char *str) {
   }
 
   // End identifier
-  // if (k < BITSTREAM_LENGTH)
-  //   bitstream[k++] = 2;
+  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = 1;
+    bitstream[k++] = 0;
+  }
 
   // Fill the rest with mid-scale values if needed
   while (k < BITSTREAM_LENGTH)
@@ -196,8 +200,8 @@ static inline void fill_half(uint16_t *dst, uint32_t bit) {
 
 void start_dac_dma_once(void) {
   // start once, never stop
-  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer, 2 * BUF_LEN,
-                    DAC_ALIGN_12B_R);
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                    2 * BUF_LEN, DAC_ALIGN_12B_R);
 }
 
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
@@ -246,18 +250,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
 
     // Fresh start so the DMA pointer = beginning of output_buffer
-    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer, 2 * BUF_LEN,
-                      DAC_ALIGN_12B_R);
-  }
-
-  if (htim->Instance == TIM2) {
+    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                      2 * BUF_LEN, DAC_ALIGN_12B_R);
   }
 }
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    // HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
   }
 }
 
@@ -321,8 +321,7 @@ int main(void) {
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
-  const char *input_string =
-      "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijk"; // 48 chars
+  const char *input_string = "Hello World"; // 48 chars
   make_bitstream_from_string(input_string);
 
   //-------------------------------------------------------------------------------------------//
