@@ -1,8 +1,7 @@
 import numpy as np
-import wave
 import matplotlib.pyplot as plt
-from scipy.io import wavfile
 import soundfile as sf
+from scipy.signal import correlate
 
 def goertzel(samples, sample_rate, target_frequency):
     """
@@ -40,6 +39,20 @@ def goertzel(samples, sample_rate, target_frequency):
     magnitude_squared = q1**2 + q2**2 - q1 * q2 * coeff
     return magnitude_squared
 
+def make_preamble(fs, f0, f1):
+    periods1 = 64
+    N1 = int(round(periods1 * fs / f1))
+    t1 = np.arange(N1) / fs
+    signal1 = np.sin(2 * np.pi * f1 * t1)
+    f0 = 20833
+    periods2 = 60
+    N2 = int(round(periods2 * fs / f0))
+    t2 = np.arange(N2) / fs
+    signal2 = np.sin(2 * np.pi * f0 * t2)
+    pattern = np.concatenate([signal1, signal2])
+    return np.tile(pattern, 8)
+
+
 f_0 = 20833
 f_1 = 22222
 
@@ -53,8 +66,28 @@ if np.issubdtype(data.dtype, np.integer):
     data = data / np.iinfo(data.dtype).max
 data = data.astype(np.float64)
 
-data_cropped = data[11:20000]*20
+data_cropped = data*20
 data_centered = data_cropped - np.mean(data_cropped)
+
+plt.plot(data_centered)
+plt.show()
+
+preamble = make_preamble(sampling_rate,f_0,f_1)
+
+corr = correlate(data_centered,preamble,mode="full")
+lags = np.arange(-len(preamble)+1, len(data_centered))
+
+best_lag = lags[np.argmax(corr)]
+print(f"Best match at lag: {best_lag} samples")
+
+plt.plot(lags, corr)
+plt.xlabel("Lag [samples]")
+plt.ylabel("Cross-correlation")
+plt.title("Cross-correlation between other_signal and pattern")
+plt.axvline(best_lag, color='r', linestyle='--', label=f"Best lag = {best_lag}")
+plt.legend()
+plt.show()
+
 
 message = ""
 
@@ -66,6 +99,7 @@ for byte_index in range(15):
         g_0 = goertzel(data_centered[start_sample:end_sample],sampling_rate,f_0)
         g_1 = goertzel(data_centered[start_sample:end_sample],sampling_rate,f_1)
         bitstring += "0" if g_0 > g_1 else "1"
+    print(bitstring)
     message += chr(int(bitstring,2))
 
 print()
