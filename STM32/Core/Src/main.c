@@ -206,7 +206,8 @@ static inline void fill_half(uint16_t *dst, uint32_t bit) {
   }
 }
 
-void fill_buffer(void) {
+// DAC conversion complete callbacks for half buffer
+void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   // Update current period
   uint32_t per = (current_bit == 0)   ? PER_HALF_21K
                  : (current_bit == 1) ? PER_HALF_22K
@@ -227,11 +228,27 @@ void fill_buffer(void) {
   fill_half((uint16_t *)&output_buffer[0], current_bit);
 }
 
-// DAC conversion complete callbacks for half
-void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) { fill_buffer(); }
-
 // DAC conversion complete callback for the full buffer
-void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) { fill_buffer(); }
+void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  // Update current period
+  uint32_t per = (current_bit == 0)   ? PER_HALF_21K
+                 : (current_bit == 1) ? PER_HALF_22K
+                                      : PER_HALF_SIL;
+
+  current_period += per;
+
+  // Check if we need to move to the next bit
+  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_21K) ||
+         (current_bit == 1 && current_period >= PERIODS_PER_BIT_22K) ||
+         (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
+    current_period = 0;
+    current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_idx];
+  }
+
+  // Fill the first half of the buffer based on the current bit
+  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+}
 
 // Timer interrupt callback for TIM8
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
