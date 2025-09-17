@@ -370,7 +370,10 @@ int main(void) {
   fill_half((uint16_t *)&output_buffer[0], current_bit);
   fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
 
-  // start DAC with the circular buffer
+  //-------------------------------------------------------------------------------------------//
+  // Start DAC with the circular buffer
+  //-------------------------------------------------------------------------------------------//
+
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
                     2 * BUF_LEN, DAC_ALIGN_12B_R);
 
