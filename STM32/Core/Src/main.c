@@ -26,6 +26,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <user_config.h>
 
 /* USER CODE END Includes */
 
@@ -337,11 +338,24 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
 
   //-------------------------------------------------------------------------------------------//
+  // Load user configuration from user_config.h
+  //-------------------------------------------------------------------------------------------//
+
+  const char *input_string = USER_STRING;
+  int interval_between_repeats = INTERVAL_BETWEEN_REPEATS_SECONDS;
+
+  //-------------------------------------------------------------------------------------------//
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
-  const char *input_string = "Hello World";
   make_bitstream_from_string(input_string);
+
+
+  //-------------------------------------------------------------------------------------------//
+  // Change the interval between repeats
+  //-------------------------------------------------------------------------------------------//
+
+  // __HAL_TIM_SET_AUTORELOAD(&htim8, (interval_between_repeats * 10000) - 1);
 
   //-------------------------------------------------------------------------------------------//
   // Calculate the total time it takes to send the bitstream
