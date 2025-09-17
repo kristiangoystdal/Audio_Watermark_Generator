@@ -110,14 +110,21 @@ static void MX_TIM8_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void make_bitstream_from_string(const char *str) {
-  int k = 0;
-
-  // Start identifier (10101010)
+int make_preamble(int start_idx) {
+  int k = start_idx;
   for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = 1;
     bitstream[k++] = 0;
   }
+
+  return k;
+}
+
+void make_bitstream_from_string(const char *str) {
+  int k = 0;
+
+  // Start identifier (10101010)
+  k = make_preamble(k);
 
   // Data bits from string
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
@@ -127,10 +134,7 @@ void make_bitstream_from_string(const char *str) {
   }
 
   // End identifier (10101010)
-  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = 1;
-    bitstream[k++] = 0;
-  }
+  k = make_preamble(k);
 
   // Fill the rest with mid-scale values if needed
   while (k < BITSTREAM_LENGTH)
