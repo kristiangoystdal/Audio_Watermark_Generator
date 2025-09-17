@@ -96,8 +96,7 @@ uint32_t pulse_time = 1000; // in ms, will be updated later
 
 /* USER CODE END PV */
 
-/* Private function prototypes
-   -----------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
@@ -349,7 +348,6 @@ int main(void) {
   //-------------------------------------------------------------------------------------------//
 
   make_bitstream_from_string(input_string);
-
 
   //-------------------------------------------------------------------------------------------//
   // Change the interval between repeats
