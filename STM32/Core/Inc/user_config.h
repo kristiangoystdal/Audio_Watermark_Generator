@@ -3,14 +3,7 @@
 
 //------------------ USER CONFIGURATION ------------------//
 // Modify these values as needed
-// USER_STRING: The string to be encoded into the audio signal
-// INTERVAL_BETWEEN_REPEATS_SECONDS: Time interval between transmissions
-// USER_ID: Unique identifier for the device
-// LOCATION: Location description of the device
-// ALTITUDE: Altitude of the device in meters
-// TEMPERATURE: Temperature in Celsius
-// HUMIDITY: Humidity in Percentage
-// PRESSURE: Atmospheric pressure in hPa
+//-------------------------------------------------------//
 
 #define USER_STRING "Hello World!"
 
