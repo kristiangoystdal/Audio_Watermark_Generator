@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
@@ -92,7 +93,9 @@ static volatile uint32_t current_bit = 2;
 static volatile uint32_t current_idx = 0;
 
 float total_time = 0.0;
-uint32_t pulse_time = 1000; // in ms, will be updated later
+uint32_t pulse_time = 1000; // in ticks, will be updated later
+
+static volatile bool tx_active = false;
 
 /* USER CODE END PV */
 
@@ -182,8 +185,29 @@ void calculate_pulse_time(void) {
   // Add time for silence after bitstream
   total_time += 2 * (float)PERIODS_PER_BIT_SIL / f25k;
 
-  // Set the pulse time for TIM8
-  pulse_time = (uint32_t)(total_time * 10000.0); // in ms
+  // Find the timer tick frequency
+  uint32_t system_clk = HAL_RCC_GetPCLK2Freq();
+  uint32_t tim8_clk = system_clk;
+
+  if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1) {
+    tim8_clk *= 2U;
+  }
+
+  const float tim8_tick_hz = (float)tim8_clk / (htim8.Init.Prescaler + 1.0f);
+
+  // Calculate the pulse time in timer ticks
+  pulse_time = (uint32_t)(total_time * tim8_tick_hz);
+
+  // Ensure pulse_time is within valid range for the timer
+  uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim8);
+
+  if (pulse_time == 0) {
+    pulse_time = 1;
+  } else {
+    pulse_time = arr;
+  }
+
+  // Update the compare value for TIM8 Channel 1
   __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
 }
 
@@ -212,6 +236,9 @@ static inline void fill_half(uint16_t *dst, uint32_t bit) {
 
 // DAC conversion complete callbacks for half buffer
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  if (!tx_active)
+    return;
+
   // Update current period
   uint32_t per = (current_bit == 0)   ? PER_HALF_21K
                  : (current_bit == 1) ? PER_HALF_22K
@@ -234,6 +261,9 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
 
 // DAC conversion complete callback for the full buffer
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  if (!tx_active)
+    return;
+
   // Update current period
   uint32_t per = (current_bit == 0)   ? PER_HALF_21K
                  : (current_bit == 1) ? PER_HALF_22K
@@ -254,33 +284,60 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
 }
 
+void reset_dac(void) {
+  // Stop DAC DMA
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+
+  // Restart the bitstream from the beginning
+  current_idx = 0;
+  current_period = 0;
+  current_bit = bitstream[0];
+
+  // Prefill both halves of the circular buffer with the first bit
+  fill_half((uint16_t *)&output_buffer[0], current_bit);
+  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+
+  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  HAL_TIM_Base_Start(&htim2);
+  tx_active = true;
+
+  // Restart DAC with the circular buffer
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                    2 * BUF_LEN, DAC_ALIGN_12B_R);
+}
+
+int counter = 0;
 // Timer interrupt callback for TIM8
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
-    // Stop DAC DMA
-    HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+    if (USE_MINUTES_INSTEAD_OF_SECONDS &&
+        !USE_DEFAULT_INTERVAL_BETWEEN_REPEATS &&
+        INTERVAL_BETWEEN_REPEATS_MINUTES > 4) {
 
-    // Restart the bitstream from the beginning
-    current_idx = 0;
-    current_period = 0;
-    current_bit = bitstream[0];
+      if (++counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
+        counter = 0;
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        reset_dac();
+      } else {
+      }
 
-    // Prefill both halves of the circular buffer with the first bit
-    fill_half((uint16_t *)&output_buffer[0], current_bit);
-    fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
-
-    // Restart DAC with the circular buffer
-    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                      2 * BUF_LEN, DAC_ALIGN_12B_R);
+    } else {
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      reset_dac();
+    }
   }
 }
 
-// Timer PWM pulse finished callback for TIM8 Channel 1
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+    tx_active = false;
+    // HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
+
+    // Optional: force output to mid-scale (normally not needed because your
+    // frame ends with 'silence')
+    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
   }
 }
 
@@ -347,17 +404,55 @@ int main(void) {
   const char *input_string = USER_STRING;
   int interval_between_repeats = INTERVAL_BETWEEN_REPEATS_SECONDS;
 
+  if (USE_MINUTES_INSTEAD_OF_SECONDS) {
+    if (INTERVAL_BETWEEN_REPEATS_MINUTES <= 4) {
+      interval_between_repeats = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
+    } else {
+      interval_between_repeats = 60; // 1 minute intervals with software counter
+    }
+  }
+
   //-------------------------------------------------------------------------------------------//
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
+  if (strlen(input_string) > 48) {
+    Error_Handler();
+    // Add some truncation here if needed
+  }
   make_bitstream_from_string(input_string);
 
   //-------------------------------------------------------------------------------------------//
-  // Change the interval between repeats
+  // Change the interval between repeats if default is not used
   //-------------------------------------------------------------------------------------------//
 
-  // __HAL_TIM_SET_AUTORELOAD(&htim8, (interval_between_repeats * 10000) - 1);
+  if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS == false) {
+    uint32_t timer_clock = HAL_RCC_GetPCLK2Freq();
+    if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1) {
+      timer_clock *= 2;
+    }
+
+    uint32_t prescaler = 15999;
+    uint32_t arr =
+        (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+
+    if (arr > 0xFFFF) {
+      prescaler = 31999;
+      arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+    }
+    if (arr > 0xFFFF) {
+      prescaler = 63999;
+      arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+    }
+
+    if (arr > 0xFFFF) {
+      arr = 0xFFFF; // cap at max
+    }
+
+    __HAL_TIM_SET_PRESCALER(&htim8, prescaler);
+    __HAL_TIM_SET_AUTORELOAD(&htim8, arr);
+    __HAL_TIM_SET_COUNTER(&htim8, 0);
+  }
 
   //-------------------------------------------------------------------------------------------//
   // Calculate the total time it takes to send the bitstream
@@ -437,7 +532,7 @@ void SystemClock_Config(void) {
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 10;
+  RCC_OscInitStruct.PLL.PLLN = 8;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -450,11 +545,11 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                 RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV4;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -523,7 +618,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 79;
+  htim2.Init.Period = 15;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -568,9 +663,9 @@ static void MX_TIM8_Init(void) {
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 7999;
+  htim8.Init.Prescaler = 15999;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 9999;
+  htim8.Init.Period = 999;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -591,7 +686,7 @@ static void MX_TIM8_Init(void) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 7000;
+  sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
