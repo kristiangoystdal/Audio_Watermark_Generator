@@ -39,24 +39,13 @@ def goertzel(samples, sample_rate, target_frequency):
     magnitude_squared = q1**2 + q2**2 - q1 * q2 * coeff
     return magnitude_squared
 
-def make_preamble(fs, f0, f1):
-    periods1 = 64
-    N1 = int(round(periods1 * fs / f1))
-    t1 = np.arange(N1) / fs
-    signal1 = np.sin(2 * np.pi * f1 * t1)
-    f0 = 20833
-    periods2 = 60
-    N2 = int(round(periods2 * fs / f0))
-    t2 = np.arange(N2) / fs
-    signal2 = np.sin(2 * np.pi * f0 * t2)
-    pattern = np.concatenate([signal1, signal2])
-    return np.tile(pattern, 8)
-
-
 f_0 = 20833
 f_1 = 22222
 
+
 filename = "signal_out_6.wav"
+preamblename = "fsk_sequence_zero_cross.wav"
+
 data, sampling_rate = sf.read(filename)
 
 seconds_per_bit = 0.00288003
@@ -72,7 +61,10 @@ data_centered = data_cropped - np.mean(data_cropped)
 plt.plot(data_centered)
 plt.show()
 
-preamble = make_preamble(sampling_rate,f_0,f_1)
+preamble,_ = sf.read(preamblename)
+if np.issubdtype(preamble.dtype, np.integer):
+    preamble = preamble / np.iinfo(preamble.dtype).max
+preamble = preamble.astype(np.float64)
 
 corr = correlate(data_centered,preamble,mode="full")
 lags = np.arange(-len(preamble)+1, len(data_centered))
