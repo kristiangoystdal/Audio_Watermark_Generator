@@ -5,21 +5,23 @@
 // Modify these values as needed
 //-------------------------------------------------------//
 
-#define USER_STRING "Hello World!"
-
+// Configuration for the interval between repeats
 #define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
 #define USE_MINUTES_INSTEAD_OF_SECONDS true
 #define INTERVAL_BETWEEN_REPEATS_SECONDS 5
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 10
 
-#define DEVICE_ID 12345
+// Configuration for values to include in the watermark
+#define USER_STRING "Einar er kul og liker Limp Bizkit. Han er skalla"
+#define DEVICE_ID 42
+#define LOCATION "-107.7749,-122.4194" // Longitude,Latitude format
+#define TEMPERATURE 20
 
-#define LOCATION "Living Room"
-#define ALTITUDE 150.0 // in meters
-
-#define TEMPERATURE 22.5 // in Celsius
-#define HUMIDITY 45.0    // in Percentage
-#define PRESSURE 1013.25 // in hPa
+// Configuration for toggles of values to include in the watermark
+#define INCLUDE_USER_STRING false
+#define INCLUDE_DEVICE_ID false
+#define INCLUDE_LOCATION true
+#define INCLUDE_TEMPERATURE true
 
 //-------------------------------------------------------//
 
