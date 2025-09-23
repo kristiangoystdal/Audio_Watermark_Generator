@@ -77,8 +77,6 @@ data_filtered = filtfilt(b, a, data_centered)
 plt.plot(data_filtered)
 plt.show()
 
-for 
-
 def goertzel_mag2(x, fs, f0):
     N = len(x)
     k = int(round(f0 * N / fs))          # nearest DFT bin
