@@ -105,7 +105,7 @@ if __name__ == "__main__":
         time_index = 0
         index = 0
         message = ""
-        prev_bit_time = 0
+        prev_bit_time = -1
 
         for bit in masked_bits:
             if((masked_time[index] - prev_bit_time) > 3*sym_time):
@@ -118,6 +118,9 @@ if __name__ == "__main__":
             #print(str(bit),end="")
             if ((index+1) % 8) == 0:
                 message += chr(int(bitstring,2))
+                if(len(message)==3):
+                    if message != "STR":
+                        print("Warning: Message might be corrupted (missing 'STR' preamble)")
                 bitstring = ""
             prev_bit_time = masked_time[index]
             index += 1
