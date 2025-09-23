@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import soundfile as sf
-from scipy.signal import correlate
+from scipy.signal import correlate, butter, filtfilt, firwin, lfilter, windows
 
 def goertzel(samples, sample_rate, target_frequency):
     """
@@ -43,43 +43,60 @@ f_0 = 20833
 f_1 = 22222
 
 
-filename = "signal_out_6.wav"
-preamblename = "fsk_sequence_zero_cross.wav"
+filename = "signal_out_9.wav"
 
 data, sampling_rate = sf.read(filename)
 
 seconds_per_bit = 0.00288003
 samples_per_bit = round(sampling_rate*seconds_per_bit)
 
+def bandlimit_20_24k(x, fs, numtaps=257):
+    # Linear-phase FIR band-pass around your tones
+    bp = firwin(numtaps, [19000, 24000], pass_zero=False, fs=fs)
+    return lfilter(bp, [1.0], x)
+
+
+
+
+
+# Pre-filter-Parameters
+fs = sampling_rate        # Sampling rate (Hz)
+cutoff = 15000    # High-pass cutoff (Hz)
+order = 6         # Filter order (steepness)
+
+b, a = butter(order, cutoff / (fs/2), btype='high', analog=False)
+
 if np.issubdtype(data.dtype, np.integer):
     data = data / np.iinfo(data.dtype).max
 data = data.astype(np.float64)
 
-data_cropped = data*20
-data_centered = data_cropped - np.mean(data_cropped)
+data_centered = (data - np.mean(data))*20
 
-plt.plot(data_centered)
+data_filtered = filtfilt(b, a, data_centered)
+
+plt.plot(data_filtered)
 plt.show()
 
-preamble,_ = sf.read(preamblename)
-if np.issubdtype(preamble.dtype, np.integer):
-    preamble = preamble / np.iinfo(preamble.dtype).max
-preamble = preamble.astype(np.float64)
+for 
 
-corr = correlate(data_centered,preamble,mode="full")
-lags = np.arange(-len(preamble)+1, len(data_centered))
+def goertzel_mag2(x, fs, f0):
+    N = len(x)
+    k = int(round(f0 * N / fs))          # nearest DFT bin
+    w = 2*np.pi*k/N
+    coeff = 2*np.cos(w)
+    s0 = s1 = s2 = 0.0
+    for n in range(N):
+        s0 = x[n] + coeff*s1 - s2
+        s2, s1 = s1, s0
+    # standard Goertzel tail
+    real = s1 - s2*np.cos(w)
+    imag = s2*np.sin(w)
+    return real*real + imag*imag 
 
-best_lag = lags[np.argmax(corr)]
-print(f"Best match at lag: {best_lag} samples")
+goertzel_signal = goertzel_mag2(data_filtered,fs, f_0)
 
-plt.plot(lags, corr)
-plt.xlabel("Lag [samples]")
-plt.ylabel("Cross-correlation")
-plt.title("Cross-correlation between other_signal and pattern")
-plt.axvline(best_lag, color='r', linestyle='--', label=f"Best lag = {best_lag}")
-plt.legend()
+plt.plot(goertzel_signal)
 plt.show()
-
 
 message = ""
 
