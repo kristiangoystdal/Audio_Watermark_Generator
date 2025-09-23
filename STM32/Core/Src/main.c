@@ -42,9 +42,14 @@
 
 #define pi 3.14159265358979323846
 
-#define NUM_CHARS                                                              \
-  (sizeof(USER_STRING) - 1 + 5 + 4) // +5 for silence, +4 for preamble
-#define BITSTREAM_LENGTH (NUM_CHARS * 8)
+// Compute NUM_CHARS based on user_config.h toggles
+#define LEN_IF(cond, lit) ((cond) ? (sizeof(lit) - 1u) : 0u)
+
+#define MAX_NUM_CHARS 105
+
+#define MAX_NUM_USER_STRING_CHARS 48u
+
+#define BITSTREAM_LENGTH (MAX_NUM_CHARS * 8u)
 
 #define MID_12B 2048
 
@@ -62,7 +67,7 @@
 #define PERIODS_PER_BIT_22K (PER_HALF_22K * REPEAT_HALF)
 #define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
 
-#define BIT_POLARITY 1 // 0 = normal, 1 = inverted
+#define BIT_POLARITY 0 // 0 = normal, 1 = inverted
 
 /* USER CODE END PD */
 
@@ -90,7 +95,7 @@ uint16_t sine_val_21k[MAX_SAMPLES_21k];
 uint16_t sine_val_22k[MAX_SAMPLES_22k];
 uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
 
-uint16_t bitstream[BITSTREAM_LENGTH];
+static uint16_t bitstream[BITSTREAM_LENGTH];
 
 static volatile uint32_t current_period = 0;
 static volatile uint32_t current_bit = 2;
@@ -103,6 +108,8 @@ uint32_t arr = 0;
 uint32_t ticks = 0;
 
 static volatile bool tx_active = false;
+
+const char *input_string = "";
 
 /* USER CODE END PV */
 
@@ -146,8 +153,8 @@ void make_bitstream_from_string(const char *str) {
   // End identifier
   // k = make_preamble(k);
 
-  // Add 10 bits of silence at the end if there's space
-  for (int i = 0; i < 10 && k < BITSTREAM_LENGTH; ++i) {
+  // Add 8 bits of silence at the end if there's space
+  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = 2; // silence
   }
 
@@ -183,7 +190,7 @@ void get_dc_mid(void) {
 void calculate_pulse_time(void) {
   float f21k = 21000.0f;
   float f22k = 22000.0f;
-  float f25k = 25000.0f;
+  // float f25k = 25000.0f;
 
   // Exact bitstream time
   total_time = 0.0f;
@@ -192,10 +199,14 @@ void calculate_pulse_time(void) {
       total_time += (float)PERIODS_PER_BIT_21K / f21k;
     } else if (bitstream[i] == 1) {
       total_time += (float)PERIODS_PER_BIT_22K / f22k;
-    } else { // bit == 2 (silence)
-      total_time += (float)PERIODS_PER_BIT_SIL / f25k;
     }
+    // else { // bit == 2 (silence)
+    //   total_time += (float)PERIODS_PER_BIT_SIL / f25k;
+    // }
   }
+
+  // Add some margin for safety
+  total_time *= 1.10f;
 
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
@@ -401,16 +412,55 @@ int main(void) {
   // Load user configuration from user_config.h
   //-------------------------------------------------------------------------------------------//
 
-  const char *input_string = USER_STRING;
+  // Start with an empty string
+  char user_string[MAX_NUM_CHARS + 1] = "";
+  size_t offset = 0;
+  size_t remaining = MAX_NUM_CHARS;
+  int n = 0;
+
+  // Append USER_STRING if enabled
+  if (INCLUDE_USER_STRING) {
+    n = snprintf(&user_string[offset], remaining, "STR:%s", USER_STRING);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append DEVICE_ID if enabled
+  if (INCLUDE_DEVICE_ID) {
+    n = snprintf(&user_string[offset], remaining, "%sID:%d",
+                 (offset > 0) ? "," : "", DEVICE_ID);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append LOCATION if enabled
+  if (INCLUDE_LOCATION) {
+    n = snprintf(&user_string[offset], remaining, "%sLOC:%s",
+                 (offset > 0) ? "," : "", LOCATION);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append TEMPERATURE if enabled
+  if (INCLUDE_TEMPERATURE) {
+    n = snprintf(&user_string[offset], remaining, "%sTEMP:%d",
+                 (offset > 0) ? "," : "", TEMPERATURE);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  // Final input string to be encoded
+  input_string = user_string;
 
   //-------------------------------------------------------------------------------------------//
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
-  if (strlen(input_string) > 48) {
-    Error_Handler();
-    // Add some truncation here if needed
-  }
   make_bitstream_from_string(input_string);
 
   //-------------------------------------------------------------------------------------------//
