@@ -43,7 +43,7 @@
 #define pi 3.14159265358979323846
 
 #define NUM_CHARS                                                              \
-  (sizeof(USER_STRING) - 1 + 10 + 4) // +10 for silence, +4 for preamble
+  (sizeof(USER_STRING) - 1 + 5 + 4) // +5 for silence, +4 for preamble
 #define BITSTREAM_LENGTH (NUM_CHARS * 8)
 
 #define MID_12B 2048
@@ -150,6 +150,11 @@ void make_bitstream_from_string(const char *str) {
   for (int i = 0; i < 10 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = 2; // silence
   }
+
+  // Fill remaining bits with silence if any
+  while (k < BITSTREAM_LENGTH) {
+    bitstream[k++] = 2; // silence
+  }
 }
 
 // Function to generate sine wave lookup table for 21kHz
@@ -192,9 +197,6 @@ void calculate_pulse_time(void) {
     }
   }
 
-  // Optional extra tail silence you wanted:
-  total_time += 2.0f * (float)PERIODS_PER_BIT_SIL / f25k;
-
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
   if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1)
@@ -203,12 +205,6 @@ void calculate_pulse_time(void) {
 
   arr = __HAL_TIM_GET_AUTORELOAD(&htim8);
   ticks = (uint32_t)llround(total_time * tick_hz);
-
-  // Clamp and apply
-  if (ticks == 0)
-    ticks = 1;
-  if (ticks > arr)
-    ticks = arr; // avoid clipping silently
 
   pulse_time = ticks;
   __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
@@ -357,9 +353,11 @@ int main(void) {
 
   /* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
+  /* MCU
+   * Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+  /* Reset of all peripherals, Initializes the Flash interface and the
+   * Systick.
    */
   HAL_Init();
 
