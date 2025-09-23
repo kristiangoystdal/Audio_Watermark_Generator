@@ -134,7 +134,7 @@ void make_bitstream_from_string(const char *str) {
   int k = 0;
 
   // Start identifier
-  k = make_preamble(k);
+  // k = make_preamble(k);
 
   // Data bits from string
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
@@ -144,7 +144,7 @@ void make_bitstream_from_string(const char *str) {
   }
 
   // End identifier
-  k = make_preamble(k);
+  // k = make_preamble(k);
 
   // Add 10 bits of silence at the end if there's space
   for (int i = 0; i < 10 && k < BITSTREAM_LENGTH; ++i) {
@@ -311,10 +311,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
 
     if (USE_MINUTES_INSTEAD_OF_SECONDS &&
-        !USE_DEFAULT_INTERVAL_BETWEEN_REPEATS &&
-        INTERVAL_BETWEEN_REPEATS_MINUTES > 4) {
+        !USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
 
-      if (++counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
+      counter++;
+      if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
         counter = 0;
         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
         reset_dac();
@@ -353,11 +353,9 @@ int main(void) {
 
   /* USER CODE END 1 */
 
-  /* MCU
-   * Configuration--------------------------------------------------------*/
+  /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the
-   * Systick.
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
    */
   HAL_Init();
 
@@ -407,11 +405,7 @@ int main(void) {
   int interval_between_repeats = INTERVAL_BETWEEN_REPEATS_SECONDS;
 
   if (USE_MINUTES_INSTEAD_OF_SECONDS) {
-    if (INTERVAL_BETWEEN_REPEATS_MINUTES <= 4) {
-      interval_between_repeats = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
-    } else {
-      interval_between_repeats = 60; // 1 minute intervals with software counter
-    }
+    interval_between_repeats = 60; // 1 minute intervals with software counter
   }
 
   //-------------------------------------------------------------------------------------------//
@@ -428,32 +422,32 @@ int main(void) {
   // Change the interval between repeats if default is not used
   //-------------------------------------------------------------------------------------------//
 
-  if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS == false) {
-    uint32_t timer_clock = HAL_RCC_GetPCLK2Freq();
-    if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1) {
-      timer_clock *= 2;
-    }
+  // if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS == false) {
+  //   uint32_t timer_clock = HAL_RCC_GetPCLK2Freq();
+  //   if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1) {
+  //     timer_clock *= 2;
+  //   }
 
-    uint32_t prescaler = 15999;
-    arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+  //   uint32_t prescaler = 15999;
+  //   arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
 
-    if (arr > 0xFFFF) {
-      prescaler = 31999;
-      arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
-    }
-    if (arr > 0xFFFF) {
-      prescaler = 63999;
-      arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
-    }
+  //   if (arr > 0xFFFF) {
+  //     prescaler = 31999;
+  //     arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+  //   }
+  //   if (arr > 0xFFFF) {
+  //     prescaler = 63999;
+  //     arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+  //   }
 
-    if (arr > 0xFFFF) {
-      arr = 0xFFFF; // cap at max
-    }
+  //   if (arr > 0xFFFF) {
+  //     arr = 0xFFFF; // cap at max
+  //   }
 
-    __HAL_TIM_SET_PRESCALER(&htim8, prescaler);
-    __HAL_TIM_SET_AUTORELOAD(&htim8, arr);
-    __HAL_TIM_SET_COUNTER(&htim8, 0);
-  }
+  //   __HAL_TIM_SET_PRESCALER(&htim8, prescaler);
+  //   __HAL_TIM_SET_AUTORELOAD(&htim8, arr);
+  //   __HAL_TIM_SET_COUNTER(&htim8, 0);
+  // }
 
   //-------------------------------------------------------------------------------------------//
   // Calculate the total time it takes to send the bitstream
@@ -676,7 +670,7 @@ static void MX_TIM8_Init(void) {
   htim8.Instance = TIM8;
   htim8.Init.Prescaler = 31999;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 59999;
+  htim8.Init.Period = 60129;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
