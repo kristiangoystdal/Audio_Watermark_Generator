@@ -3,12 +3,11 @@ from scipy.signal import firwin, lfilter, windows
 import soundfile as sf
 import matplotlib.pyplot as plt
 
-print()
-
-def bandlimit_20_24k(x, fs, numtaps=257):
-    # Linear-phase FIR band-pass around your tones
-    bp = firwin(numtaps, [19000, 23800], pass_zero=False, fs=fs)
-    return lfilter(bp, [1.0], x)
+def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
+    """Band-pass filter the signal between f_lower and f_upper."""
+    bp = firwin(numtaps, [f_lower, f_upper], pass_zero=False, fs=fs)
+    group_delay = (numtaps - 1) // 2
+    return lfilter(bp, [1.0], signal), group_delay
 
 def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN, apply_window=True):
     """Compute E0, E1, score per symbol for windows starting at 'start', stepping by N."""
@@ -27,12 +26,10 @@ def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN, apply_window=True):
         E0.append(e0v); E1.append(e1v); S.append(abs(e1v - e0v))
     return np.array(E0), np.array(E1), np.array(S)
 
-def find_best_offset(x, fs, f0, f1, N):
-    """Brute-force modulo-N offset search: pick r maximizing mean |E1-E0|."""
+def find_best_offset(x, fs, f0, f1, N, stepsize=10):
+    """Brute-force offset search: pick r maximizing mean |E1-E0|."""
     best_r, best_val = 0, -np.inf
-    # To keep it fast on long files, subsample offsets (optional):
-    # offsets = range(0, N, 1)
-    for r in range(N):
+    for r in range(0, N, stepsize):
         _, _, S = fsk_symbol_metrics(x, fs, f0, f1, N, start=r, stepN=N, apply_window=True)
         if len(S) == 0: continue
         val = np.mean(S)
@@ -40,21 +37,29 @@ def find_best_offset(x, fs, f0, f1, N):
             best_val, best_r = val, r
     return best_r, best_val
 
+
 def fsk_decode_aligned(x, fs, f0, f1, N, offset):
     E0, E1, _ = fsk_symbol_metrics(x, fs, f0, f1, N, start=offset, stepN=N, apply_window=True)
     bits = (E1 > E0).astype(int)
     scores = E1 - E0
     return bits, scores, E0, E1
 
+def define_threshold(scores):
+    if len(scores) == 0:
+        return 0.0
+    else:
+        return np.max(np.abs(scores)) * 0.2
 
 if __name__ == "__main__":
 
-    f0, f1 = 20833.33, 22222.22
-    filename = "signal_out_min_1_long.wav"
+    f0, f1 = 20833.33, 22222.22 # Hz
+    p0, p1 = 60, 64 # number of cycles per symbol
+    filename = "signal_out_min_1_long.wav" # Input WAV file
 
-    audio, fs = sf.read(filename)
+    audio, fs = sf.read(filename) 
+    Ts = 1/fs
 
-    sym_time = 60.0 / f0         
+    sym_time = p0 / f0         
     
     N = int(round(fs * sym_time))
 
@@ -62,11 +67,11 @@ if __name__ == "__main__":
 
     audio = (audio - np.mean(audio))*25 # Scale and center
 
-    audio = bandlimit_20_24k(audio[500:], fs)
+    audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
 
-    seg_mins = int(input("Time between messages [minutes]: "))
+    mins_per_segment = 1 # int(input("Time between messages [minutes]: "))
 
-    seg_len = int(round(seg_mins*60 * fs))   # samples per segment
+    seg_len = int(round(mins_per_segment*60 * fs))   # samples per segment
     n = audio.shape[0]
     segments = [audio[i:i+seg_len] for i in range(0, n, seg_len)]
 
@@ -75,22 +80,26 @@ if __name__ == "__main__":
     for audio in segments:
         print()
         print(f"Segment {segmentindex}: ")
-
         print("Finding the best offset for segment...")
-        best_offset, _ = find_best_offset(audio[:(48000*60)], fs, f0, f1, N)
-
-        print("Decoding...")
+        best_offset, _ = find_best_offset(audio, fs, f0, f1, N) 
         bits, scores, E0, E1 = fsk_decode_aligned(audio, fs, f0, f1, N, best_offset)
+
+        if len(bits) == 0:
+            print("No bits found in this segment")
+            segmentindex += 1
+            continue
 
         idx = np.arange(len(bits))
         start_samples = best_offset + idx * N
-        center_samples = start_samples + N // 2
-        t = center_samples / fs
+        t = start_samples / fs
 
-        threshold = 0.1
+        threshold = define_threshold(scores)
+        print("Threshold: ", threshold)
         mask = np.abs(scores) > threshold
 
-        time = t[mask]
+        masked_bits = bits[mask]
+
+        masked_time = t[mask]
 
         bitstring = ""
         time_index = 0
@@ -98,21 +107,21 @@ if __name__ == "__main__":
         message = ""
         prev_bit_time = 0
 
-        for bit in bits[mask]:
-            if((time[index] - prev_bit_time) > 0.01):
+        for bit in masked_bits:
+            if((masked_time[index] - prev_bit_time) > 3*sym_time):
+                if(len(message)>0):
+                    message += "\n"
                 bitstring = ""
                 index = 0
-                message += f"Time in recording: {segmentindex*60*seg_mins + time[time_index]:.2f} Message: "
+                message += f"Time in recording: {segmentindex*60*mins_per_segment + masked_time[time_index] + filter_delay*Ts:.3f}s\nMessage: "
             bitstring += str(bit)
             #print(str(bit),end="")
             if ((index+1) % 8) == 0:
                 message += chr(int(bitstring,2))
                 bitstring = ""
-            prev_bit_time = time[index]
+            prev_bit_time = masked_time[index]
             index += 1
             time_index += 1
 
         print(message)
         segmentindex += 1
-
-        plt.stem(time, bits[mask])
