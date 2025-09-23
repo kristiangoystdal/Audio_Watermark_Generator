@@ -26,6 +26,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <user_config.h>
 
@@ -41,7 +42,8 @@
 
 #define pi 3.14159265358979323846
 
-#define NUM_CHARS (48 + 4) // 48 chars + 4 start/end identifiers
+#define NUM_CHARS                                                              \
+  (sizeof(USER_STRING) - 1 + 10 + 4) // +10 for silence, +4 for preamble
 #define BITSTREAM_LENGTH (NUM_CHARS * 8)
 
 #define MID_12B 2048
@@ -59,6 +61,8 @@
 #define PERIODS_PER_BIT_21K (PER_HALF_21K * REPEAT_HALF)
 #define PERIODS_PER_BIT_22K (PER_HALF_22K * REPEAT_HALF)
 #define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
+
+#define BIT_POLARITY 1 // 0 = normal, 1 = inverted
 
 /* USER CODE END PD */
 
@@ -94,6 +98,9 @@ static volatile uint32_t current_idx = 0;
 
 float total_time = 0.0;
 uint32_t pulse_time = 1000; // in ticks, will be updated later
+double tick_hz = 1000000.0;
+uint32_t arr = 0;
+uint32_t ticks = 0;
 
 static volatile bool tx_active = false;
 
@@ -115,9 +122,9 @@ static void MX_TIM8_Init(void);
 
 int make_preamble(int start_idx) {
   int k = start_idx;
-  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = 1;
-    bitstream[k++] = 0;
+  uint16_t id = 0b0010110111010100; // 0x2DD4
+  for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
   }
 
   return k;
@@ -126,22 +133,23 @@ int make_preamble(int start_idx) {
 void make_bitstream_from_string(const char *str) {
   int k = 0;
 
-  // Start identifier (10101010)
+  // Start identifier
   k = make_preamble(k);
 
   // Data bits from string
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
     for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
-      bitstream[k++] = (str[i] >> b) & 1;
+      bitstream[k++] = ((str[i] >> b) & 1) ^ BIT_POLARITY; // data
     }
   }
 
-  // End identifier (10101010)
+  // End identifier
   k = make_preamble(k);
 
-  // Fill the rest with mid-scale values if needed
-  while (k < BITSTREAM_LENGTH)
-    bitstream[k++] = 2;
+  // Add 10 bits of silence at the end if there's space
+  for (int i = 0; i < 10 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = 2; // silence
+  }
 }
 
 // Function to generate sine wave lookup table for 21kHz
@@ -168,44 +176,41 @@ void get_dc_mid(void) {
 
 // Function to calculate the total time it takes to send the bitstream
 void calculate_pulse_time(void) {
-  float f21k = 21000.0;
-  float f22k = 22000.0;
-  float f25k = 25000.0;
+  float f21k = 21000.0f;
+  float f22k = 22000.0f;
+  float f25k = 25000.0f;
 
-  // Bitstream transmission time
-  total_time = 0.0;
+  // Exact bitstream time
+  total_time = 0.0f;
   for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
     if (bitstream[i] == 0) {
       total_time += (float)PERIODS_PER_BIT_21K / f21k;
     } else if (bitstream[i] == 1) {
       total_time += (float)PERIODS_PER_BIT_22K / f22k;
+    } else { // bit == 2 (silence)
+      total_time += (float)PERIODS_PER_BIT_SIL / f25k;
     }
   }
 
-  // Add time for silence after bitstream
-  total_time += 2 * (float)PERIODS_PER_BIT_SIL / f25k;
+  // Optional extra tail silence you wanted:
+  total_time += 2.0f * (float)PERIODS_PER_BIT_SIL / f25k;
 
-  // Find the timer tick frequency
-  uint32_t system_clk = HAL_RCC_GetPCLK2Freq();
-  uint32_t tim8_clk = system_clk;
-
-  if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1) {
+  // Convert to ticks using the PSC already set for TIM8
+  uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
+  if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1)
     tim8_clk *= 2U;
-  }
+  tick_hz = (double)tim8_clk / (double)(htim8.Init.Prescaler + 1U);
 
-  const float tim8_tick_hz = (float)tim8_clk / (htim8.Init.Prescaler + 1.0f);
+  arr = __HAL_TIM_GET_AUTORELOAD(&htim8);
+  ticks = (uint32_t)llround(total_time * tick_hz);
 
-  // Calculate the pulse time in timer ticks
-  pulse_time = (uint32_t)(total_time * tim8_tick_hz);
+  // Clamp and apply
+  if (ticks == 0)
+    ticks = 1;
+  if (ticks > arr)
+    ticks = arr; // avoid clipping silently
 
-  // Ensure pulse_time is within valid range for the timer
-  uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim8);
-
-  if (pulse_time == 0) {
-    pulse_time = 1;
-  }
-
-  // Update the compare value for TIM8 Channel 1
+  pulse_time = ticks;
   __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
 }
 
@@ -317,7 +322,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         counter = 0;
         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
         reset_dac();
-      } 
+      }
 
     } else {
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
@@ -343,11 +348,10 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
-int main(void)
-{
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
 
   /* USER CODE BEGIN 1 */
 
@@ -355,7 +359,8 @@ int main(void)
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+   */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -382,14 +387,14 @@ int main(void)
   /* Initialize leds */
   BSP_LED_Init(LED_GREEN);
 
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity */
-  BspCOMInit.BaudRate   = 115200;
+  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
+   */
+  BspCOMInit.BaudRate = 115200;
   BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits   = COM_STOPBITS_1;
-  BspCOMInit.Parity     = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl  = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE)
-  {
+  BspCOMInit.StopBits = COM_STOPBITS_1;
+  BspCOMInit.Parity = COM_PARITY_NONE;
+  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
+  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
     Error_Handler();
   }
 
@@ -432,8 +437,7 @@ int main(void)
     }
 
     uint32_t prescaler = 15999;
-    uint32_t arr =
-        (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
+    arr = (interval_between_repeats * timer_clock) / (prescaler + 1) - 1;
 
     if (arr > 0xFFFF) {
       prescaler = 31999;
@@ -451,7 +455,6 @@ int main(void)
     __HAL_TIM_SET_PRESCALER(&htim8, prescaler);
     __HAL_TIM_SET_AUTORELOAD(&htim8, arr);
     __HAL_TIM_SET_COUNTER(&htim8, 0);
-
   }
 
   //-------------------------------------------------------------------------------------------//
@@ -522,21 +525,20 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
-void SystemClock_Config(void)
-{
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -547,33 +549,30 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
-  {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 }
 
 /**
-  * @brief DAC1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DAC1_Init(void)
-{
+ * @brief DAC1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_DAC1_Init(void) {
 
   /* USER CODE BEGIN DAC1_Init 0 */
 
@@ -586,15 +585,14 @@ static void MX_DAC1_Init(void)
   /* USER CODE END DAC1_Init 1 */
 
   /** DAC Initialization
-  */
+   */
   hdac1.Instance = DAC1;
-  if (HAL_DAC_Init(&hdac1) != HAL_OK)
-  {
+  if (HAL_DAC_Init(&hdac1) != HAL_OK) {
     Error_Handler();
   }
 
   /** DAC channel OUT1 config
-  */
+   */
   sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_AUTOMATIC;
   sConfig.DAC_DMADoubleDataMode = DISABLE;
   sConfig.DAC_SignedFormat = DISABLE;
@@ -604,23 +602,20 @@ static void MX_DAC1_Init(void)
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
-  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
-  {
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
-
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM2_Init(void)
-{
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM2_Init(void) {
 
   /* USER CODE BEGIN TIM2_Init 0 */
 
@@ -639,40 +634,34 @@ static void MX_TIM2_Init(void)
   htim2.Init.Period = 31;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
-  {
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
     Error_Handler();
   }
   sSlaveConfig.SlaveMode = TIM_SLAVEMODE_GATED;
   sSlaveConfig.InputTrigger = TIM_TS_ITR5;
-  if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
-  {
+  if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-
 }
 
 /**
-  * @brief TIM8 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM8_Init(void)
-{
+ * @brief TIM8 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM8_Init(void) {
 
   /* USER CODE BEGIN TIM8_Init 0 */
 
@@ -693,24 +682,20 @@ static void MX_TIM8_Init(void)
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim8) != HAL_OK)
-  {
+  if (HAL_TIM_Base_Init(&htim8) != HAL_OK) {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim8, &sClockSourceConfig) != HAL_OK)
-  {
+  if (HAL_TIM_ConfigClockSource(&htim8, &sClockSourceConfig) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim8) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_Init(&htim8) != HAL_OK) {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC1REF;
   sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim8, &sMasterConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim8, &sMasterConfig) != HAL_OK) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
@@ -720,8 +705,7 @@ static void MX_TIM8_Init(void)
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
   sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
+  if (HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
     Error_Handler();
   }
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
@@ -737,22 +721,19 @@ static void MX_TIM8_Init(void)
   sBreakDeadTimeConfig.Break2Filter = 0;
   sBreakDeadTimeConfig.Break2AFMode = TIM_BREAK_AFMODE_INPUT;
   sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim8, &sBreakDeadTimeConfig) != HAL_OK)
-  {
+  if (HAL_TIMEx_ConfigBreakDeadTime(&htim8, &sBreakDeadTimeConfig) != HAL_OK) {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM8_Init 2 */
 
   /* USER CODE END TIM8_Init 2 */
   HAL_TIM_MspPostInit(&htim8);
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void)
-{
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void) {
 
   /* DMA controller clock enable */
   __HAL_RCC_DMAMUX1_CLK_ENABLE();
@@ -762,16 +743,14 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel2_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_GPIO_Init(void) {
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -809,19 +788,18 @@ static void MX_GPIO_Init(void)
 /* USER CODE END Header */
 
 /**
-  * @}
-  */
+ * @}
+ */
 
 /**
-  * @}
-  */
+ * @}
+ */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
-void Error_Handler(void)
-{
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
+void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return
    * state */
@@ -832,14 +810,13 @@ void Error_Handler(void)
 }
 #ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
+void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
      number, ex: printf("Wrong parameters value: file %s on line %d\r\n",

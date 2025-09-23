@@ -7,12 +7,12 @@
 
 #define USER_STRING "Hello World!"
 
-#define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
+#define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS false // Default is 60 seconds
 #define USE_MINUTES_INSTEAD_OF_SECONDS false
-#define INTERVAL_BETWEEN_REPEATS_SECONDS 60
+#define INTERVAL_BETWEEN_REPEATS_SECONDS 5
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 7
 
-#define USER_ID 12345
+#define DEVICE_ID 12345
 
 #define LOCATION "Living Room"
 #define ALTITUDE 150.0 // in meters
