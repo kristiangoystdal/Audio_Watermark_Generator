@@ -21,14 +21,15 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <user_config.h>
 
+#include <frequency_pairs.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <user_config.h>
 
 /* USER CODE END Includes */
 
@@ -53,18 +54,12 @@
 
 #define MID_12B 2048
 
-#define BUF_LEN 720
-
-#define MAX_SAMPLES_21k 48
-#define MAX_SAMPLES_22k 45
 #define MAX_SAMPLES_MID_VAL 20
 
 #define REPEAT_HALF 4
-#define PER_HALF_21K 15
-#define PER_HALF_22K 16
 #define PER_HALF_SIL 18
-#define PERIODS_PER_BIT_21K (PER_HALF_21K * REPEAT_HALF)
-#define PERIODS_PER_BIT_22K (PER_HALF_22K * REPEAT_HALF)
+#define PERIODS_PER_BIT_LOW (PER_HALF_LOW * REPEAT_HALF)
+#define PERIODS_PER_BIT_HIGH (PER_HALF_HIGH * REPEAT_HALF)
 #define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
 
 #define BIT_POLARITY 0 // 0 = normal, 1 = inverted
@@ -89,10 +84,10 @@ TIM_HandleTypeDef htim8;
 /* USER CODE BEGIN PV */
 
 // Circular buffer for DAC output
-__ALIGN_BEGIN __IO uint16_t output_buffer[2 * BUF_LEN] __ALIGN_END;
+__ALIGN_BEGIN __IO uint16_t output_buffer[2 * MAX_NUM_SAMPLES_BUFFER] __ALIGN_END;
 
-uint16_t sine_val_21k[MAX_SAMPLES_21k];
-uint16_t sine_val_22k[MAX_SAMPLES_22k];
+uint16_t sine_val_21k[MAX_SAMPLES_LOW];
+uint16_t sine_val_22k[MAX_SAMPLES_HIGH];
 uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
 
 static uint16_t bitstream[BITSTREAM_LENGTH];
@@ -166,17 +161,17 @@ void make_bitstream_from_string(const char *str) {
 
 // Function to generate sine wave lookup table for 21kHz
 void get_sineval_21k(void) {
-  for (int i = 0; i < MAX_SAMPLES_21k; i++) {
+  for (int i = 0; i < MAX_SAMPLES_LOW; i++) {
     sine_val_21k[i] = (uint16_t)((4095.0 / 2.0) *
-                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_21k)));
+                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_LOW)));
   }
 }
 
 // Function to generate sine wave lookup table for 22kHz
 void get_sineval_22k(void) {
-  for (int i = 0; i < MAX_SAMPLES_22k; i++) {
+  for (int i = 0; i < MAX_SAMPLES_HIGH; i++) {
     sine_val_22k[i] = (uint16_t)((4095.0 / 2.0) *
-                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_22k)));
+                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_HIGH)));
   }
 }
 
@@ -188,21 +183,17 @@ void get_dc_mid(void) {
 
 // Function to calculate the total time it takes to send the bitstream
 void calculate_pulse_time(void) {
-  float f21k = 21000.0f;
-  float f22k = 22000.0f;
-  // float f25k = 25000.0f;
+  float f_0 = 1000000.0f / (float)MAX_SAMPLES_LOW;  // Low freq, e.g., 21kHz
+  float f_1 = 1000000.0f / (float)MAX_SAMPLES_HIGH; // High freq, e.g., 22kHz
 
   // Exact bitstream time
   total_time = 0.0f;
   for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
     if (bitstream[i] == 0) {
-      total_time += (float)PERIODS_PER_BIT_21K / f21k;
+      total_time += ((float)PERIODS_PER_BIT_LOW) / f_0;
     } else if (bitstream[i] == 1) {
-      total_time += (float)PERIODS_PER_BIT_22K / f22k;
+      total_time += (float)PERIODS_PER_BIT_HIGH / f_1;
     }
-    // else { // bit == 2 (silence)
-    //   total_time += (float)PERIODS_PER_BIT_SIL / f25k;
-    // }
   }
 
   // Add some margin for safety
@@ -235,12 +226,12 @@ static inline void fill_lut_repeated(uint16_t *dst, size_t buffer_len,
 // Function to fill half of the output buffer based on the current bit
 static inline void fill_half(uint16_t *dst, uint32_t bit) {
   if (bit == 2) {
-    for (size_t i = 0; i < BUF_LEN; ++i)
+    for (size_t i = 0; i < MAX_NUM_SAMPLES_BUFFER; ++i)
       dst[i] = MID_12B;
   } else if (bit == 1) {
-    fill_lut_repeated(dst, BUF_LEN, sine_val_22k, MAX_SAMPLES_22k); // 16×
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_22k, MAX_SAMPLES_HIGH); // 16×
   } else {
-    fill_lut_repeated(dst, BUF_LEN, sine_val_21k, MAX_SAMPLES_21k); // 15×
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_21k, MAX_SAMPLES_LOW); // 15×
   }
 }
 
@@ -250,15 +241,15 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
     return;
 
   // Update current period
-  uint32_t per = (current_bit == 0)   ? PER_HALF_21K
-                 : (current_bit == 1) ? PER_HALF_22K
+  uint32_t per = (current_bit == 0)   ? PER_HALF_LOW
+                 : (current_bit == 1) ? PER_HALF_HIGH
                                       : PER_HALF_SIL;
 
   current_period += per;
 
   // Check if we need to move to the next bit
-  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_21K) ||
-         (current_bit == 1 && current_period >= PERIODS_PER_BIT_22K) ||
+  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_LOW) ||
+         (current_bit == 1 && current_period >= PERIODS_PER_BIT_HIGH) ||
          (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
     current_period = 0;
     current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
@@ -275,15 +266,15 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
     return;
 
   // Update current period
-  uint32_t per = (current_bit == 0)   ? PER_HALF_21K
-                 : (current_bit == 1) ? PER_HALF_22K
+  uint32_t per = (current_bit == 0)   ? PER_HALF_LOW
+                 : (current_bit == 1) ? PER_HALF_HIGH
                                       : PER_HALF_SIL;
 
   current_period += per;
 
   // Check if we need to move to the next bit
-  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_21K) ||
-         (current_bit == 1 && current_period >= PERIODS_PER_BIT_22K) ||
+  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_LOW) ||
+         (current_bit == 1 && current_period >= PERIODS_PER_BIT_HIGH) ||
          (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
     current_period = 0;
     current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
@@ -291,7 +282,7 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   }
 
   // Fill the first half of the buffer based on the current bit
-  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 }
 
 void reset_dac(void) {
@@ -305,7 +296,7 @@ void reset_dac(void) {
 
   // Prefill both halves of the circular buffer with the first bit
   fill_half((uint16_t *)&output_buffer[0], current_bit);
-  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   HAL_TIM_Base_Start(&htim2);
@@ -313,7 +304,7 @@ void reset_dac(void) {
 
   // Restart DAC with the circular buffer
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                    2 * BUF_LEN, DAC_ALIGN_12B_R);
+                    2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
 }
 
 int counter = 0;
@@ -488,14 +479,14 @@ int main(void) {
 
   // prefill both halves of the circular buffer with the first bit
   fill_half((uint16_t *)&output_buffer[0], current_bit);
-  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 
   //-------------------------------------------------------------------------------------------//
   // Start DAC with the circular buffer
   //-------------------------------------------------------------------------------------------//
 
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                    2 * BUF_LEN, DAC_ALIGN_12B_R);
+                    2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
 
   //-------------------------------------------------------------------------------------------//
   // Set the DAC output to mid-scale before starting
