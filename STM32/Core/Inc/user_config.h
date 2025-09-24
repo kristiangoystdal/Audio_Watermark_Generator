@@ -23,6 +23,12 @@
 #define INCLUDE_LOCATION true
 #define INCLUDE_TEMPERATURE true
 
-//-------------------------------------------------------//
+// Configuration for FSK frequency pair
+// Options:
+// 1 = 21kHz and 22kHz (Default)
+// 2 = 12.5kHz and 11.1kHz
+// 3 = 8.3kHz and 6.9kHz
+// 4 = 2.8kHz and 1.4kHz
+#define FSK_FREQUENCY_PAIR 1
 
 #endif // USER_CONFIG_H
