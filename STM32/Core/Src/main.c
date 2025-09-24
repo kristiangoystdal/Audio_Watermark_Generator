@@ -21,10 +21,14 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <user_config.h>
 
+#include <frequency_pairs.h>
 #include <math.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 /* USER CODE END Includes */
@@ -39,24 +43,26 @@
 
 #define pi 3.14159265358979323846
 
-#define NUM_CHARS (48 + 4) // 48 chars + 4 start/end identifiers
-#define BITSTREAM_LENGTH (NUM_CHARS * 8)
+// Compute NUM_CHARS based on user_config.h toggles
+#define LEN_IF(cond, lit) ((cond) ? (sizeof(lit) - 1u) : 0u)
+
+#define MAX_NUM_CHARS 105
+
+#define MAX_NUM_USER_STRING_CHARS 48u
+
+#define BITSTREAM_LENGTH (MAX_NUM_CHARS * 8u)
 
 #define MID_12B 2048
 
-#define BUF_LEN 720
-
-#define MAX_SAMPLES_21k 48
-#define MAX_SAMPLES_22k 45
 #define MAX_SAMPLES_MID_VAL 20
 
 #define REPEAT_HALF 4
-#define PER_HALF_21K 15
-#define PER_HALF_22K 16
 #define PER_HALF_SIL 18
-#define PERIODS_PER_BIT_21K (PER_HALF_21K * REPEAT_HALF)
-#define PERIODS_PER_BIT_22K (PER_HALF_22K * REPEAT_HALF)
+#define PERIODS_PER_BIT_LOW (PER_HALF_LOW * REPEAT_HALF)
+#define PERIODS_PER_BIT_HIGH (PER_HALF_HIGH * REPEAT_HALF)
 #define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
+
+#define BIT_POLARITY 0 // 0 = normal, 1 = inverted
 
 /* USER CODE END PD */
 
@@ -78,25 +84,31 @@ TIM_HandleTypeDef htim8;
 /* USER CODE BEGIN PV */
 
 // Circular buffer for DAC output
-__ALIGN_BEGIN __IO uint16_t output_buffer[2 * BUF_LEN] __ALIGN_END;
+__ALIGN_BEGIN __IO uint16_t output_buffer[2 * MAX_NUM_SAMPLES_BUFFER] __ALIGN_END;
 
-uint16_t sine_val_21k[MAX_SAMPLES_21k];
-uint16_t sine_val_22k[MAX_SAMPLES_22k];
+uint16_t sine_val_21k[MAX_SAMPLES_LOW];
+uint16_t sine_val_22k[MAX_SAMPLES_HIGH];
 uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
 
-uint16_t bitstream[BITSTREAM_LENGTH];
+static uint16_t bitstream[BITSTREAM_LENGTH];
 
 static volatile uint32_t current_period = 0;
 static volatile uint32_t current_bit = 2;
 static volatile uint32_t current_idx = 0;
 
 float total_time = 0.0;
-uint32_t pulse_time = 1000; // in ms, will be updated later
+uint32_t pulse_time = 1000; // in ticks, will be updated later
+double tick_hz = 1000000.0;
+uint32_t arr = 0;
+uint32_t ticks = 0;
+
+static volatile bool tx_active = false;
+
+const char *input_string = "";
 
 /* USER CODE END PV */
 
-/* Private function prototypes
-   -----------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
@@ -110,46 +122,56 @@ static void MX_TIM8_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+int make_preamble(int start_idx) {
+  int k = start_idx;
+  uint16_t id = 0b0010110111010100; // 0x2DD4
+  for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
+  }
+
+  return k;
+}
+
 void make_bitstream_from_string(const char *str) {
   int k = 0;
 
-  // Start identifier (10101010)
-  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = 1;
-    bitstream[k++] = 0;
-  }
+  // Start identifier
+  // k = make_preamble(k);
 
   // Data bits from string
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
     for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
-      bitstream[k++] = (str[i] >> b) & 1;
+      bitstream[k++] = ((str[i] >> b) & 1) ^ BIT_POLARITY; // data
     }
   }
 
-  // End identifier (10101010)
+  // End identifier
+  // k = make_preamble(k);
+
+  // Add 8 bits of silence at the end if there's space
   for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = 1;
-    bitstream[k++] = 0;
+    bitstream[k++] = 2; // silence
   }
 
-  // Fill the rest with mid-scale values if needed
-  while (k < BITSTREAM_LENGTH)
-    bitstream[k++] = 2;
+  // Fill remaining bits with silence if any
+  while (k < BITSTREAM_LENGTH) {
+    bitstream[k++] = 2; // silence
+  }
 }
 
 // Function to generate sine wave lookup table for 21kHz
 void get_sineval_21k(void) {
-  for (int i = 0; i < MAX_SAMPLES_21k; i++) {
+  for (int i = 0; i < MAX_SAMPLES_LOW; i++) {
     sine_val_21k[i] = (uint16_t)((4095.0 / 2.0) *
-                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_21k)));
+                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_LOW)));
   }
 }
 
 // Function to generate sine wave lookup table for 22kHz
 void get_sineval_22k(void) {
-  for (int i = 0; i < MAX_SAMPLES_22k; i++) {
+  for (int i = 0; i < MAX_SAMPLES_HIGH; i++) {
     sine_val_22k[i] = (uint16_t)((4095.0 / 2.0) *
-                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_22k)));
+                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_HIGH)));
   }
 }
 
@@ -161,25 +183,32 @@ void get_dc_mid(void) {
 
 // Function to calculate the total time it takes to send the bitstream
 void calculate_pulse_time(void) {
-  float f21k = 21000.0;
-  float f22k = 22000.0;
-  float f25k = 25000.0;
+  float f_0 = 1000000.0f / (float)MAX_SAMPLES_LOW;  // Low freq, e.g., 21kHz
+  float f_1 = 1000000.0f / (float)MAX_SAMPLES_HIGH; // High freq, e.g., 22kHz
 
-  // Bitstream transmission time
-  total_time = 0.0;
+  // Exact bitstream time
+  total_time = 0.0f;
   for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
     if (bitstream[i] == 0) {
-      total_time += (float)PERIODS_PER_BIT_21K / f21k;
+      total_time += ((float)PERIODS_PER_BIT_LOW) / f_0;
     } else if (bitstream[i] == 1) {
-      total_time += (float)PERIODS_PER_BIT_22K / f22k;
+      total_time += (float)PERIODS_PER_BIT_HIGH / f_1;
     }
   }
 
-  // Add time for silence after bitstream
-  total_time += 2 * (float)PERIODS_PER_BIT_SIL / f25k;
+  // Add some margin for safety
+  total_time *= 1.10f;
 
-  // Set the pulse time for TIM8
-  pulse_time = (uint32_t)(total_time * 10000.0); // in ms
+  // Convert to ticks using the PSC already set for TIM8
+  uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
+  if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1)
+    tim8_clk *= 2U;
+  tick_hz = (double)tim8_clk / (double)(htim8.Init.Prescaler + 1U);
+
+  arr = __HAL_TIM_GET_AUTORELOAD(&htim8);
+  ticks = (uint32_t)llround(total_time * tick_hz);
+
+  pulse_time = ticks;
   __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
 }
 
@@ -197,27 +226,30 @@ static inline void fill_lut_repeated(uint16_t *dst, size_t buffer_len,
 // Function to fill half of the output buffer based on the current bit
 static inline void fill_half(uint16_t *dst, uint32_t bit) {
   if (bit == 2) {
-    for (size_t i = 0; i < BUF_LEN; ++i)
+    for (size_t i = 0; i < MAX_NUM_SAMPLES_BUFFER; ++i)
       dst[i] = MID_12B;
   } else if (bit == 1) {
-    fill_lut_repeated(dst, BUF_LEN, sine_val_22k, MAX_SAMPLES_22k); // 16×
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_22k, MAX_SAMPLES_HIGH); // 16×
   } else {
-    fill_lut_repeated(dst, BUF_LEN, sine_val_21k, MAX_SAMPLES_21k); // 15×
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_21k, MAX_SAMPLES_LOW); // 15×
   }
 }
 
 // DAC conversion complete callbacks for half buffer
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  if (!tx_active)
+    return;
+
   // Update current period
-  uint32_t per = (current_bit == 0)   ? PER_HALF_21K
-                 : (current_bit == 1) ? PER_HALF_22K
+  uint32_t per = (current_bit == 0)   ? PER_HALF_LOW
+                 : (current_bit == 1) ? PER_HALF_HIGH
                                       : PER_HALF_SIL;
 
   current_period += per;
 
   // Check if we need to move to the next bit
-  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_21K) ||
-         (current_bit == 1 && current_period >= PERIODS_PER_BIT_22K) ||
+  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_LOW) ||
+         (current_bit == 1 && current_period >= PERIODS_PER_BIT_HIGH) ||
          (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
     current_period = 0;
     current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
@@ -230,16 +262,19 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
 
 // DAC conversion complete callback for the full buffer
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
+  if (!tx_active)
+    return;
+
   // Update current period
-  uint32_t per = (current_bit == 0)   ? PER_HALF_21K
-                 : (current_bit == 1) ? PER_HALF_22K
+  uint32_t per = (current_bit == 0)   ? PER_HALF_LOW
+                 : (current_bit == 1) ? PER_HALF_HIGH
                                       : PER_HALF_SIL;
 
   current_period += per;
 
   // Check if we need to move to the next bit
-  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_21K) ||
-         (current_bit == 1 && current_period >= PERIODS_PER_BIT_22K) ||
+  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_LOW) ||
+         (current_bit == 1 && current_period >= PERIODS_PER_BIT_HIGH) ||
          (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
     current_period = 0;
     current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
@@ -247,36 +282,64 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   }
 
   // Fill the first half of the buffer based on the current bit
-  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 }
 
+void reset_dac(void) {
+  // Stop DAC DMA
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+
+  // Restart the bitstream from the beginning
+  current_idx = 0;
+  current_period = 0;
+  current_bit = bitstream[0];
+
+  // Prefill both halves of the circular buffer with the first bit
+  fill_half((uint16_t *)&output_buffer[0], current_bit);
+  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
+
+  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  HAL_TIM_Base_Start(&htim2);
+  tx_active = true;
+
+  // Restart DAC with the circular buffer
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                    2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
+}
+
+int counter = 0;
 // Timer interrupt callback for TIM8
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
-    // Stop DAC DMA
-    HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+    if (USE_MINUTES_INSTEAD_OF_SECONDS &&
+        !USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
 
-    // Restart the bitstream from the beginning
-    current_idx = 0;
-    current_period = 0;
-    current_bit = bitstream[0];
+      counter++;
+      if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
+        counter = 0;
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        reset_dac();
+      }
 
-    // Prefill both halves of the circular buffer with the first bit
-    fill_half((uint16_t *)&output_buffer[0], current_bit);
-    fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
-
-    // Restart DAC with the circular buffer
-    HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                      2 * BUF_LEN, DAC_ALIGN_12B_R);
+    } else {
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      reset_dac();
+    }
   }
 }
 
-// Timer PWM pulse finished callback for TIM8 Channel 1
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
+    // if (tx_active) {
     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+    // }
+    tx_active = false;
+    HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
+
+    // Optional: force output to mid-scale (normally not needed because your
+    // frame ends with 'silence')
+    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
   }
 }
 
@@ -337,10 +400,58 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
 
   //-------------------------------------------------------------------------------------------//
+  // Load user configuration from user_config.h
+  //-------------------------------------------------------------------------------------------//
+
+  // Start with an empty string
+  char user_string[MAX_NUM_CHARS + 1] = "";
+  size_t offset = 0;
+  size_t remaining = MAX_NUM_CHARS;
+  int n = 0;
+
+  // Append USER_STRING if enabled
+  if (INCLUDE_USER_STRING) {
+    n = snprintf(&user_string[offset], remaining, "STR:%s", USER_STRING);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append DEVICE_ID if enabled
+  if (INCLUDE_DEVICE_ID) {
+    n = snprintf(&user_string[offset], remaining, "%sID:%d",
+                 (offset > 0) ? "," : "", DEVICE_ID);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append LOCATION if enabled
+  if (INCLUDE_LOCATION) {
+    n = snprintf(&user_string[offset], remaining, "%sLOC:%s",
+                 (offset > 0) ? "," : "", LOCATION);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append TEMPERATURE if enabled
+  if (INCLUDE_TEMPERATURE) {
+    n = snprintf(&user_string[offset], remaining, "%sTEMP:%d",
+                 (offset > 0) ? "," : "", TEMPERATURE);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  // Final input string to be encoded
+  input_string = user_string;
+
+  //-------------------------------------------------------------------------------------------//
   // Create a bistream from a string
   //-------------------------------------------------------------------------------------------//
 
-  const char *input_string = "Hello World";
   make_bitstream_from_string(input_string);
 
   //-------------------------------------------------------------------------------------------//
@@ -368,14 +479,20 @@ int main(void) {
 
   // prefill both halves of the circular buffer with the first bit
   fill_half((uint16_t *)&output_buffer[0], current_bit);
-  fill_half((uint16_t *)&output_buffer[BUF_LEN], current_bit);
+  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 
   //-------------------------------------------------------------------------------------------//
   // Start DAC with the circular buffer
   //-------------------------------------------------------------------------------------------//
 
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                    2 * BUF_LEN, DAC_ALIGN_12B_R);
+                    2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
+
+  //-------------------------------------------------------------------------------------------//
+  // Set the DAC output to mid-scale before starting
+  //-------------------------------------------------------------------------------------------//
+
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
 
   //-------------------------------------------------------------------------------------------//
   // Start timers and interrupts
@@ -387,6 +504,10 @@ int main(void) {
   HAL_TIM_Base_Start_IT(&htim2);
 
   //-------------------------------------------------------------------------------------------//
+  // Set timer count to right before triggering the pulse
+  //-------------------------------------------------------------------------------------------//
+
+  __HAL_TIM_SET_COUNTER(&htim8, pulse_time - 10);
 
   while (1) {
     /* USER CODE END WHILE */
@@ -421,7 +542,7 @@ void SystemClock_Config(void) {
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 10;
+  RCC_OscInitStruct.PLL.PLLN = 8;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -434,11 +555,11 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                 RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -507,7 +628,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 79;
+  htim2.Init.Period = 31;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -552,9 +673,9 @@ static void MX_TIM8_Init(void) {
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 7999;
+  htim8.Init.Prescaler = 31999;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 9999;
+  htim8.Init.Period = 60129;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -575,7 +696,7 @@ static void MX_TIM8_Init(void) {
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 7000;
+  sConfigOC.Pulse = 0;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
