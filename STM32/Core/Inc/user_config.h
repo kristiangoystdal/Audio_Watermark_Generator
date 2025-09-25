@@ -20,8 +20,9 @@
 // Configuration for toggles of values to include in the watermark
 #define INCLUDE_USER_STRING false
 #define INCLUDE_DEVICE_ID false
-#define INCLUDE_LOCATION true
-#define INCLUDE_TEMPERATURE true
+#define INCLUDE_LOCATION false
+#define INCLUDE_TEMPERATURE false
+#define INCLUDE_TIME true // Current time from RTC
 
 // Configuration for FSK frequency pair
 // Options:
