@@ -1,11 +1,14 @@
 name: STM32 CI
 
 on:
+  push:
+    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
   build:
+    name: Build Firmware   # 👈 stable job name
     runs-on: ubuntu-latest
 
     steps:
@@ -23,6 +26,17 @@ jobs:
     - name: Build STM32 project
       working-directory: STM32/build
       run: cmake --build . -- -j$(nproc)
+
+    - name: Check firmware outputs exist
+      working-directory: STM32/build
+      run: |
+        ls -lh .
+        shopt -s nullglob
+        files=(*.elf *.bin)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "❌ No firmware (.elf/.bin) produced!"
+          exit 1
+        fi
 
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
