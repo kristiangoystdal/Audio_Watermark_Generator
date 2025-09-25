@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include <user_config.h>
 
+#include "ds3231.h"
+#include "stm32g4xx_hal_gpio.h"
 #include <frequency_pairs.h>
 #include <math.h>
 #include <stdbool.h>
@@ -78,13 +80,16 @@ COM_InitTypeDef BspCOMInit;
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac1_ch1;
 
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim8;
 
 /* USER CODE BEGIN PV */
 
 // Circular buffer for DAC output
-__ALIGN_BEGIN __IO uint16_t output_buffer[2 * MAX_NUM_SAMPLES_BUFFER] __ALIGN_END;
+__ALIGN_BEGIN __IO uint16_t
+    output_buffer[2 * MAX_NUM_SAMPLES_BUFFER] __ALIGN_END;
 
 uint16_t sine_val_21k[MAX_SAMPLES_LOW];
 uint16_t sine_val_22k[MAX_SAMPLES_HIGH];
@@ -115,6 +120,7 @@ static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM8_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -229,9 +235,11 @@ static inline void fill_half(uint16_t *dst, uint32_t bit) {
     for (size_t i = 0; i < MAX_NUM_SAMPLES_BUFFER; ++i)
       dst[i] = MID_12B;
   } else if (bit == 1) {
-    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_22k, MAX_SAMPLES_HIGH); // 16×
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_22k,
+                      MAX_SAMPLES_HIGH); // 16×
   } else {
-    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_21k, MAX_SAMPLES_LOW); // 15×
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_21k,
+                      MAX_SAMPLES_LOW); // 15×
   }
 }
 
@@ -378,6 +386,7 @@ int main(void) {
   MX_TIM2_Init();
   MX_DAC1_Init();
   MX_TIM8_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -398,6 +407,34 @@ int main(void) {
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  rtc_time_t now = {0};
+
+  // Example: set time once
+  rtc_time_t t = {.seconds = 30,
+                  .minutes = 51,
+                  .hours = 15,
+                  .day = 3,
+                  .date = 24,
+                  .month = 9,
+                  .year = 2025};
+
+  // if (!DS3231_SetTime(&t)) {
+  //   Error_Handler();
+  //   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+  // }
+  DS3231_SetTime(&t);
+
+  // Delay to allow DS3231 to stabilize
+  HAL_Delay(2000);
+
+  // Read current time
+  // if (!DS3231_ReadTime(&now)) {
+  //   Error_Handler();
+  //   HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+  // }
+  DS3231_ReadTime(&now);
+
 
   //-------------------------------------------------------------------------------------------//
   // Load user configuration from user_config.h
@@ -444,7 +481,16 @@ int main(void) {
       remaining -= (size_t)n;
     }
   }
-
+  
+  if(INCLUDE_TIME) {
+    n = snprintf(&user_string[offset], remaining, "%sTIME:%02d:%02d:%02d",
+                 (offset > 0) ? "," : "", now.hours, now.minutes, now.seconds);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  
   // Final input string to be encoded
   input_string = user_string;
 
@@ -605,6 +651,49 @@ static void MX_DAC1_Init(void) {
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
+}
+
+/**
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C1_Init(void) {
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x0060112F;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+   */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+   */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
 }
 
 /**
