@@ -8,6 +8,7 @@ on:
 
 jobs:
   build:
+    name: Build Firmware   # 👈 stable name for branch protection rules
     runs-on: ubuntu-latest
 
     steps:
@@ -25,6 +26,17 @@ jobs:
     - name: Build STM32 project
       working-directory: STM32/build
       run: cmake --build . -- -j$(nproc)
+
+    - name: Check firmware outputs exist   # 👈 ensure build produced firmware
+      working-directory: STM32/build
+      run: |
+        ls -lh .
+        shopt -s nullglob
+        files=(*.elf *.bin)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "❌ No firmware (.elf/.bin) produced!"
+          exit 1
+        fi
 
     - name: Upload firmware artifacts
       uses: actions/upload-artifact@v4
