@@ -1,7 +1,7 @@
 #include "ds3231.h"
 #include "main.h" // for I2C handle
 
-extern I2C_HandleTypeDef hi2c1; // defined in i2c.c
+extern I2C_HandleTypeDef hi2c2; // defined in i2c.c
 
 #define DS3231_ADDR (0x68 << 1) // 7-bit addr shifted for HAL
 
@@ -28,14 +28,23 @@ void Set_Time(uint8_t sec, uint8_t min, uint8_t hour,
     set_time[5] = decToBcd(month);           // Month (1–12)
     set_time[6] = decToBcd(year % 100);      // Year (00–99)
 
-    HAL_I2C_Mem_Write(&hi2c1, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time, 7, HAL_MAX_DELAY);
+    HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time, 7, HAL_MAX_DELAY);
 }
 
 // Read time/date from DS3231
 void Get_Time(rtc_time_t *time)
 {
     uint8_t get_time[7];
-    HAL_I2C_Mem_Read(&hi2c1, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, get_time, 7, HAL_MAX_DELAY);
+    if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, get_time, 7, HAL_MAX_DELAY) != HAL_OK) {
+        time->seconds = 0;
+        time->minutes = 0;
+        time->hours   = 0;
+        time->day     = 0;
+        time->date    = 0;
+        time->month   = 0;
+        time->year    = 2000;
+        return;
+    }
 
     time->seconds = bcdToDec(get_time[0] & 0x7F);
     time->minutes = bcdToDec(get_time[1] & 0x7F);
@@ -51,9 +60,8 @@ void DS3231_Init(void)
     uint8_t sec;
 
     // Read current seconds register
-    if (HAL_I2C_Mem_Read(&hi2c1, DS3231_ADDR, 0x00,
+    if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00,
                          I2C_MEMADD_SIZE_8BIT, &sec, 1, HAL_MAX_DELAY) != HAL_OK) {
-        printf("⚠️ DS3231_Init: read failed!\r\n");
         return;
     }
 
@@ -61,12 +69,22 @@ void DS3231_Init(void)
     sec &= 0x7F;
 
     // Write it back
-    if (HAL_I2C_Mem_Write(&hi2c1, DS3231_ADDR, 0x00,
+    if (HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00,
                           I2C_MEMADD_SIZE_8BIT, &sec, 1, HAL_MAX_DELAY) != HAL_OK) {
-        printf("⚠️ DS3231_Init: write failed!\r\n");
+        return;
+    }
+}
+
+void Read_Temperature(int8_t *temperature)
+{
+    uint8_t msb;
+    if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x11,
+                         I2C_MEMADD_SIZE_8BIT, &msb, 1, HAL_MAX_DELAY) != HAL_OK) {
+        *temperature = 0;
         return;
     }
 
-    printf("✅ DS3231 initialized, oscillator running.\r\n");
+    *temperature = (int8_t)msb; // signed integer °C
 }
+
 
