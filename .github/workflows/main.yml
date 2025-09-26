@@ -1,0 +1,47 @@
+name: STM32 CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build Firmware   # 👈 stable job name
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-none-eabi cmake ninja-build binutils-arm-none-eabi
+
+    - name: Configure STM32 project
+      working-directory: STM32
+      run: cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake
+
+    - name: Build STM32 project
+      working-directory: STM32/build
+      run: cmake --build . -- -j$(nproc)
+
+    - name: Check firmware outputs exist
+      working-directory: STM32/build
+      run: |
+        ls -lh .
+        shopt -s nullglob
+        files=(*.elf *.bin)
+        if [ ${#files[@]} -eq 0 ]; then
+          echo "❌ No firmware (.elf/.bin) produced!"
+          exit 1
+        fi
+
+    - name: Upload firmware artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: stm32-firmware
+        path: |
+          STM32/build/**/*.elf
+          STM32/build/**/*.bin
