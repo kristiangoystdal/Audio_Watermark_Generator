@@ -62,12 +62,6 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define T_SWDIO_Pin GPIO_PIN_13
-#define T_SWDIO_GPIO_Port GPIOA
-#define T_SWCLK_Pin GPIO_PIN_14
-#define T_SWCLK_GPIO_Port GPIOA
-#define T_SWO_Pin GPIO_PIN_3
-#define T_SWO_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
