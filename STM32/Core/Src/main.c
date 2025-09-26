@@ -177,7 +177,7 @@ void update_time_temperature(void) {
 
 void update_input_string(void) {
   // Start with an empty string
-  char user_string[MAX_NUM_CHARS + 1] = "";
+  static char user_string[MAX_NUM_CHARS + 1] = "";
   size_t offset = 0;
   size_t remaining = MAX_NUM_CHARS;
   int n = 0;
