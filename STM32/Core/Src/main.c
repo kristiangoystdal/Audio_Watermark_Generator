@@ -24,6 +24,7 @@
 #include <user_config.h>
 
 #include "ds3231.h"
+#include "stm32g4xx_hal.h"
 #include "stm32g4xx_hal_gpio.h"
 #include <frequency_pairs.h>
 #include <math.h>
@@ -81,7 +82,7 @@ COM_InitTypeDef BspCOMInit;
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac1_ch1;
 
-I2C_HandleTypeDef hi2c1;
+I2C_HandleTypeDef hi2c2;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim8;
@@ -112,6 +113,9 @@ static volatile bool tx_active = false;
 
 const char *input_string = "";
 
+rtc_time_t now;
+int8_t temp_int = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -121,7 +125,7 @@ static void MX_DMA_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM8_Init(void);
-static void MX_I2C1_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -166,6 +170,72 @@ void make_bitstream_from_string(const char *str) {
   }
 }
 
+void update_time_temperature(void) {
+    Get_Time(&now);
+    Read_Temperature(&temp_int);
+}
+
+void update_input_string(void) {
+  // Start with an empty string
+  char user_string[MAX_NUM_CHARS + 1] = "";
+  size_t offset = 0;
+  size_t remaining = MAX_NUM_CHARS;
+  int n = 0;
+
+  // Append USER_STRING if enabled
+  if (INCLUDE_USER_STRING) {
+    n = snprintf(&user_string[offset], remaining, "/STR%s", USER_STRING);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append DEVICE_ID if enabled
+  if (INCLUDE_DEVICE_ID) {
+    n = snprintf(&user_string[offset], remaining, "%s/DID%d",
+                 (offset > 0) ? "" : "", DEVICE_ID);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append LOCATION if enabled
+  if (INCLUDE_LOCATION) {
+    n = snprintf(&user_string[offset], remaining, "%s/LOC%s",
+                 (offset > 0) ? "" : "", LOCATION);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append TEMPERATURE if enabled
+  if (INCLUDE_TEMPERATURE) {
+    n = snprintf(&user_string[offset], remaining, "%s/TMP%d",
+                 (offset > 0) ? "" : "", temp_int);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  
+  // Append TIME if enabled
+  if(INCLUDE_TIME) {
+    n = snprintf(&user_string[offset], remaining,
+             "%s/TIM%02d%02d%02d%02d%02d%02d%04d",
+             (offset > 0) ? "" : "",
+             now.hours, now.minutes, now.seconds,
+             now.day, now.date, now.month, now.year);
+
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  // Final input string to be encoded
+  input_string = user_string;
+}
+
 // Function to generate sine wave lookup table for 21kHz
 void get_sineval_21k(void) {
   for (int i = 0; i < MAX_SAMPLES_LOW; i++) {
@@ -187,6 +257,8 @@ void get_dc_mid(void) {
   for (int i = 0; i < MAX_SAMPLES_MID_VAL; ++i)
     dc_mid[i] = MID_12B;
 }
+
+
 
 // Function to calculate the total time it takes to send the bitstream
 void calculate_pulse_time(void) {
@@ -328,11 +400,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
         counter = 0;
         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        update_time_temperature();
+        update_input_string();
         reset_dac();
       }
 
     } else {
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      update_time_temperature();
+      update_input_string();
       reset_dac();
     }
   }
@@ -372,7 +448,6 @@ static void I2C_Scan(I2C_HandleTypeDef *hi2c, char *out, size_t out_len) {
     }
 }
 
-
 /* USER CODE END 0 */
 
 /**
@@ -408,11 +483,8 @@ int main(void)
   MX_TIM2_Init();
   MX_DAC1_Init();
   MX_TIM8_Init();
-  MX_I2C1_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
-
-  // Initialize DS3231 RTC
-  DS3231_Init();
 
   /* USER CODE END 2 */
 
@@ -432,82 +504,30 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  
+  //-------------------------------------------------------------------------------------------//
+  // Set initial time and date in DS3231 RTC (uncomment to set)
+  //-------------------------------------------------------------------------------------------//
 
-  rtc_time_t now;
+  if (SET_INITIAL_TIME) {
+      DS3231_Init();
+      Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR,
+               INITIAL_DOW, INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
 
-  // Set the time once
-  Set_Time(30, 45, 14, 3, 25, 9, 2025); // 14:45:30, Wed, 25-Sep-2025
+      HAL_Delay(100);
+  }
 
-  // Delay a bit to ensure the time is set
-  HAL_Delay(100);
+  //-------------------------------------------------------------------------------------------//
+  // Get current time and temperature from DS3231 RTC
+  //-------------------------------------------------------------------------------------------//
 
-  // Read back
-  Get_Time(&now);
-
-
+  update_time_temperature();
 
   //-------------------------------------------------------------------------------------------//
   // Load user configuration from user_config.h
   //-------------------------------------------------------------------------------------------//
 
-  // Start with an empty string
-  char user_string[MAX_NUM_CHARS + 1] = "";
-  size_t offset = 0;
-  size_t remaining = MAX_NUM_CHARS;
-  int n = 0;
-
-  // Append USER_STRING if enabled
-  if (INCLUDE_USER_STRING) {
-    n = snprintf(&user_string[offset], remaining, "STR:%s", USER_STRING);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append DEVICE_ID if enabled
-  if (INCLUDE_DEVICE_ID) {
-    n = snprintf(&user_string[offset], remaining, "%sID:%d",
-                 (offset > 0) ? "," : "", DEVICE_ID);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append LOCATION if enabled
-  if (INCLUDE_LOCATION) {
-    n = snprintf(&user_string[offset], remaining, "%sLOC:%s",
-                 (offset > 0) ? "," : "", LOCATION);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append TEMPERATURE if enabled
-  if (INCLUDE_TEMPERATURE) {
-    n = snprintf(&user_string[offset], remaining, "%sTEMP:%d",
-                 (offset > 0) ? "," : "", TEMPERATURE);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  
-  // Append TIME if enabled
-  if(INCLUDE_TIME) {
-    n = snprintf(&user_string[offset], remaining,
-             "%sTIME:%02d:%02d:%02d,%02d,%02d-%02d-%04d",
-             (offset > 0) ? "," : "",
-             now.hours, now.minutes, now.seconds,
-             now.day, now.date, now.month, now.year);
-
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-
-  // Final input string to be encoded
-  input_string = user_string;
+  update_input_string();
 
   //-------------------------------------------------------------------------------------------//
   // Create a bistream from a string
@@ -676,50 +696,50 @@ static void MX_DAC1_Init(void)
 }
 
 /**
-  * @brief I2C1 Initialization Function
+  * @brief I2C2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_I2C1_Init(void)
+static void MX_I2C2_Init(void)
 {
 
-  /* USER CODE BEGIN I2C1_Init 0 */
+  /* USER CODE BEGIN I2C2_Init 0 */
 
-  /* USER CODE END I2C1_Init 0 */
+  /* USER CODE END I2C2_Init 0 */
 
-  /* USER CODE BEGIN I2C1_Init 1 */
+  /* USER CODE BEGIN I2C2_Init 1 */
 
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00303D5B;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x10707DBC;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Configure Analogue filter
   */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Configure Digital filter
   */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN I2C1_Init 2 */
+  /* USER CODE BEGIN I2C2_Init 2 */
 
-  /* USER CODE END I2C1_Init 2 */
+  /* USER CODE END I2C2_Init 2 */
 
 }
 
