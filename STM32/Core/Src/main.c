@@ -400,6 +400,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
         update_time_temperature();
         update_input_string();
+        make_bitstream_from_string(input_string);
+        calculate_pulse_time();
         reset_dac();
       }
 
@@ -407,6 +409,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
       update_time_temperature();
       update_input_string();
+      make_bitstream_from_string(input_string);
+      calculate_pulse_time();
       reset_dac();
     }
   }
