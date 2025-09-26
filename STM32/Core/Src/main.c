@@ -111,7 +111,9 @@ uint32_t ticks = 0;
 
 static volatile bool tx_active = false;
 
-const char *input_string = "";
+
+// User string buffer
+char input_string[MAX_NUM_CHARS + 1]; // global
 
 rtc_time_t now;
 int8_t temp_int = 0;
@@ -176,15 +178,14 @@ void update_time_temperature(void) {
 }
 
 void update_input_string(void) {
-  // Start with an empty string
-  static char user_string[MAX_NUM_CHARS + 1] = "";
+  input_string[0] = '\0';  
   size_t offset = 0;
   size_t remaining = MAX_NUM_CHARS;
   int n = 0;
 
   // Append USER_STRING if enabled
   if (INCLUDE_USER_STRING) {
-    n = snprintf(&user_string[offset], remaining, "/STR%s", USER_STRING);
+    n = snprintf(&input_string[offset], remaining, "/STR%s", USER_STRING);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
@@ -192,7 +193,7 @@ void update_input_string(void) {
   }
   // Append DEVICE_ID if enabled
   if (INCLUDE_DEVICE_ID) {
-    n = snprintf(&user_string[offset], remaining, "%s/DID%d",
+    n = snprintf(&input_string[offset], remaining, "%s/DID%d",
                  (offset > 0) ? "" : "", DEVICE_ID);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
@@ -201,7 +202,7 @@ void update_input_string(void) {
   }
   // Append LOCATION if enabled
   if (INCLUDE_LOCATION) {
-    n = snprintf(&user_string[offset], remaining, "%s/LOC%s",
+    n = snprintf(&input_string[offset], remaining, "%s/LOC%s",
                  (offset > 0) ? "" : "", LOCATION);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
@@ -210,31 +211,28 @@ void update_input_string(void) {
   }
   // Append TEMPERATURE if enabled
   if (INCLUDE_TEMPERATURE) {
-    n = snprintf(&user_string[offset], remaining, "%s/TMP%d",
+    n = snprintf(&input_string[offset], remaining, "%s/TMP%d",
                  (offset > 0) ? "" : "", temp_int);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
     }
   }
-  
   // Append TIME if enabled
-  if(INCLUDE_TIME) {
-    n = snprintf(&user_string[offset], remaining,
-             "%s/TIM%02d%02d%02d%02d%02d%02d%04d",
-             (offset > 0) ? "" : "",
-             now.hours, now.minutes, now.seconds,
-             now.day, now.date, now.month, now.year);
+  if (INCLUDE_TIME) {
+    n = snprintf(&input_string[offset], remaining,
+                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d",
+                 (offset > 0) ? "" : "",
+                 now.hours, now.minutes, now.seconds,
+                 now.day, now.date, now.month, now.year);
 
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
     }
   }
-
-  // Final input string to be encoded
-  input_string = user_string;
 }
+
 
 // Function to generate sine wave lookup table for 21kHz
 void get_sineval_21k(void) {
