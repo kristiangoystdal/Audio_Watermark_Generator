@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import soundfile as sf
 from scipy.signal import spectrogram
 
-wav_path = "signal_out_10.wav"
+wav_path = "segment_1.wav"
 
 # Load audio
 data, sample_rate = sf.read(wav_path)
@@ -85,11 +85,36 @@ else:
             print("No inter-pulse intervals (only one pulse or pulses merged).")
 
         # Optional debug plots
-        # plt.figure(figsize=(10,4))
+        # plt.figure(figsize=(10, 4))
         # plt.plot(times, band_trace, label="Band power (>=20 kHz)")
         # plt.axhline(thr, linestyle="--", label="Threshold")
         # for ts, te in zip(pulse_starts, pulse_ends):
         #     plt.axvspan(ts, te, alpha=0.2)
-        # plt.xlabel("Time [s]"); plt.ylabel("Level [dB]")
+        # plt.xlabel("Time [s]")
+        # plt.ylabel("Level [dB]")
         # plt.title(">=20 kHz band activity over time")
-        # plt.legend(); plt.tight_layout(); plt.show()
+        # plt.legend()
+        # plt.tight_layout()
+        # plt.show()
+
+        # Spectrogram plot
+        # plt.figure(figsize=(10, 6))
+        # plt.subplot(2, 1, 1)
+        # plt.pcolormesh(times, freqs / 1000, Sxx_db, shading="gouraud", cmap="viridis")
+        # plt.colorbar(label="Magnitude [dB]")
+        # plt.ylim(0, sample_rate / 2000)  # Show up to
+        # plt.ylabel("Frequency [kHz]")
+        # plt.title("Spectrogram")
+        # for ts, te in zip(pulse_starts, pulse_ends):
+        #     plt.axvspan(ts, te, color="red", alpha=0.3)
+        # plt.subplot(2, 1, 2)
+        # plt.plot(times, band_trace, label="Band power (>=20 kHz)")
+        # plt.axhline(thr, linestyle="--", label="Threshold")
+        # for ts, te in zip(pulse_starts, pulse_ends):
+        #     plt.axvspan(ts, te, color="red", alpha=0.3)
+        # plt.xlabel("Time [s]")
+        # plt.ylabel("Level [dB]")
+        # plt.title(">=20 kHz band activity over time")
+        # plt.legend()
+        # plt.tight_layout()
+        # plt.show()
