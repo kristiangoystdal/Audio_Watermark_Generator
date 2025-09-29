@@ -6,9 +6,9 @@
 //-------------------------------------------------------//
 
 // Configuration for first time booting up the RTC
-#define SET_INITIAL_TIME true // Set to true to set the initial time
-#define INITIAL_HOUR 9
-#define INITIAL_MIN 55
+#define SET_INITIAL_TIME false // Set to true to set the initial time
+#define INITIAL_HOUR 11
+#define INITIAL_MIN 01
 #define INITIAL_SEC 0
 #define INITIAL_DOW 1   // Day of week (1=Mon ... 7=Sun)
 #define INITIAL_DOM 29    // Day of month (1–31)
