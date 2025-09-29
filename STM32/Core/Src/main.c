@@ -50,7 +50,7 @@
 // Compute NUM_CHARS based on user_config.h toggles
 #define LEN_IF(cond, lit) ((cond) ? (sizeof(lit) - 1u) : 0u)
 
-#define MAX_NUM_CHARS 105
+#define MAX_NUM_CHARS 115
 
 #define MAX_NUM_USER_STRING_CHARS 48u
 
@@ -231,6 +231,14 @@ void update_input_string(void) {
       remaining -= (size_t)n;
     }
   }
+  // Add termination sign
+  if(strlen(input_string) > 0) {
+    n = snprintf(&input_string[offset], remaining, "/");
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
 }
 
 
@@ -273,8 +281,8 @@ void calculate_pulse_time(void) {
     }
   }
 
-  // Add some margin for safety
-  total_time *= 1.10f;
+  // Add silence time
+  total_time *= 1.01f; // 1% margin
 
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
@@ -428,26 +436,6 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
     // frame ends with 'silence')
     HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
   }
-}
-
-static void I2C_Scan(I2C_HandleTypeDef *hi2c, char *out, size_t out_len) {
-    size_t offset = 0;
-    size_t remaining = out_len;
-
-    for (uint8_t addr = 1; addr < 127; addr++) {
-        if (HAL_I2C_IsDeviceReady(hi2c, addr << 1, 1, 10) == HAL_OK) {
-            int n = snprintf(&out[offset], remaining, "0x%02X ", addr);
-            if (n > 0 && (size_t)n < remaining) {
-                offset += (size_t)n;
-                remaining -= (size_t)n;
-            }
-        }
-    }
-
-    // Null-terminate
-    if (remaining > 0) {
-        out[offset] = '\0';
-    }
 }
 
 /* USER CODE END 0 */
