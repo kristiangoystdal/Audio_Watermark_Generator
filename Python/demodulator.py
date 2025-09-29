@@ -74,7 +74,18 @@ days_of_week = [
 
 
 def print_message(message):
+    if len(message) == 0:
+        print("No message decoded")
+        return
+    elif message[0] != "/":
+        print("Warning: Message might be corrupted (missing '/' preamble)")
+        return
+    elif message[-1] != "/":
+        print("Warning: Message might be corrupted (missing '/' termination)")
+        return
+
     print("Decoded Message: ")
+    print(message)
     print(len(message), " characters")
     messages_lines = message.split("/")
     for line in messages_lines:
@@ -155,16 +166,11 @@ if __name__ == "__main__":
                     message += "\n"
                 bitstring = ""
                 index = 0
-                message += f"Time in recording: {segmentindex*60*mins_per_segment + masked_time[time_index] + filter_delay*Ts:.3f}s\nMessage: "
+                # message += f"Time in recording: {segmentindex*60*mins_per_segment + masked_time[time_index] + filter_delay*Ts:.3f}s\nMessage: "
             bitstring += str(bit)
             # print(str(bit),end="")
             if ((index + 1) % 8) == 0:
                 message += chr(int(bitstring, 2))
-                if len(message) == 3:
-                    if message != "STR":
-                        print(
-                            "Warning: Message might be corrupted (missing 'STR' preamble)"
-                        )
                 bitstring = ""
             prev_bit_time = masked_time[index]
             index += 1
