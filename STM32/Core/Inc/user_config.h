@@ -7,11 +7,11 @@
 
 // Configuration for first time booting up the RTC
 #define SET_INITIAL_TIME false // Set to true to set the initial time
-#define INITIAL_HOUR 11
-#define INITIAL_MIN 01
+#define INITIAL_HOUR 15
+#define INITIAL_MIN 0
 #define INITIAL_SEC 0
-#define INITIAL_DOW 1   // Day of week (1=Mon ... 7=Sun)
-#define INITIAL_DOM 29    // Day of month (1–31)
+#define INITIAL_DOW 2  // Day of week (1=Mon ... 7=Sun)
+#define INITIAL_DOM 30    // Day of month (1–31)
 #define INITIAL_MONTH 9  // Month (1–12)
 #define INITIAL_YEAR 2025 // Year (e.g. 2024)
 
@@ -21,7 +21,7 @@
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 10
 
 // Configuration for values to include in the watermark
-#define USER_STRING "Einar er kul og liker Limp Bizkit. Han er skalla"
+#define USER_STRING "Halla balla, artig skalla"
 #define DEVICE_ID 42
 #define LOCATION "-107.7749,-122.4194" // Longitude,Latitude format
 #define TEMPERATURE 20
