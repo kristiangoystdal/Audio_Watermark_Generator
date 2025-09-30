@@ -1,5 +1,7 @@
 #include "ds3231.h"
 #include "main.h" // for I2C handle
+#include "stm32g4xx_hal.h"
+#include "stm32g4xx_hal_gpio.h"
 
 extern I2C_HandleTypeDef hi2c2; // defined in i2c.c
 
@@ -53,6 +55,8 @@ void Get_Time(rtc_time_t *time)
     time->date    = bcdToDec(get_time[4] & 0x3F);
     time->month   = bcdToDec(get_time[5] & 0x1F);
     time->year    = 2000 + bcdToDec(get_time[6]);
+
+    return;
 }
 
 void DS3231_Init(void)
@@ -73,6 +77,7 @@ void DS3231_Init(void)
                           I2C_MEMADD_SIZE_8BIT, &sec, 1, HAL_MAX_DELAY) != HAL_OK) {
         return;
     }
+    return;
 }
 
 void Read_Temperature(int8_t *temperature)
@@ -85,6 +90,8 @@ void Read_Temperature(int8_t *temperature)
     }
 
     *temperature = (int8_t)msb; // signed integer °C
+
+    return;
 }
 
 
