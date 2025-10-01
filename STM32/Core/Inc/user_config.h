@@ -15,6 +15,9 @@
 #define INITIAL_MONTH 9  // Month (1–12)
 #define INITIAL_YEAR 2025 // Year (e.g. 2024)
 
+// Configuration for which minute in the hour to start transmissions (0-59)
+#define INITIAL_MINUTE 0 
+
 // Configuration for the interval between repeats
 #define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
 #define USE_MINUTES_INSTEAD_OF_SECONDS true
