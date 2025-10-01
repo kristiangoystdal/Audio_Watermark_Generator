@@ -561,26 +561,14 @@ int main(void)
   fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 
   //-------------------------------------------------------------------------------------------//
-  // Start DAC with the circular buffer
-  //-------------------------------------------------------------------------------------------//
-
-  tx_active = true; 
-
-  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                    2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
-
-  //-------------------------------------------------------------------------------------------//
-  // Set the DAC output to mid-scale before starting
-  //-------------------------------------------------------------------------------------------//
-
-  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
-
-  //-------------------------------------------------------------------------------------------//
   // Start timers and interrupts
   //-------------------------------------------------------------------------------------------//
 
   HAL_TIM_Base_Start_IT(&htim8);
   HAL_TIM_PWM_Start_IT(&htim8, TIM_CHANNEL_1);
+
+  // Force TIM8 to overflow immediately
+  __HAL_TIM_SET_COUNTER(&htim8, htim8.Init.Period - 1);
 
   HAL_TIM_Base_Start_IT(&htim2);
 
@@ -596,7 +584,6 @@ int main(void)
     // Enter Sleep Mode, wake up is done by interrupts
     __WFI();
   }
-
 
   /* USER CODE END 3 */
 }
