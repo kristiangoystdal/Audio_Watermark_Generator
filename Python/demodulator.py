@@ -132,6 +132,10 @@ if __name__ == "__main__":
 
     segmentindex = 0
 
+    date_modified = datetime.datetime.fromtimestamp(os.path.getmtime(filename))
+    duration = len(audio) / fs
+    start_datetime = date_modified - datetime.timedelta(seconds=duration)
+
     for audio in segments:
         print()
         print(f"Segment {segmentindex}: ")
@@ -183,6 +187,18 @@ if __name__ == "__main__":
             prev_bit_time = masked_time[index]
             index += 1
             time_index += 1
+
+        time_at_segment_start = start_datetime + datetime.timedelta(
+            seconds=time_in_recording
+        )
+
+        print("File last modified: ", date_modified.strftime("%Y-%m-%d %H:%M:%S"))
+        print(f"File duration: {duration:.2f} seconds")
+        print("Recording started at: ", start_datetime.strftime("%Y-%m-%d %H:%M:%S"))
+        print(
+            "Time at segment start: ",
+            time_at_segment_start.strftime("%Y-%m-%d %H:%M:%S"),
+        )
 
         print_message(message)
         segmentindex += 1
