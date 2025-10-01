@@ -25,6 +25,7 @@
 
 #include "ds3231.h"
 #include "stm32g4xx_hal.h"
+#include "stm32g4xx_hal_dac.h"
 #include "stm32g4xx_hal_gpio.h"
 #include <frequency_pairs.h>
 #include <math.h>
@@ -33,7 +34,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-
 
 /* USER CODE END Includes */
 
@@ -68,7 +68,6 @@
 
 #define BIT_POLARITY 0 // 0 = normal, 1 = inverted
 #define DS3231_ADDR (0x68 << 1) // 7-bit addr shifted for HAL
-
 
 /* USER CODE END PD */
 
@@ -397,17 +396,39 @@ void reset_dac(void) {
 }
 
 int counter = 0;
+int delay_counter = 0;
+bool first_run = true;
 // Timer interrupt callback for TIM8
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
+    DS3231_PowerOn();
+    update_time_temperature();
+    DS3231_PowerOff();
+    int first_min = now.minutes;
+    if (first_run && first_min != INITIAL_MINUTE) {
+      counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
+      HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+      HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
+      return;
+    } else {
+      first_run = false;
+      if (USE_MINUTES_INSTEAD_OF_SECONDS &&
+          !USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
 
-    if (USE_MINUTES_INSTEAD_OF_SECONDS &&
-        !USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-
-      counter++;
-      if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
-        counter = 0;
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);   // debug LED
+        counter++;
+        if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
+          counter = 0;
+          HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5); // debug LED
+          DS3231_PowerOn();
+          update_time_temperature();
+          DS3231_PowerOff();
+          update_input_string();
+          make_bitstream_from_string(input_string);
+          calculate_pulse_time();
+          reset_dac();
+        }
+      } else {
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5); // debug LED
         DS3231_PowerOn();
         update_time_temperature();
         DS3231_PowerOff();
@@ -416,16 +437,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         calculate_pulse_time();
         reset_dac();
       }
-
-    } else {
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);   // debug LED
-      DS3231_PowerOn();
-      update_time_temperature();
-      DS3231_PowerOff();
-      update_input_string();
-      make_bitstream_from_string(input_string);
-      calculate_pulse_time();
-      reset_dac();
     }
   }
 }
@@ -436,8 +447,6 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
     tx_active = false;
     HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
 
-    // Optional: force output to mid-scale (normally not needed because your
-    // frame ends with 'silence')
     HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
   }
 }
