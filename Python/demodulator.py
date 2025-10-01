@@ -1,6 +1,8 @@
 import numpy as np
 from scipy.signal import firwin, lfilter, windows
 import soundfile as sf
+import os
+import datetime
 import matplotlib.pyplot as plt
 
 
@@ -107,7 +109,7 @@ if __name__ == "__main__":
 
     f0, f1 = 20833.33, 22222.22  # Hz
     p0, p1 = 60, 64  # number of cycles per symbol
-    filename = "signal_out_min_1_test.wav"  # Input WAV file
+    filename = "signal_out_min_1.wav"  # Input WAV file
 
     audio, fs = sf.read(filename)
     Ts = 1 / fs
@@ -159,6 +161,7 @@ if __name__ == "__main__":
         index = 0
         message = ""
         prev_bit_time = -1
+        time_in_recording = 0.0
 
         for bit in masked_bits:
             if (masked_time[index] - prev_bit_time) > 3 * sym_time:
@@ -166,7 +169,12 @@ if __name__ == "__main__":
                     message += "\n"
                 bitstring = ""
                 index = 0
-                # message += f"Time in recording: {segmentindex*60*mins_per_segment + masked_time[time_index] + filter_delay*Ts:.3f}s\nMessage: "
+                time_in_recording = (
+                    segmentindex * 60 * mins_per_segment
+                    + masked_time[time_index]
+                    + filter_delay * Ts
+                )
+                print(f"Time in recording: {time_in_recording:.3f}s")
             bitstring += str(bit)
             # print(str(bit),end="")
             if ((index + 1) % 8) == 0:

@@ -67,6 +67,8 @@
 #define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
 
 #define BIT_POLARITY 0 // 0 = normal, 1 = inverted
+#define DS3231_ADDR (0x68 << 1) // 7-bit addr shifted for HAL
+
 
 /* USER CODE END PD */
 
@@ -111,7 +113,6 @@ uint32_t ticks = 0;
 
 static volatile bool tx_active = false;
 
-
 // User string buffer
 char input_string[MAX_NUM_CHARS + 1]; // global
 
@@ -148,18 +149,12 @@ int make_preamble(int start_idx) {
 void make_bitstream_from_string(const char *str) {
   int k = 0;
 
-  // Start identifier
-  // k = make_preamble(k);
-
   // Data bits from string
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
     for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
       bitstream[k++] = ((str[i] >> b) & 1) ^ BIT_POLARITY; // data
     }
   }
-
-  // End identifier
-  // k = make_preamble(k);
 
   // Add 8 bits of silence at the end if there's space
   for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
@@ -170,6 +165,14 @@ void make_bitstream_from_string(const char *str) {
   while (k < BITSTREAM_LENGTH) {
     bitstream[k++] = 2; // silence
   }
+}
+
+void DS3231_PowerOn(void) {
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+}
+
+void DS3231_PowerOff(void) {
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 }
 
 void update_time_temperature(void) {
@@ -241,7 +244,6 @@ void update_input_string(void) {
   }
 }
 
-
 // Function to generate sine wave lookup table for 21kHz
 void get_sineval_21k(void) {
   for (int i = 0; i < MAX_SAMPLES_LOW; i++) {
@@ -264,8 +266,6 @@ void get_dc_mid(void) {
     dc_mid[i] = MID_12B;
 }
 
-
-
 // Function to calculate the total time it takes to send the bitstream
 void calculate_pulse_time(void) {
   float f_0 = 1000000.0f / (float)MAX_SAMPLES_LOW;  // Low freq, e.g., 21kHz
@@ -282,7 +282,8 @@ void calculate_pulse_time(void) {
   }
 
   // Add silence time
-  total_time *= 1.01f; // 1% margin
+  total_time *= 1.05f; // 5% margin
+  total_time += 10.0f / 1000.0f; // 10ms margin
 
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
@@ -387,6 +388,7 @@ void reset_dac(void) {
 
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   HAL_TIM_Base_Start(&htim2);
+
   tx_active = true;
 
   // Restart DAC with the circular buffer
@@ -405,8 +407,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       counter++;
       if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
         counter = 0;
-        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+        HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);   // debug LED
+        DS3231_PowerOn();
         update_time_temperature();
+        DS3231_PowerOff();
         update_input_string();
         make_bitstream_from_string(input_string);
         calculate_pulse_time();
@@ -414,8 +418,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
       }
 
     } else {
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);   // debug LED
+      DS3231_PowerOn();
       update_time_temperature();
+      DS3231_PowerOff();
       update_input_string();
       make_bitstream_from_string(input_string);
       calculate_pulse_time();
@@ -426,9 +432,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
-    // if (tx_active) {
     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-    // }
     tx_active = false;
     HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
 
@@ -500,18 +504,22 @@ int main(void)
   //-------------------------------------------------------------------------------------------//
 
   if (SET_INITIAL_TIME) {
+    DS3231_PowerOn();
+    if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
       DS3231_Init();
       Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR,
                INITIAL_DOW, INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
-
-      HAL_Delay(100);
+      }
+    DS3231_PowerOff();
   }
 
   //-------------------------------------------------------------------------------------------//
   // Get current time and temperature from DS3231 RTC
   //-------------------------------------------------------------------------------------------//
 
+  DS3231_PowerOn();
   update_time_temperature();
+  DS3231_PowerOff();
 
   //-------------------------------------------------------------------------------------------//
   // Load user configuration from user_config.h
@@ -556,6 +564,8 @@ int main(void)
   // Start DAC with the circular buffer
   //-------------------------------------------------------------------------------------------//
 
+  tx_active = true; 
+
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
                     2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
 
@@ -578,8 +588,6 @@ int main(void)
   // Set timer count to right before triggering the pulse
   //-------------------------------------------------------------------------------------------//
 
-  __HAL_TIM_SET_COUNTER(&htim8, pulse_time - 10);
-
   while (1) {
     /* USER CODE END WHILE */
 
@@ -588,6 +596,7 @@ int main(void)
     // Enter Sleep Mode, wake up is done by interrupts
     __WFI();
   }
+
 
   /* USER CODE END 3 */
 }
@@ -891,6 +900,7 @@ static void MX_DMA_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -898,6 +908,16 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PB0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
