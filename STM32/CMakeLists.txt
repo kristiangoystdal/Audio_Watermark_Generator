@@ -29,14 +29,14 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 add_executable(${CMAKE_PROJECT_NAME})
 
 # Linker script
-set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld")
+# set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld")
 
-# Linker options
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-    -T${LINKER_SCRIPT}
-    --specs=nano.specs
-    --specs=nosys.specs
-)
+# # Linker options
+# target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+#     -T${LINKER_SCRIPT}
+#     --specs=nano.specs
+#     --specs=nosys.specs
+# )
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
