@@ -1,2 +1,5 @@
 */.DS_Store
 .wav
+Python/gui/tools/*
+Python/gui/build/*
+Python/gui/dist/*
