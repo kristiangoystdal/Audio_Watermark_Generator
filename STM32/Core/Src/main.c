@@ -404,6 +404,9 @@ void reset_dac(void) {
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
     update_time_temperature();
+    if (!ENABLE_DELAYED_START) {
+      first_run = false;
+    }
     if (first_run && now.minutes != INITIAL_MINUTE) {
       counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
       HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
