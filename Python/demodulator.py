@@ -135,7 +135,8 @@ if __name__ == "__main__":
     f0, f1 = 20833.33, 22222.22  # Hz
     p0, p1 = 60, 64  # number of cycles per symbol
     input_filename = "signal_out_min_1 4.wav"  # Input WAV file
-    output_filename = "output.txt"  # Output text file
+
+    output_filename = input_filename.replace(".wav", ".txt")
 
     output = open(output_filename, "w")
 
