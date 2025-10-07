@@ -13,9 +13,9 @@ def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
     return lfilter(bp, [1.0], signal), group_delay
 
 
-def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN, apply_window=True):
+def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN):
     """Compute E0, E1, score per symbol for windows starting at 'start', stepping by N."""
-    W = windows.hann(N, sym=False) if apply_window else 1.0
+    W = windows.hann(N, sym=False)
     n = np.arange(N)
     e0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
     e1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
@@ -24,7 +24,7 @@ def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN, apply_window=True):
         seg = x[s : s + N] * W
         c0 = np.vdot(e0, seg)
         c1 = np.vdot(e1, seg)
-        denom = np.sum(W**2) if apply_window else N
+        denom = np.sum(W**2)
         e0v = (np.abs(c0) ** 2) / denom
         e1v = (np.abs(c1) ** 2) / denom
         E0.append(e0v)
@@ -38,7 +38,7 @@ def find_best_offset(x, fs, f0, f1, N, stepsize=10):
     best_r, best_val = 0, -np.inf
     for r in range(0, N, stepsize):
         _, _, S = fsk_symbol_metrics(
-            x, fs, f0, f1, N, start=r, stepN=N, apply_window=True
+            x, fs, f0, f1, N, start=r, stepN=N
         )
         if len(S) == 0:
             continue
@@ -50,7 +50,7 @@ def find_best_offset(x, fs, f0, f1, N, stepsize=10):
 
 def fsk_decode_aligned(x, fs, f0, f1, N, offset):
     E0, E1, _ = fsk_symbol_metrics(
-        x, fs, f0, f1, N, start=offset, stepN=N, apply_window=True
+        x, fs, f0, f1, N, start=offset, stepN=N
     )
     bits = (E1 > E0).astype(int)
     scores = E1 - E0
