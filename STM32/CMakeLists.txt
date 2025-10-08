@@ -56,4 +56,5 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     m   # ✅ math library (sinf, llround, etc.)
 )
 
+# Include any extra sources listed separately
 include(extra_sources.cmake)
