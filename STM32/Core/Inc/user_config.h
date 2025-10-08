@@ -38,7 +38,7 @@
 
 // Configuration for FSK frequency pair
 // Options:
-// 1 = 21kHz and 22kHz (Default)
+// 1 = 20.8kHz and 22.2kHz (Default)
 // 2 = 12.5kHz and 11.1kHz
 // 3 = 8.3kHz and 6.9kHz
 // 4 = 2.8kHz and 1.4kHz
