@@ -16,8 +16,8 @@
 #define INITIAL_YEAR 2025 // Year (e.g. 2024)
 
 // Configuration for which minute in the hour to start transmissions (0-59)
-#define ENABLE_DELAYED_START false 
-#define INITIAL_MINUTE 0 
+#define ENABLE_DELAYED_START false
+#define STARTING_MINUTE 0
 
 // Configuration for the interval between repeats
 #define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
