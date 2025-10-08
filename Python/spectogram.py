@@ -84,6 +84,23 @@ else:
         else:
             print("No inter-pulse intervals (only one pulse or pulses merged).")
 
+        # Find the average amplitude for the waveform
+        avg_amplitude = np.mean(np.abs(data))
+        print(f"Average amplitude of the waveform: {avg_amplitude:.4f}")
+
+        # Plot the waveform 
+        plt.figure(figsize=(10, 3))
+        times_waveform = np.arange(len(data)) / sample_rate
+        plt.plot(times_waveform, data, label="Waveform")
+        for ts, te in zip(pulse_starts, pulse_ends):
+            plt.axvspan(ts, te, alpha=0.2, color="orange")
+        plt.xlabel("Time [s]")
+        plt.ylabel("Amplitude")
+        plt.title("Waveform with Detected Pulses (>=20 kHz band)")
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
         # Optional debug plots
         # plt.figure(figsize=(10, 4))
         # plt.plot(times, band_trace, label="Band power (>=20 kHz)")
@@ -98,23 +115,23 @@ else:
         # plt.show()
 
         # Spectrogram plot
-        plt.figure(figsize=(10, 6))
-        plt.subplot(2, 1, 1)
-        plt.pcolormesh(times, freqs / 1000, Sxx_db, shading="gouraud", cmap="viridis")
-        plt.colorbar(label="Magnitude [dB]")
-        plt.ylim(0, sample_rate / 2000)  # Show up to
-        plt.ylabel("Frequency [kHz]")
-        plt.title("Spectrogram")
-        for ts, te in zip(pulse_starts, pulse_ends):
-            plt.axvspan(ts, te, color="red", alpha=0.3)
-        plt.subplot(2, 1, 2)
-        plt.plot(times, band_trace, label="Band power (>=20 kHz)")
-        plt.axhline(thr, linestyle="--", label="Threshold")
-        for ts, te in zip(pulse_starts, pulse_ends):
-            plt.axvspan(ts, te, color="red", alpha=0.3)
-        plt.xlabel("Time [s]")
-        plt.ylabel("Level [dB]")
-        plt.title(">=20 kHz band activity over time")
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+        # plt.figure(figsize=(10, 6))
+        # plt.subplot(2, 1, 1)
+        # plt.pcolormesh(times, freqs / 1000, Sxx_db, shading="gouraud", cmap="viridis")
+        # plt.colorbar(label="Magnitude [dB]")
+        # plt.ylim(0, sample_rate / 2000)  # Show up to
+        # plt.ylabel("Frequency [kHz]")
+        # plt.title("Spectrogram")
+        # for ts, te in zip(pulse_starts, pulse_ends):
+        #     plt.axvspan(ts, te, color="red", alpha=0.3)
+        # plt.subplot(2, 1, 2)
+        # plt.plot(times, band_trace, label="Band power (>=20 kHz)")
+        # plt.axhline(thr, linestyle="--", label="Threshold")
+        # for ts, te in zip(pulse_starts, pulse_ends):
+        #     plt.axvspan(ts, te, color="red", alpha=0.3)
+        # plt.xlabel("Time [s]")
+        # plt.ylabel("Level [dB]")
+        # plt.title(">=20 kHz band activity over time")
+        # plt.legend()
+        # plt.tight_layout()
+        # plt.show()
