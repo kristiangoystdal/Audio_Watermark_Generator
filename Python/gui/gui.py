@@ -473,74 +473,121 @@ def dual_build_flash():
 
 
 # ---------------------------------------------------------
-# GUI
+# GUI Setup
 # ---------------------------------------------------------
+
 root = tk.Tk()
 root.title("STM32 Builder & Flasher")
 
 frame = tk.Frame(root, padx=20, pady=20)
 frame.pack()
 
-tk.Label(frame, text="STM32 Build & Flash Tool", font=("Arial", 14, "bold")).pack(
-    pady=10
+# ------------------------------
+# Title
+# ------------------------------
+tk.Label(frame, text="STM32 Build & Flash Tool", font=("Arial", 14, "bold")).grid(
+    row=0, column=0, columnspan=2, pady=10
 )
 
-# User string input
-user_string_field = tk.Entry(frame)
-user_string_field.pack(pady=5)
-user_string_field.insert(0, read_user_config_value("USER_STRING"))
 
-# Device ID input
-device_id_field = tk.Entry(frame)
-device_id_field.pack(pady=5)
-device_id_field.insert(0, int(read_user_config_value("DEVICE_ID")))
+# ------------------------------
+# Input fields (label + entry per row)
+# ------------------------------
+def make_labeled_entry(parent, label, value, row):
+    tk.Label(parent, text=label + ":").grid(row=row, column=0, sticky="e", padx=(0, 10))
+    entry = tk.Entry(parent, width=25)
+    entry.grid(row=row, column=1, sticky="w")
+    entry.insert(0, value)
+    return entry
 
-# Location input
-location_field = tk.Entry(frame)
-location_field.pack(pady=5)
-location_field.insert(0, read_user_config_value("LOCATION"))
 
-# Temperature input
-temperature_field = tk.Entry(frame)
-temperature_field.pack(pady=5)
-temperature_field.insert(0, int(read_user_config_value("TEMPERATURE")))
+user_string_field = make_labeled_entry(
+    frame, "User String", read_user_config_value("USER_STRING"), 1
+)
+device_id_field = make_labeled_entry(
+    frame, "Device ID", int(read_user_config_value("DEVICE_ID")), 2
+)
+location_field = make_labeled_entry(
+    frame, "Location", read_user_config_value("LOCATION"), 3
+)
+temperature_field = make_labeled_entry(
+    frame, "Temperature", int(read_user_config_value("TEMPERATURE")), 4
+)
 
+# ------------------------------
 # Include checkboxes
+# ------------------------------
+tk.Label(frame, text="Include in Watermark:", font=("Arial", 10, "bold")).grid(
+    row=5, column=0, columnspan=2, sticky="w", pady=(10, 0)
+)
+
+include_frame = tk.Frame(frame)
+include_frame.grid(row=6, column=0, columnspan=2, sticky="w")
+
 include_user_string_var = tk.IntVar(value=1)
 include_device_id_var = tk.IntVar(value=1)
 include_location_var = tk.IntVar(value=1)
 include_temperature_var = tk.IntVar(value=1)
 include_time_var = tk.IntVar(value=1)
 
-include_user_string_cb = tk.Checkbutton(
-    frame, text="Include User String", variable=include_user_string_var
+# Two-column grid for checkboxes
+tk.Checkbutton(
+    include_frame, text="User String", variable=include_user_string_var
+).grid(row=0, column=0, sticky="w")
+tk.Checkbutton(include_frame, text="Device ID", variable=include_device_id_var).grid(
+    row=1, column=0, sticky="w"
 )
-include_user_string_cb.pack(anchor="w")
-include_device_id_cb = tk.Checkbutton(
-    frame, text="Include Device ID", variable=include_device_id_var
+tk.Checkbutton(include_frame, text="Location", variable=include_location_var).grid(
+    row=2, column=0, sticky="w"
 )
-include_device_id_cb.pack(anchor="w")
-include_location_cb = tk.Checkbutton(
-    frame, text="Include Location", variable=include_location_var
+tk.Checkbutton(
+    include_frame, text="Temperature", variable=include_temperature_var
+).grid(row=0, column=1, sticky="w", padx=20)
+tk.Checkbutton(include_frame, text="Timestamp", variable=include_time_var).grid(
+    row=1, column=1, sticky="w", padx=20
 )
-include_location_cb.pack(anchor="w")
-include_temperature_cb = tk.Checkbutton(
-    frame, text="Include Temperature", variable=include_temperature_var
-)
-include_temperature_cb.pack(anchor="w")
-include_time_cb = tk.Checkbutton(
-    frame, text="Include Timestamp", variable=include_time_var
-)
-include_time_cb.pack(anchor="w")
 
+# ------------------------------
+# Interval controls
+# ------------------------------
+default_interval_var = tk.IntVar(value=1)
+
+interval_frame = tk.Frame(frame)
+interval_frame.grid(row=7, column=0, columnspan=2, pady=(10, 5), sticky="w")
+
+default_interval_cb = tk.Checkbutton(
+    interval_frame, text="Use default interval", variable=default_interval_var
+)
+default_interval_cb.grid(row=0, column=0, sticky="w")
+
+interval_field = tk.Entry(interval_frame, width=10)
+interval_field.grid(row=0, column=1, padx=(10, 0))
+interval_field.insert(
+    0, int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
+)
+
+
+def toggle_interval_field():
+    interval_field.config(state="disabled" if default_interval_var.get() else "normal")
+
+
+default_interval_var.trace_add("write", lambda *args: toggle_interval_field())
+toggle_interval_field()
+
+# ------------------------------
+# Log checkbox
+# ------------------------------
 show_log_var = tk.IntVar(value=0)
-show_log_cb = tk.Checkbutton(frame, text="Show build log", variable=show_log_var)
-show_log_cb.pack(anchor="w", pady=(10, 0))
+tk.Checkbutton(frame, text="Show build log", variable=show_log_var).grid(
+    row=8, column=0, columnspan=2, sticky="w", pady=(10, 0)
+)
 
-
+# ------------------------------
+# Build button
+# ------------------------------
 build_btn = tk.Button(
     frame, text="🔨⚡ Build & Flash", width=25, command=dual_build_flash
 )
-build_btn.pack(pady=20)
+build_btn.grid(row=9, column=0, columnspan=2, pady=20)
 
 root.mainloop()
