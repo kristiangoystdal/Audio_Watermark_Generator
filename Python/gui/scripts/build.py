@@ -10,6 +10,7 @@ import tkinter.scrolledtext as st
 from scripts.paths import *
 from scripts.user_config import *
 
+active_src = PROJECT_SRC  # default path
 
 
 def run_with_log(cmd, log_text=None):
@@ -27,7 +28,7 @@ def run_with_log(cmd, log_text=None):
                 log_text.insert(tk.END, line)
                 log_text.see(tk.END)
                 log_text.update_idletasks()
-            print(line, end="")  # still print to console for safety
+            print(line, end="")  # also print to console
         process.wait()
         return process.returncode
     except Exception as e:
@@ -38,13 +39,18 @@ def run_with_log(cmd, log_text=None):
 
 
 def find_elf():
+    global active_src
+
+    """Find the .elf file in possible build directories."""
     search_paths = [
         BUILD_DIR,
-        os.path.join(PROJECT_SRC, "build"),
-        os.path.join(PROJECT_SRC, "build", "Debug"),
-        os.path.join(PROJECT_SRC, "build", "Release"),
+        os.path.join(BUILD_DIR, "build"),
+        os.path.join(BUILD_DIR, "build", "Debug"),
+        os.path.join(BUILD_DIR, "build", "Release"),
+        os.path.join(active_src, "build"),
+        os.path.join(active_src, "build", "Debug"),
+        os.path.join(active_src, "build", "Release"),
     ]
-
     for path in search_paths:
         if not os.path.exists(path):
             continue
@@ -56,38 +62,71 @@ def find_elf():
 
 
 def cleanup_old_builds():
-    """Delete any previous stm32_build folders in the system temp dir."""
+    """Delete old stm32_build temp folders."""
     import glob
-    import shutil
     import tempfile
-    import time
 
     temp_dir = tempfile.gettempdir()
     pattern = os.path.join(temp_dir, "stm32_build*")
     found = glob.glob(pattern)
 
     if not found:
-        print("[DEBUG] No old build folders found.")
+        print("[DEBUG] No old temp builds found.")
         return
 
     print(f"[DEBUG] Cleaning {len(found)} old stm32_build folders...")
-
     for folder in found:
         try:
             shutil.rmtree(folder)
             print(f"[DEBUG] Deleted: {folder}")
         except Exception as e:
             print(f"[WARN] Could not delete {folder}: {e}")
-
     print("[DEBUG] Old stm32_build folders cleaned up.")
 
 
-def build_and_flash(root, show_log_var, OPENOCD_INTERFACE, OPENOCD_TARGET):
-    cleanup_old_builds()
-    print("[DEBUG] Cleaning build directory to force recompilation...")
-    if os.path.exists(BUILD_DIR):
-        shutil.rmtree(BUILD_DIR)
-    os.makedirs(BUILD_DIR, exist_ok=True)
+import tempfile
+import pathlib
+
+
+def ensure_writable_copy(safe_log):
+    """Create a writable temp copy of the STM32 project (for macOS .app builds)."""
+    global active_src
+
+    if getattr(sys, "frozen", False) and sys.platform == "darwin":
+        temp_copy_dir = os.path.join(tempfile.gettempdir(), "stm32_src")
+
+        # ✅ Find actual on-disk Resources folder (not virtual)
+        app_resources = os.path.abspath(
+            os.path.join(os.path.dirname(sys.executable), "..", "Resources", "STM32")
+        )
+
+        safe_log(f"[DEBUG] Copying from bundle resources: {app_resources}")
+        safe_log(f"[DEBUG] Copy destination: {temp_copy_dir}")
+
+        # If destination exists but is incomplete, remove it first
+        if os.path.exists(temp_copy_dir):
+            shutil.rmtree(temp_copy_dir, ignore_errors=True)
+
+        # ✅ Use dirs_exist_ok=True for robustness (Python 3.8+)
+        shutil.copytree(app_resources, temp_copy_dir, dirs_exist_ok=True)
+
+        if not any(pathlib.Path(temp_copy_dir).iterdir()):
+            safe_log("[ERROR] Temp STM32 copy appears empty — copy failed!")
+
+        active_src = temp_copy_dir
+    else:
+        active_src = PROJECT_SRC
+
+
+def build_and_flash(
+    root,
+    show_log_var,
+    OPENOCD_INTERFACE,
+    OPENOCD_TARGET,
+    set_initial_time,
+    build_btn=None,
+):
+    global active_src
 
     # Create log window if enabled
     log_text = None
@@ -98,47 +137,71 @@ def build_and_flash(root, show_log_var, OPENOCD_INTERFACE, OPENOCD_TARGET):
         log_text.pack(padx=10, pady=10)
         log_text.insert(tk.END, "Starting build...\n")
 
-    try:
-        # Print debug info for directories
-        log_text.insert(tk.END, f"[DEBUG] PROJECT_SRC = {PROJECT_SRC}\n")
-        log_text.insert(tk.END, f"[DEBUG] TOOLS_DIR   = {TOOLS_DIR}\n")
-        log_text.insert(tk.END, f"[DEBUG] BUILD_DIR   = {BUILD_DIR}\n")
-        log_text.insert(tk.END, f"[DEBUG] TOOLCHAIN   = {TOOLCHAIN}\n")
-        log_text.insert(tk.END, f"[DEBUG] CMAKE       = {CMAKE}\n")
-        log_text.insert(tk.END, f"[DEBUG] NINJA       = {NINJA}\n")
-        log_text.insert(tk.END, f"[DEBUG] OPENOCD     = {OPENOCD}\n")
-        log_text.insert(tk.END, f"[DEBUG] TOOLCHAIN_FILE = {TOOLCHAIN_FILE}\n")
-        log_text.insert(
-            tk.END, f"[DEBUG] Using user_config.h at: {ensure_user_config()}\n\n"
-        )
-        log_text.update_idletasks()
+    def safe_log(msg):
+        print(msg.strip())
+        if log_text:
+            log_text.insert(tk.END, msg + "\n")
+            log_text.see(tk.END)
+            log_text.update_idletasks()
 
-        # Delete CMake cache to ensure no stale paths
+    cleanup_old_builds()
+    safe_log("[DEBUG] Cleaning build directories to force recompilation...")
+
+    # --- Ensure STM32 source is writable ---
+    ensure_writable_copy(safe_log)
+
+    # Ensure both main build and internal STM32/build are cleared
+    if os.path.exists(BUILD_DIR):
+        shutil.rmtree(BUILD_DIR, ignore_errors=True)
+    os.makedirs(BUILD_DIR, exist_ok=True)
+
+    internal_build_dir = os.path.join(PROJECT_SRC, "build")
+    if os.path.exists(internal_build_dir):
+        shutil.rmtree(internal_build_dir, ignore_errors=True)
+        safe_log(f"[DEBUG] Removed stale internal build: {internal_build_dir}")
+
+    try:
+        # Debug info
+        safe_log(f"[DEBUG] PROJECT_SRC = {PROJECT_SRC}")
+        safe_log(f"[DEBUG] TOOLS_DIR   = {TOOLS_DIR}")
+        safe_log(f"[DEBUG] BUILD_DIR   = {BUILD_DIR}")
+        safe_log(f"[DEBUG] TOOLCHAIN   = {TOOLCHAIN}")
+        safe_log(f"[DEBUG] CMAKE       = {CMAKE}")
+        safe_log(f"[DEBUG] NINJA       = {NINJA}")
+        safe_log(f"[DEBUG] OPENOCD     = {OPENOCD}")
+        safe_log(f"[DEBUG] TOOLCHAIN_FILE = {TOOLCHAIN_FILE}")
+        # safe_log(f"[DEBUG] Using user_config.h at: {ensure_user_config(True)}\n")
+
+        # Delete any old CMake cache
         cache_path = os.path.join(BUILD_DIR, "CMakeCache.txt")
         if os.path.exists(cache_path):
             os.remove(cache_path)
-            log_text.insert(
-                tk.END, "[DEBUG] Removed CMakeCache.txt to force fresh configure.\n"
-            )
+            safe_log("[DEBUG] Removed CMakeCache.txt for a clean configure.")
 
-        # Show the first few lines of user_config.h
-        log_text.insert(tk.END, "[DEBUG] --- user_config.h preview ---\n")
-        with open(ensure_user_config(), "r") as f:
-            for i, line in enumerate(f.readlines()):
-                if i >= 20:
-                    break
-                log_text.insert(tk.END, line)
-        log_text.insert(tk.END, "[DEBUG] --- end preview ---\n\n")
-        log_text.update_idletasks()
+        if not change_user_config(root, set_initial_time):
+            build_btn.config(state="normal")
+            return
 
-        # Run CMake configure
-        log_text.insert(tk.END, "[STEP] Running CMake configure...\n")
+        # Preview user_config.h
+        safe_log("[DEBUG] --- user_config.h preview ---")
+        try:
+            with open(ensure_user_config(True), "r") as f:
+                for i, line in enumerate(f.readlines()):
+                    if i >= 20:
+                        break
+                    safe_log(line.strip())
+        except Exception as e:
+            safe_log(f"[WARN] Could not preview user_config.h: {e}")
+        safe_log("[DEBUG] --- end preview ---\n")
+
+        # --- Run CMake configure ---
+        safe_log("[STEP] Running CMake configure...")
         if (
             run_with_log(
                 [
                     CMAKE,
                     "-S",
-                    PROJECT_SRC,
+                    active_src,
                     "-B",
                     BUILD_DIR,
                     "-G",
@@ -153,21 +216,20 @@ def build_and_flash(root, show_log_var, OPENOCD_INTERFACE, OPENOCD_TARGET):
         ):
             raise subprocess.CalledProcessError(1, "cmake configure")
 
-        # Run CMake build
-        log_text.insert(tk.END, "\n[STEP] Building firmware...\n")
+        # --- Run build ---
+        safe_log("\n[STEP] Building firmware...")
         if run_with_log([CMAKE, "--build", BUILD_DIR], log_text) != 0:
             raise subprocess.CalledProcessError(1, "cmake build")
 
-        # Find ELF
+        # --- Find ELF ---
         elf_file = find_elf()
         if not elf_file:
             messagebox.showerror("Flash", "❌ No ELF file found after build.")
             return
+        safe_log(f"\n[DEBUG] Built ELF: {elf_file}")
 
-        log_text.insert(tk.END, f"\n[DEBUG] Built ELF: {elf_file}\n")
-
-        # Flash firmware
-        log_text.insert(tk.END, "\n[STEP] Flashing device...\n")
+        # --- Flash device ---
+        safe_log("\n[STEP] Flashing device...")
         flash_cmd = [
             OPENOCD,
             "-s",
@@ -185,12 +247,12 @@ def build_and_flash(root, show_log_var, OPENOCD_INTERFACE, OPENOCD_TARGET):
             "-c",
             f"program {elf_file} verify reset exit",
         ]
-        log_text.insert(tk.END, f"[DEBUG] Flash command:\n{' '.join(flash_cmd)}\n\n")
+        safe_log(f"[DEBUG] Flash command:\n{' '.join(flash_cmd)}\n")
 
         if run_with_log(flash_cmd, log_text) != 0:
             raise subprocess.CalledProcessError(1, "openocd")
 
-        log_text.insert(tk.END, "\n[SUCCESS] ✅ Build and flash complete!\n")
+        safe_log("\n[SUCCESS] ✅ Build and flash complete!")
         messagebox.showinfo("Success", "✅ Build and Flash completed successfully!")
 
     except subprocess.CalledProcessError as e:
@@ -202,26 +264,29 @@ def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_T
     build_btn.config(state="disabled")
     root.update_idletasks()
 
-    # Change user config and set the clock
     set_initial_time = 1
-    if not change_user_config(root, set_initial_time):
-        build_btn.config(state="normal")
-        return
 
-    # Build and flash with the setting the clock
-    build_and_flash(root, show_log_var, OPENOCD_INTERFACE, OPENOCD_TARGET)
-
+    build_and_flash(
+        root,
+        show_log_var,
+        OPENOCD_INTERFACE,
+        OPENOCD_TARGET,
+        set_initial_time,
+        build_btn,
+    )
     root.update_idletasks()
 
-    # # Update the variable to not set the clock
-    # set_initial_time = 0
-    # if not change_user_config():
-    #     build_btn.config(state="normal")
-    #     return
+    set_initial_time = 0
 
-    # Build and flash without setting the clock
-    # build_and_flash()
+    build_and_flash(
+        root,
+        show_log_var,
+        OPENOCD_INTERFACE,
+        OPENOCD_TARGET,
+        set_initial_time,
+        build_btn,
+    )
 
-    # root.update_idletasks()
+    root.update_idletasks()
 
     build_btn.config(state="normal")
