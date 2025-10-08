@@ -11,7 +11,7 @@
 # =============================================================================
 
 # =============================================================================
-# Project: STM_TESTING
+# Project: Audio_Watermark_Generator
 # Configurations: Debug
 # =============================================================================
 
@@ -39,99 +39,99 @@ include CMakeFiles/rules.ninja
 #############################################
 # Logical path to working directory; prefix for absolute paths.
 
-cmake_ninja_workdir = /Users/kristiangoystdal/Developer/Git/STM_TESTING/
+cmake_ninja_workdir = /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/
 # =============================================================================
-# Object build statements for EXECUTABLE target STM_TESTING
+# Object build statements for EXECUTABLE target Audio_Watermark_Generator
 
 
 #############################################
-# Order-only phony target for STM_TESTING
+# Order-only phony target for Audio_Watermark_Generator
 
-build cmake_object_order_depends_target_STM_TESTING: phony || cmake_object_order_depends_target_STM32_Drivers
+build cmake_object_order_depends_target_Audio_Watermark_Generator: phony || cmake_object_order_depends_target_STM32_Drivers
 
-build CMakeFiles/STM_TESTING.dir/Core/Src/main.c.o: C_COMPILER__STM_TESTING_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Core/Src/main.c || cmake_object_order_depends_target_STM_TESTING
+build CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/main.c.o: C_COMPILER__Audio_Watermark_Generator_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Core/Src/main.c || cmake_object_order_depends_target_Audio_Watermark_Generator
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
-  DEP_FILE = CMakeFiles/STM_TESTING.dir/Core/Src/main.c.o.d
+  DEP_FILE = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/main.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
-  OBJECT_FILE_DIR = CMakeFiles/STM_TESTING.dir/Core/Src
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_PDB = STM_TESTING.pdb
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  OBJECT_FILE_DIR = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
-build CMakeFiles/STM_TESTING.dir/Core/Src/stm32g4xx_it.c.o: C_COMPILER__STM_TESTING_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Core/Src/stm32g4xx_it.c || cmake_object_order_depends_target_STM_TESTING
+build CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/stm32g4xx_it.c.o: C_COMPILER__Audio_Watermark_Generator_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Core/Src/stm32g4xx_it.c || cmake_object_order_depends_target_Audio_Watermark_Generator
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
-  DEP_FILE = CMakeFiles/STM_TESTING.dir/Core/Src/stm32g4xx_it.c.o.d
+  DEP_FILE = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/stm32g4xx_it.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
-  OBJECT_FILE_DIR = CMakeFiles/STM_TESTING.dir/Core/Src
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_PDB = STM_TESTING.pdb
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  OBJECT_FILE_DIR = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
-build CMakeFiles/STM_TESTING.dir/Core/Src/stm32g4xx_hal_msp.c.o: C_COMPILER__STM_TESTING_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Core/Src/stm32g4xx_hal_msp.c || cmake_object_order_depends_target_STM_TESTING
+build CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/stm32g4xx_hal_msp.c.o: C_COMPILER__Audio_Watermark_Generator_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Core/Src/stm32g4xx_hal_msp.c || cmake_object_order_depends_target_Audio_Watermark_Generator
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
-  DEP_FILE = CMakeFiles/STM_TESTING.dir/Core/Src/stm32g4xx_hal_msp.c.o.d
+  DEP_FILE = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/stm32g4xx_hal_msp.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
-  OBJECT_FILE_DIR = CMakeFiles/STM_TESTING.dir/Core/Src
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_PDB = STM_TESTING.pdb
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  OBJECT_FILE_DIR = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
-build CMakeFiles/STM_TESTING.dir/Core/Src/sysmem.c.o: C_COMPILER__STM_TESTING_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Core/Src/sysmem.c || cmake_object_order_depends_target_STM_TESTING
+build CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/sysmem.c.o: C_COMPILER__Audio_Watermark_Generator_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Core/Src/sysmem.c || cmake_object_order_depends_target_Audio_Watermark_Generator
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
-  DEP_FILE = CMakeFiles/STM_TESTING.dir/Core/Src/sysmem.c.o.d
+  DEP_FILE = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/sysmem.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
-  OBJECT_FILE_DIR = CMakeFiles/STM_TESTING.dir/Core/Src
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_PDB = STM_TESTING.pdb
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  OBJECT_FILE_DIR = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
-build CMakeFiles/STM_TESTING.dir/Core/Src/syscalls.c.o: C_COMPILER__STM_TESTING_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Core/Src/syscalls.c || cmake_object_order_depends_target_STM_TESTING
+build CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/syscalls.c.o: C_COMPILER__Audio_Watermark_Generator_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Core/Src/syscalls.c || cmake_object_order_depends_target_Audio_Watermark_Generator
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
-  DEP_FILE = CMakeFiles/STM_TESTING.dir/Core/Src/syscalls.c.o.d
+  DEP_FILE = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/syscalls.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
-  OBJECT_FILE_DIR = CMakeFiles/STM_TESTING.dir/Core/Src
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_PDB = STM_TESTING.pdb
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  OBJECT_FILE_DIR = CMakeFiles/Audio_Watermark_Generator.dir/Core/Src
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
-build CMakeFiles/STM_TESTING.dir/startup_stm32g431xx.s.o: ASM_COMPILER__STM_TESTING_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/startup_stm32g431xx.s || cmake_object_order_depends_target_STM_TESTING
+build CMakeFiles/Audio_Watermark_Generator.dir/startup_stm32g431xx.s.o: ASM_COMPILER__Audio_Watermark_Generator_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/startup_stm32g431xx.s || cmake_object_order_depends_target_Audio_Watermark_Generator
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
-  DEP_FILE = CMakeFiles/STM_TESTING.dir/startup_stm32g431xx.s.o.d
+  DEP_FILE = CMakeFiles/Audio_Watermark_Generator.dir/startup_stm32g431xx.s.o.d
   FLAGS = -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
-  OBJECT_FILE_DIR = CMakeFiles/STM_TESTING.dir
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_PDB = STM_TESTING.pdb
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  OBJECT_FILE_DIR = CMakeFiles/Audio_Watermark_Generator.dir
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
 
 # =============================================================================
-# Link build statements for EXECUTABLE target STM_TESTING
+# Link build statements for EXECUTABLE target Audio_Watermark_Generator
 
 
 #############################################
-# Link the executable STM_TESTING
+# Link the executable Audio_Watermark_Generator
 
-build STM_TESTING: C_EXECUTABLE_LINKER__STM_TESTING_Debug cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32g4xx.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c.o CMakeFiles/STM_TESTING.dir/Core/Src/main.c.o CMakeFiles/STM_TESTING.dir/Core/Src/stm32g4xx_it.c.o CMakeFiles/STM_TESTING.dir/Core/Src/stm32g4xx_hal_msp.c.o CMakeFiles/STM_TESTING.dir/Core/Src/sysmem.c.o CMakeFiles/STM_TESTING.dir/Core/Src/syscalls.c.o CMakeFiles/STM_TESTING.dir/startup_stm32g431xx.s.o || cmake/stm32cubemx/STM32_Drivers
+build Audio_Watermark_Generator: C_EXECUTABLE_LINKER__Audio_Watermark_Generator_Debug cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32g4xx.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c.o cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c.o CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/main.c.o CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/stm32g4xx_it.c.o CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/stm32g4xx_hal_msp.c.o CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/sysmem.c.o CMakeFiles/Audio_Watermark_Generator.dir/Core/Src/syscalls.c.o CMakeFiles/Audio_Watermark_Generator.dir/startup_stm32g431xx.s.o || cmake/stm32cubemx/STM32_Drivers
   FLAGS = -g -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  OBJECT_DIR = CMakeFiles/STM_TESTING.dir
+  OBJECT_DIR = CMakeFiles/Audio_Watermark_Generator.dir
   POST_BUILD = :
   PRE_LINK = :
-  TARGET_COMPILE_PDB = CMakeFiles/STM_TESTING.dir/
-  TARGET_FILE = STM_TESTING
-  TARGET_PDB = STM_TESTING.pdb
+  TARGET_COMPILE_PDB = CMakeFiles/Audio_Watermark_Generator.dir/
+  TARGET_FILE = Audio_Watermark_Generator
+  TARGET_PDB = Audio_Watermark_Generator.pdb
 
 
 #############################################
 # Utility command for edit_cache
 
 build CMakeFiles/edit_cache.util: CUSTOM_COMMAND
-  COMMAND = cd /Users/kristiangoystdal/Developer/Git/STM_TESTING && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/ccmake -S/Users/kristiangoystdal/Developer/Git/STM_TESTING -B/Users/kristiangoystdal/Developer/Git/STM_TESTING
+  COMMAND = cd /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/ccmake -S/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator -B/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator
   DESC = Running CMake cache editor...
   pool = console
   restat = 1
@@ -143,7 +143,7 @@ build edit_cache: phony CMakeFiles/edit_cache.util
 # Utility command for rebuild_cache
 
 build CMakeFiles/rebuild_cache.util: CUSTOM_COMMAND
-  COMMAND = cd /Users/kristiangoystdal/Developer/Git/STM_TESTING && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/cmake --regenerate-during-build -S/Users/kristiangoystdal/Developer/Git/STM_TESTING -B/Users/kristiangoystdal/Developer/Git/STM_TESTING
+  COMMAND = cd /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/cmake --regenerate-during-build -S/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator -B/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator
   DESC = Running CMake to regenerate build system...
   pool = console
   restat = 1
@@ -152,7 +152,7 @@ build rebuild_cache: phony CMakeFiles/rebuild_cache.util
 
 # =============================================================================
 # Write statements declared in CMakeLists.txt:
-# /Users/kristiangoystdal/Developer/Git/STM_TESTING/CMakeLists.txt
+# /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/CMakeLists.txt
 # =============================================================================
 
 # =============================================================================
@@ -164,191 +164,191 @@ build rebuild_cache: phony CMakeFiles/rebuild_cache.util
 
 build cmake_object_order_depends_target_STM32_Drivers: phony || cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32g4xx.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Core/Src/system_stm32g4xx.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32g4xx.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Core/Src/system_stm32g4xx.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src/system_stm32g4xx.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Core/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_rcc_ex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_flash_ramfunc.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_gpio.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_exti.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_dma_ex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_pwr_ex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_usart_ex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart_ex.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_uart.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/STM32G4xx_HAL_Driver/Src
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
   TARGET_PDB = ""
 
-build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/STM_TESTING/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c || cmake_object_order_depends_target_STM32_Drivers
+build cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c.o: C_COMPILER__STM32_Drivers_unscanned_Debug /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c || cmake_object_order_depends_target_STM32_Drivers
   DEFINES = -DDEBUG -DSTM32G431xx -DUSE_HAL_DRIVER -DUSE_NUCLEO_64
   DEP_FILE = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/BSP/STM32G4xx_Nucleo/stm32g4xx_nucleo.c.o.d
   FLAGS = -g -std=gnu11 -arch arm64 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.5.sdk
-  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/../../Drivers/CMSIS/Include
+  INCLUDES = -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Core/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/STM32G4xx_HAL_Driver/Inc/Legacy -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/BSP/STM32G4xx_Nucleo -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Device/ST/STM32G4xx/Include -I/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/../../Drivers/CMSIS/Include
   OBJECT_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir
   OBJECT_FILE_DIR = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/__/__/Drivers/BSP/STM32G4xx_Nucleo
   TARGET_COMPILE_PDB = cmake/stm32cubemx/CMakeFiles/STM32_Drivers.dir/
@@ -366,7 +366,7 @@ build cmake/stm32cubemx/STM32_Drivers: phony cmake/stm32cubemx/CMakeFiles/STM32_
 # Utility command for edit_cache
 
 build cmake/stm32cubemx/CMakeFiles/edit_cache.util: CUSTOM_COMMAND
-  COMMAND = cd /Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/ccmake -S/Users/kristiangoystdal/Developer/Git/STM_TESTING -B/Users/kristiangoystdal/Developer/Git/STM_TESTING
+  COMMAND = cd /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/ccmake -S/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator -B/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator
   DESC = Running CMake cache editor...
   pool = console
   restat = 1
@@ -378,7 +378,7 @@ build cmake/stm32cubemx/edit_cache: phony cmake/stm32cubemx/CMakeFiles/edit_cach
 # Utility command for rebuild_cache
 
 build cmake/stm32cubemx/CMakeFiles/rebuild_cache.util: CUSTOM_COMMAND
-  COMMAND = cd /Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/cmake --regenerate-during-build -S/Users/kristiangoystdal/Developer/Git/STM_TESTING -B/Users/kristiangoystdal/Developer/Git/STM_TESTING
+  COMMAND = cd /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx && /opt/ST/STM32CubeCLT_1.19.0/CMake/bin/cmake --regenerate-during-build -S/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator -B/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator
   DESC = Running CMake to regenerate build system...
   pool = console
   restat = 1
@@ -396,14 +396,14 @@ build STM32_Drivers: phony cmake/stm32cubemx/STM32_Drivers
 # =============================================================================
 
 #############################################
-# Folder: /Users/kristiangoystdal/Developer/Git/STM_TESTING
+# Folder: /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator
 
-build all: phony STM_TESTING cmake/stm32cubemx/all
+build all: phony Audio_Watermark_Generator cmake/stm32cubemx/all
 
 # =============================================================================
 
 #############################################
-# Folder: /Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx
+# Folder: /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx
 
 build cmake/stm32cubemx/all: phony cmake/stm32cubemx/STM32_Drivers
 

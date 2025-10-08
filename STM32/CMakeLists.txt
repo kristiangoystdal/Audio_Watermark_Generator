@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug")
 endif()
 
-set(CMAKE_PROJECT_NAME STM_TESTING)
+set(CMAKE_PROJECT_NAME Audio_Watermark_Generator)
 project(${CMAKE_PROJECT_NAME} C ASM)
 message("Build type: " ${CMAKE_BUILD_TYPE})
 
@@ -38,10 +38,10 @@ else()
     message(FATAL_ERROR "❌ Linker script not found!")
 endif()
 
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
-    -T${LINKER_SCRIPT}
-    --specs=nano.specs
-)
+# target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+#     -T${LINKER_SCRIPT}
+#     # --specs=nano.specs
+# )
 
 # ------------------------------------------------------------
 # Includes, defines, and libraries

@@ -1,4 +1,4 @@
-# Install script for directory: /Users/kristiangoystdal/Developer/Git/STM_TESTING
+# Install script for directory: /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -39,7 +39,7 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("/Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx/cmake_install.cmake")
+  include("/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx/cmake_install.cmake")
 endif()
 
 if(CMAKE_INSTALL_COMPONENT)
@@ -50,5 +50,5 @@ endif()
 
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-file(WRITE "/Users/kristiangoystdal/Developer/Git/STM_TESTING/${CMAKE_INSTALL_MANIFEST}"
+file(WRITE "/Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
