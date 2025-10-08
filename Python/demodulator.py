@@ -130,104 +130,123 @@ def seconds_to_hms(total_seconds):
         return f"{seconds}s {milliseconds}ms"
 
 
-if __name__ == "__main__":
+def decode_fsk(input_filename: str, 
+               output_filename: str | None = None, 
+               f0: float = 20833.33, 
+               f1: float = 22222.22, 
+               p0: int = 60):
 
-    f0, f1 = 20833.33, 22222.22  # Hz
-    p0, p1 = 60, 64  # number of cycles per symbol
-    input_filename = "signal_out_min_1 4.wav"  # Input WAV file
+    if output_filename is None:
+        base, _ = os.path.splitext(input_filename)
+        output_filename = base + ".txt"
 
-    output_filename = input_filename.replace(".wav", ".txt")
+    with open(output_filename, "w") as output:
 
-    output = open(output_filename, "w")
+        audio, fs = sf.read(input_filename)
 
-    audio, fs = sf.read(input_filename)
-    Ts = 1 / fs
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
 
-    sym_time = p0 / f0
+        Ts = 1 / fs
 
-    N = int(round(fs * sym_time))
+        sym_time = p0 / f0
 
-    audio = (audio - np.mean(audio)) * 25  # Scale and center
+        N = int(round(fs * sym_time))
 
-    audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
+        audio = (audio - np.mean(audio)) * 25  # Scale and center
 
-    mins_per_segment = 1  # int(input("Time between messages [minutes]: "))
+        audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
 
-    seg_len = int(round(mins_per_segment * 60 * fs))  # samples per segment
-    n = audio.shape[0]
-    segments = [audio[i : i + seg_len] for i in range(0, n, seg_len)]
+        mins_per_segment = 1  # int(input("Time between messages [minutes]: "))
 
-    segmentindex = 0
+        seg_len = int(round(mins_per_segment * 60 * fs))  # samples per segment
+        n = audio.shape[0]
+        segments = [audio[i : i + seg_len] for i in range(0, n, seg_len)]
 
-    date_modified = datetime.datetime.fromtimestamp(os.path.getmtime(input_filename))
-    duration = len(audio) / fs
-    start_datetime = date_modified - datetime.timedelta(seconds=duration)
+        segmentindex = 0
 
-    for audio in segments:
-        print(f"\nSegment {segmentindex}: ")
-        print("Finding the best offset for segment...")
-        best_offset, _ = find_best_offset(audio, fs, f0, f1, N)
-        bits, scores, E0, E1 = fsk_decode_aligned(audio, fs, f0, f1, N, best_offset)
+        date_modified = datetime.datetime.fromtimestamp(os.path.getmtime(input_filename))
+        duration = len(audio) / fs
+        start_datetime = date_modified - datetime.timedelta(seconds=duration)
 
-        if len(bits) == 0:
-            print("No bits found in this segment")
+        for audio in segments:
+            print(f"\nSegment {segmentindex}: ")
+            print("Finding the best offset for segment...")
+            best_offset, _ = find_best_offset(audio, fs, f0, f1, N)
+            bits, scores, E0, E1 = fsk_decode_aligned(audio, fs, f0, f1, N, best_offset)
+
+            if len(bits) == 0:
+                print("No bits found in this segment")
+                segmentindex += 1
+                continue
+
+            idx = np.arange(len(bits))
+            start_samples = best_offset + idx * N
+            t = start_samples / fs
+
+            threshold = define_threshold(scores)
+            print("Threshold: ", threshold)
+            mask = np.abs(scores) > threshold
+
+            masked_bits = bits[mask]
+
+            masked_time = t[mask]
+
+            bitstring = ""
+            time_index = 0
+            index = 0
+            message = ""
+            prev_bit_time = -1
+            time_in_recording = 0.0
+
+            for bit in masked_bits:
+                if (masked_time[index] - prev_bit_time) > 3 * sym_time:
+                    if len(message) > 0:
+                        message += "\n"
+                    bitstring = ""
+                    index = 0
+                    time_in_recording = (
+                        segmentindex * 60 * mins_per_segment
+                        + masked_time[time_index]
+                        + filter_delay * Ts
+                    )
+                    print("Time in recording: ",seconds_to_hms(time_in_recording))
+                    output.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
+                bitstring += str(bit)
+                # print(str(bit),end="")
+                if ((index + 1) % 8) == 0:
+                    message += chr(int(bitstring, 2))
+                    bitstring = ""
+                prev_bit_time = masked_time[index]
+                index += 1
+                time_index += 1
+
+            time_at_segment_start = start_datetime + datetime.timedelta(
+                seconds=time_in_recording
+            )
+
+            print("File last modified: ", date_modified.strftime("%Y-%m-%d %H:%M:%S"))
+            print(f"File duration: {duration:.2f} seconds")
+            print("Recording started at: ", start_datetime.strftime("%Y-%m-%d %H:%M:%S"))
+            print(
+                "Time at segment start: ",
+                time_at_segment_start.strftime("%Y-%m-%d %H:%M:%S"),
+            )
+
+            print_message(message, output)
             segmentindex += 1
-            continue
+    print(f"\nSaved: {output_filename}")
 
-        idx = np.arange(len(bits))
-        start_samples = best_offset + idx * N
-        t = start_samples / fs
 
-        threshold = define_threshold(scores)
-        print("Threshold: ", threshold)
-        mask = np.abs(scores) > threshold
 
-        masked_bits = bits[mask]
 
-        masked_time = t[mask]
-
-        bitstring = ""
-        time_index = 0
-        index = 0
-        message = ""
-        prev_bit_time = -1
-        time_in_recording = 0.0
-
-        for bit in masked_bits:
-            if (masked_time[index] - prev_bit_time) > 3 * sym_time:
-                if len(message) > 0:
-                    message += "\n"
-                bitstring = ""
-                index = 0
-                time_in_recording = (
-                    segmentindex * 60 * mins_per_segment
-                    + masked_time[time_index]
-                    + filter_delay * Ts
-                )
-                print("Time in recording: ",seconds_to_hms(time_in_recording))
-                output.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
-            bitstring += str(bit)
-            # print(str(bit),end="")
-            if ((index + 1) % 8) == 0:
-                message += chr(int(bitstring, 2))
-                bitstring = ""
-            prev_bit_time = masked_time[index]
-            index += 1
-            time_index += 1
-
-        time_at_segment_start = start_datetime + datetime.timedelta(
-            seconds=time_in_recording
-        )
-
-        print("File last modified: ", date_modified.strftime("%Y-%m-%d %H:%M:%S"))
-        print(f"File duration: {duration:.2f} seconds")
-        print("Recording started at: ", start_datetime.strftime("%Y-%m-%d %H:%M:%S"))
-        print(
-            "Time at segment start: ",
-            time_at_segment_start.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-
-        print_message(message, output)
-        segmentindex += 1
-    
-    output.close()
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser(description="FSK demodulator")
+    parser.add_argument("-i", "--input", required=True, help="Input WAV file")
+    parser.add_argument("-o", "--output", help="Output TXT file (defaults to same name as input)")
+    parser.add_argument("--f0", type=float, default=20833.33)
+    parser.add_argument("--f1", type=float, default=22222.22)
+    parser.add_argument("--p0", type=int, default=60, help="cycles per '0' bit (symbol length via p0/f0)")
+    args = parser.parse_args()
+    decode_fsk(args.input, args.output, args.f0, args.f1, args.p0)
