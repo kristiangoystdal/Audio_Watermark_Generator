@@ -7,9 +7,9 @@
 
 // Configuration for first time booting up the RTC
 #define SET_INITIAL_TIME true
-#define INITIAL_HOUR 10
-#define INITIAL_MIN 32
-#define INITIAL_SEC 4
+#define INITIAL_HOUR 12
+#define INITIAL_MIN 54
+#define INITIAL_SEC 12
 #define INITIAL_DOW 3
 #define INITIAL_DOM 8
 #define INITIAL_MONTH 10
@@ -24,8 +24,8 @@
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 10
 
 // Configuration for values to include in the watermark
-#define USER_STRING "Testing123456"
-#define DEVICE_ID 42
+#define USER_STRING "Halla"
+#define DEVICE_ID 21
 #define LOCATION "-107.7749,-122.4194"
 #define TEMPERATURE 20
 
