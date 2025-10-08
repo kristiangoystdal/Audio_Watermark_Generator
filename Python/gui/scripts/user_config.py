@@ -2,12 +2,17 @@ import os
 import sys
 import tkinter as tk
 from tkinter import messagebox
+import tempfile
 
 from scripts.paths import PROJECT_SRC
 
 
-def ensure_user_config():
+def ensure_user_config(action):
     config_path = os.path.join(PROJECT_SRC, "Core", "Inc", "user_config.h")
+    if not action:
+        active_src = os.path.join(tempfile.gettempdir(), "stm32_src")
+        config_path = os.path.join(active_src, "Core", "Inc", "user_config.h")
+
     if not os.path.exists(config_path):
         messagebox.showerror("Error", f"Config file not found: {config_path}")
         sys.exit(1)
@@ -16,7 +21,7 @@ def ensure_user_config():
 
 def read_user_config_value(var_name):
     """Read a #define value from user_config.h (supports both quoted and numeric values)."""
-    config_path = ensure_user_config()
+    config_path = ensure_user_config(True)
     try:
         with open(config_path, "r") as f:
             for line in f:
@@ -63,21 +68,47 @@ def read_current_time():
     )
 
 
+def read_frequency_pairs():
+    config_path = ensure_user_config(True)
+    pairs = []
+    try:
+        with open(config_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("// 1 = "):
+                    try:
+                        parts = line.split("= ")[1].split("and")
+                        f0 = float(parts[0].strip())
+                        f1 = float(parts[1].strip())
+                        pairs.append((f0, f1))
+                    except (IndexError, ValueError):
+                        continue
+    except Exception:
+        pass
+    return pairs  # List of tuples (f0, f1)
+
+
 def change_user_config(root, set_initial_time):
 
-    config_path = ensure_user_config()
+    config_path = ensure_user_config(False)
 
     # Read values from GUI fields
     user_string = root.user_string_field.get().strip()
     device_id = root.device_id_field.get().strip()
     location = root.location_field.get().strip()
     temperature = root.temperature_field.get().strip()
+    frequency_pair = root.frequency_pair_var.get().strip()
+    delay_minutes = root.delay_field.get().strip()
+    interval_minutes = root.interval_field.get().strip()
 
     include_user_string = root.include_user_string_var.get()
     include_device_id = root.include_device_id_var.get()
     include_location = root.include_location_var.get()
     include_temperature = root.include_temperature_var.get()
     include_time = root.include_time_var.get()
+
+    enable_delayed_start = root.default_delay_var.get()
+    use_default_interval = root.default_interval_var.get()
 
     # Get the current time
     current_time = read_current_time()
@@ -93,6 +124,9 @@ def change_user_config(root, set_initial_time):
         "INITIAL_HOUR",
         "INITIAL_MIN",
         "INITIAL_SEC",
+        "FSK_FREQUENCY_PAIR",
+        "STARTING_MINUTE",
+        "INTERVAL_BETWEEN_REPEATS_MINUTES",
     }
 
     # Values to apply
@@ -114,6 +148,11 @@ def change_user_config(root, set_initial_time):
         "INITIAL_HOUR": current_time[4],
         "INITIAL_MIN": current_time[5],
         "INITIAL_SEC": current_time[6],
+        "FSK_FREQUENCY_PAIR": frequency_pair,
+        "ENABLE_DELAYED_START": enable_delayed_start,
+        "STARTING_MINUTE": delay_minutes,
+        "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": use_default_interval,
+        "INTERVAL_BETWEEN_REPEATS_MINUTES": interval_minutes,
     }
 
     if not user_string:
@@ -142,7 +181,11 @@ def change_user_config(root, set_initial_time):
         # Append any missing defines at the end
         for var, val in variables.items():
             if not any(f"#define {var}" in line for line in lines):
-                if "INCLUDE" in var or var == "SET_INITIAL_TIME":
+                if (
+                    "INCLUDE" in var
+                    or var == "SET_INITIAL_TIME"
+                    or var == "FSK_FREQUENCY_PAIR"
+                ):
                     val_str = "true" if val else "false"
                     lines.append(f"#define {var} {val_str}\n")
                 elif var in int_vars:
