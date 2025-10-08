@@ -41,7 +41,6 @@ endif()
 target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -T${LINKER_SCRIPT}
     --specs=nano.specs
-    # --specs=nosys.specs
 )
 
 # ------------------------------------------------------------
