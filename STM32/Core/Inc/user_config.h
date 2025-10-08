@@ -6,26 +6,26 @@
 //-------------------------------------------------------//
 
 // Configuration for first time booting up the RTC
-#define SET_INITIAL_TIME false // Set to true to set the initial time
-#define INITIAL_HOUR 15
-#define INITIAL_MIN 0
-#define INITIAL_SEC 0
-#define INITIAL_DOW 2     // Day of week (1=Mon ... 7=Sun)
-#define INITIAL_DOM 30    // Day of month (1–31)
-#define INITIAL_MONTH 9   // Month (1–12)
-#define INITIAL_YEAR 2025 // Year (e.g. 2024)
+#define SET_INITIAL_TIME true
+#define INITIAL_HOUR 10
+#define INITIAL_MIN 32
+#define INITIAL_SEC 4
+#define INITIAL_DOW 3
+#define INITIAL_DOM 8
+#define INITIAL_MONTH 10
+#define INITIAL_YEAR 2025
 
 // Configuration for which minute in the hour to start transmissions (0-59)
-#define INITIAL_MINUTE 0 
+#define STARTING_MINUTE 0
 
 // Configuration for the interval between repeats
 #define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 10
 
 // Configuration for values to include in the watermark
-#define USER_STRING "Halla balla, artig skalla"
+#define USER_STRING "Testing123456"
 #define DEVICE_ID 42
-#define LOCATION "-107.7749,-122.4194" // Longitude,Latitude format
+#define LOCATION "-107.7749,-122.4194"
 #define TEMPERATURE 20
 
 // Configuration for toggles of values to include in the watermark
@@ -33,7 +33,7 @@
 #define INCLUDE_DEVICE_ID true
 #define INCLUDE_LOCATION true
 #define INCLUDE_TEMPERATURE true
-#define INCLUDE_TIME true // Current time from RTC
+#define INCLUDE_TIME true
 
 // Configuration for FSK frequency pair
 // Options:
