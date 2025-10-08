@@ -18,6 +18,7 @@ message("Build type: " ${CMAKE_BUILD_TYPE})
 set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 add_executable(${CMAKE_PROJECT_NAME})
+set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES SUFFIX ".elf")
 add_subdirectory(cmake/stm32cubemx)
 
 # ------------------------------------------------------------
