@@ -7,6 +7,7 @@ from scripts.paths import *
 from scripts.user_config import *
 from scripts.build import *
 
+
 # ---------------------------------------------------------
 # GUI Setup
 # ---------------------------------------------------------
@@ -223,11 +224,76 @@ tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).gri
     row=1, column=0, sticky="w"
 )
 
+# ------------------------------
+# Validation logic
+# ------------------------------
+
+
+def is_field_valid(field, var_type, min_val=None, max_val=None):
+    val = field.get().strip()
+    if not val:
+        return False
+    try:
+        if var_type == int:
+            val = int(val)
+        elif var_type == float:
+            val = float(val)
+        elif var_type == str:
+            if not val:
+                return False
+            elif field == root.user_string_field and len(val.strip('"')) > 48:
+                return False
+            elif field == root.location_field and len(val.strip('"')) > 18:
+                return False
+            return True
+    except ValueError:
+        return False
+    if min_val is not None and val < min_val:
+        return False
+    if max_val is not None and val > max_val:
+        return False
+    return True
+
+
+def validate_all_fields():
+    invalid_fields = []
+    if not is_field_valid(root.user_string_field, str):
+        invalid_fields.append("User String must be 1-48 characters")
+    if not is_field_valid(root.device_id_field, int, 0, 99):
+        invalid_fields.append("Device ID must be an integer between 0 and 99")
+    if not is_field_valid(root.location_field, str):
+        invalid_fields.append("Location must be 1-18 characters")
+    if (
+        not is_field_valid(root.interval_field, int, 1, 1440)
+        and not root.default_interval_var.get()
+    ):
+        invalid_fields.append("Interval must be an integer between 1 and 1440 minutes")
+    if (
+        not is_field_valid(root.delay_field, int, 0, 59)
+        and root.default_delay_var.get()
+    ):
+        invalid_fields.append(
+            "Initial Delay must be an integer between 0 and 59 minutes"
+        )
+
+    if invalid_fields:
+        formatted = "\n".join(f"• {msg}" for msg in invalid_fields)
+        messagebox.showwarning(
+            "Invalid Input",
+            f"⚠️ Please correct the following fields:\n\n{formatted}",
+        )
+        return False
+
+    return True
+
 
 # ------------------------------
 # Background build logic (non-blocking)
 # ------------------------------
 def start_dual_flash_thread():
+    if not validate_all_fields():
+        return
+
     build_btn.config(state="disabled", text="Building...")
     threading.Thread(
         target=lambda: dual_build_flash_call(),
