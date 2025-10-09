@@ -24,9 +24,9 @@
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 10
 
 // Configuration for values to include in the watermark
-#define USER_STRING "Halla"
-#define DEVICE_ID 21
-#define LOCATION "-107.7749,-122.4194"
+#define USER_STRING "Hello World"
+#define DEVICE_ID 42
+#define LOCATION "63.4190,10.4015"
 #define TEMPERATURE 20
 
 // Configuration for toggles of values to include in the watermark
