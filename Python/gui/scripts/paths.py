@@ -7,29 +7,21 @@ import tkinter.messagebox as messagebox
 # Paths
 # ---------------------------------------------------------
 
-# ---------------------------------------------------------
-# Resolve base path (works for source, onedir, macOS app)
-# ---------------------------------------------------------
 if getattr(sys, "frozen", False):
+    # MacOS .app build
     if sys.platform == "darwin":
-        # macOS .app layout:
-        # STM32Tool.app/
-        # └── Contents/
-        #     ├── MacOS/STM32Tool  ← executable
-        #     └── Resources/STM32  ← project source
         RESOURCES_DIR = os.path.abspath(
             os.path.join(os.path.dirname(sys.executable), "..", "Resources")
         )
         PROJECT_SRC = os.path.join(RESOURCES_DIR, "STM32")
         TOOLS_DIR = os.path.join(RESOURCES_DIR, "tools")
 
-        # Ensure STM32 exists
         if not os.path.exists(PROJECT_SRC):
             messagebox.showerror("Error", f"STM32 folder not found: {PROJECT_SRC}")
             sys.exit(1)
 
+    # Windows/Linux build
     else:
-        # Windows/Linux PyInstaller build
         BASE = sys._MEIPASS
         PROJECT_SRC = os.path.join(BASE, "STM32")
         TOOLS_DIR = os.path.join(BASE, "tools")
@@ -43,13 +35,13 @@ else:
 BUILD_DIR = os.path.join(tempfile.gettempdir(), "stm32_build")
 
 TOOLCHAIN = os.path.join(TOOLS_DIR, "arm-none-eabi-gcc")
-# Detect CMake version folder dynamically (handles PyInstaller renaming)
+
 cmake_root = os.path.join(TOOLS_DIR, "cmake")
 cmake_versions = [
     d for d in os.listdir(cmake_root) if os.path.isdir(os.path.join(cmake_root, d))
 ]
 if cmake_versions:
-    cmake_version_dir = cmake_versions[0]  # take first found
+    cmake_version_dir = cmake_versions[0]
 else:
     cmake_version_dir = "4.1.2"
 

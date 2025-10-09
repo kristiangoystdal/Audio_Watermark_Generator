@@ -5,6 +5,9 @@ import sys
 import tkinter as tk
 from tkinter import messagebox
 import tkinter.scrolledtext as st
+import tempfile
+import pathlib
+import glob
 
 # Import paths
 from scripts.paths import *
@@ -14,7 +17,6 @@ active_src = PROJECT_SRC  # default path
 
 
 def run_with_log(cmd, log_text=None):
-    """Run a shell command and stream output to log window if enabled."""
     try:
         process = subprocess.Popen(
             cmd,
@@ -41,9 +43,7 @@ def run_with_log(cmd, log_text=None):
 def find_elf():
     global active_src
 
-    """Find the .elf file in possible build directories."""
     search_paths = [
-        BUILD_DIR,
         os.path.join(BUILD_DIR, "build"),
         os.path.join(BUILD_DIR, "build", "Debug"),
         os.path.join(BUILD_DIR, "build", "Release"),
@@ -61,41 +61,32 @@ def find_elf():
     return None
 
 
-def cleanup_old_builds():
-    """Delete old stm32_build temp folders."""
-    import glob
-    import tempfile
+def cleanup_old_builds(safe_log):
 
     temp_dir = tempfile.gettempdir()
     pattern = os.path.join(temp_dir, "stm32_build*")
     found = glob.glob(pattern)
 
     if not found:
-        print("[DEBUG] No old temp builds found.")
+        safe_log("[DEBUG] No old temp builds found.")
         return
 
-    print(f"[DEBUG] Cleaning {len(found)} old stm32_build folders...")
+    safe_log(f"[DEBUG] Cleaning {len(found)} old stm32_build folders...")
     for folder in found:
         try:
             shutil.rmtree(folder)
-            print(f"[DEBUG] Deleted: {folder}")
+            safe_log(f"[DEBUG] Deleted: {folder}")
         except Exception as e:
-            print(f"[WARN] Could not delete {folder}: {e}")
-    print("[DEBUG] Old stm32_build folders cleaned up.")
-
-
-import tempfile
-import pathlib
+            safe_log(f"[WARN] Could not delete {folder}: {e}")
+    safe_log("[DEBUG] Old stm32_build folders cleaned up.")
 
 
 def ensure_writable_copy(safe_log):
-    """Create a writable temp copy of the STM32 project (for macOS .app builds)."""
     global active_src
 
     if getattr(sys, "frozen", False) and sys.platform == "darwin":
         temp_copy_dir = os.path.join(tempfile.gettempdir(), "stm32_src")
 
-        # ✅ Find actual on-disk Resources folder (not virtual)
         app_resources = os.path.abspath(
             os.path.join(os.path.dirname(sys.executable), "..", "Resources", "STM32")
         )
@@ -103,11 +94,9 @@ def ensure_writable_copy(safe_log):
         safe_log(f"[DEBUG] Copying from bundle resources: {app_resources}")
         safe_log(f"[DEBUG] Copy destination: {temp_copy_dir}")
 
-        # If destination exists but is incomplete, remove it first
         if os.path.exists(temp_copy_dir):
             shutil.rmtree(temp_copy_dir, ignore_errors=True)
 
-        # ✅ Use dirs_exist_ok=True for robustness (Python 3.8+)
         shutil.copytree(app_resources, temp_copy_dir, dirs_exist_ok=True)
 
         if not any(pathlib.Path(temp_copy_dir).iterdir()):
@@ -144,13 +133,12 @@ def build_and_flash(
             log_text.see(tk.END)
             log_text.update_idletasks()
 
-    cleanup_old_builds()
     safe_log("[DEBUG] Cleaning build directories to force recompilation...")
+    cleanup_old_builds(safe_log)
 
-    # --- Ensure STM32 source is writable ---
+    safe_log("[DEBUG] Ensuring writable copy of source...")
     ensure_writable_copy(safe_log)
 
-    # Ensure both main build and internal STM32/build are cleared
     if os.path.exists(BUILD_DIR):
         shutil.rmtree(BUILD_DIR, ignore_errors=True)
     os.makedirs(BUILD_DIR, exist_ok=True)
