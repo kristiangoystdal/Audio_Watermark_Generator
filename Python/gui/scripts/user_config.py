@@ -205,7 +205,6 @@ def change_user_config(root, set_initial_time):
         with open(config_path, "w") as file:
             file.writelines(lines)
 
-        messagebox.showinfo("Success", "✅ user_config.h updated successfully.")
         return True
 
     except Exception as e:

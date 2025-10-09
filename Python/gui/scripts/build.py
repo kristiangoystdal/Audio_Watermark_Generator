@@ -170,7 +170,7 @@ def build_and_flash(
         safe_log(f"[DEBUG] NINJA       = {NINJA}")
         safe_log(f"[DEBUG] OPENOCD     = {OPENOCD}")
         safe_log(f"[DEBUG] TOOLCHAIN_FILE = {TOOLCHAIN_FILE}")
-        # safe_log(f"[DEBUG] Using user_config.h at: {ensure_user_config(True)}\n")
+        safe_log(f"[DEBUG] Using user_config.h at: {ensure_user_config(True)}\n")
 
         # Delete any old CMake cache
         cache_path = os.path.join(BUILD_DIR, "CMakeCache.txt")
@@ -253,7 +253,6 @@ def build_and_flash(
             raise subprocess.CalledProcessError(1, "openocd")
 
         safe_log("\n[SUCCESS] ✅ Build and flash complete!")
-        messagebox.showinfo("Success", "✅ Build and Flash completed successfully!")
 
     except subprocess.CalledProcessError as e:
         messagebox.showerror("Error", f"❌ Failed during build/flash: {e}")
