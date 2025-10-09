@@ -169,7 +169,12 @@ def change_user_config(root, set_initial_time):
                 # Strip leading spaces before comparing
                 if f"#define {var}" in line:
                     updated = True
-                    if "INCLUDE" in var or var == "SET_INITIAL_TIME":
+                    if (
+                        "INCLUDE" in var
+                        or var == "SET_INITIAL_TIME"
+                        or var == "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS"
+                        or var == "ENABLE_DELAYED_START"
+                    ):
                         val_str = "true" if val else "false"
                         lines[i] = f"#define {var} {val_str}\n"
                     elif var in int_vars:
