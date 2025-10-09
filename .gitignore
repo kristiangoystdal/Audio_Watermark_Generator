@@ -6,4 +6,5 @@ Python/gui/dist/*
 Python/gui_demodulator/build/*
 Python/gui_demodulator/dist/*
 Python/gui_demodulator/icon.iconset/*
-Python/gui_demodulator/icon.icns
+Python/gui_demodulator/icon.icns__pycache__/
+__pycache__/
