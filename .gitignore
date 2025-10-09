@@ -5,3 +5,4 @@ Python/gui/build/*
 Python/gui/dist/*
 Python/gui_demodulator/build/*
 Python/gui_demodulator/dist/*
+__pycache__/

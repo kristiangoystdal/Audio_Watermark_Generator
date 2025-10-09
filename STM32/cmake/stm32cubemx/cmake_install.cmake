@@ -1,4 +1,4 @@
-# Install script for directory: /Users/kristiangoystdal/Developer/Git/STM_TESTING/cmake/stm32cubemx
+# Install script for directory: /Users/kristiangoystdal/Developer/Git/Audio_Watermark_Generator/cmake/stm32cubemx
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
