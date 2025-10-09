@@ -20,7 +20,6 @@ def ensure_user_config(action):
 
 
 def read_user_config_value(var_name):
-    """Read a #define value from user_config.h (supports both quoted and numeric values)."""
     config_path = ensure_user_config(True)
     try:
         with open(config_path, "r") as f:
@@ -163,12 +162,10 @@ def change_user_config(root, set_initial_time):
         with open(config_path, "r") as file:
             lines = file.readlines()
 
-        updated = False
         for i, line in enumerate(lines):
             for var, val in variables.items():
                 # Strip leading spaces before comparing
                 if f"#define {var}" in line:
-                    updated = True
                     if (
                         "INCLUDE" in var
                         or var == "SET_INITIAL_TIME"
