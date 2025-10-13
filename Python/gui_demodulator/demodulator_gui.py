@@ -9,7 +9,7 @@ from pathlib import Path
 # Import your decoder with the NEW signature:
 # def decode_fsk(input_filename: str, f0: float, f1: float, p0: int,
 #                generate_readable: bool = False, minutes_per_segment: int = 1)
-from Python.gui_demodulator.demodulator import decode_fsk
+from demodulator import decode_fsk
 
 def derive_txt_path(wav_path: str) -> str:
     base, _ = os.path.splitext(wav_path)
