@@ -5,3 +5,5 @@ Python/gui/build/*
 Python/gui/dist/*
 Python/gui_demodulator/build/*
 Python/gui_demodulator/dist/*
+Python/gui_demodulator/icon.iconset/*
+Python/gui_demodulator/icon.icns
