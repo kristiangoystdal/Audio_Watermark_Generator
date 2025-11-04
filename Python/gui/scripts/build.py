@@ -15,6 +15,11 @@ from scripts.user_config import *
 
 active_src = PROJECT_SRC  # default path
 
+os.environ["PATH"] = (
+    f"{os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'tools', 'ninja'))}:"
+    + os.environ.get("PATH", "")
+)
+
 
 def run_with_log(cmd, log_text=None):
     try:
@@ -25,18 +30,35 @@ def run_with_log(cmd, log_text=None):
             text=True,
             bufsize=1,
         )
+
+        output = []  # collect all lines for error reporting
         for line in process.stdout:
+            output.append(line)
             if log_text:
                 log_text.insert(tk.END, line)
                 log_text.see(tk.END)
                 log_text.update_idletasks()
             print(line, end="")  # also print to console
+
         process.wait()
+        if process.returncode != 0:
+            # show captured output when a command fails
+            err_msg = (
+                f"\n[ERROR] Command failed ({cmd[0]} exited with {process.returncode})\n"
+                + "".join(output[-50:])  # last 50 lines of output
+            )
+            if log_text:
+                log_text.insert(tk.END, err_msg + "\n")
+                log_text.see(tk.END)
+            print(err_msg)
         return process.returncode
+
     except Exception as e:
+        msg = f"\n[EXCEPTION] {e}\n"
         if log_text:
-            log_text.insert(tk.END, f"\n[ERROR] {e}\n")
+            log_text.insert(tk.END, msg)
             log_text.see(tk.END)
+        print(msg)
         raise
 
 
@@ -44,9 +66,11 @@ def find_elf():
     global active_src
 
     search_paths = [
+        BUILD_DIR,
         os.path.join(BUILD_DIR, "build"),
         os.path.join(BUILD_DIR, "build", "Debug"),
         os.path.join(BUILD_DIR, "build", "Release"),
+        active_src,
         os.path.join(active_src, "build"),
         os.path.join(active_src, "build", "Debug"),
         os.path.join(active_src, "build", "Release"),
@@ -147,6 +171,8 @@ def build_and_flash(
     if os.path.exists(internal_build_dir):
         shutil.rmtree(internal_build_dir, ignore_errors=True)
         safe_log(f"[DEBUG] Removed stale internal build: {internal_build_dir}")
+    else:
+        safe_log(f"[DEBUG] No internal build directory to remove.")
 
     try:
         # Debug info
@@ -160,20 +186,35 @@ def build_and_flash(
         safe_log(f"[DEBUG] TOOLCHAIN_FILE = {TOOLCHAIN_FILE}")
         safe_log(f"[DEBUG] Using user_config.h at: {ensure_user_config(True)}\n")
 
-        # Delete any old CMake cache
-        cache_path = os.path.join(BUILD_DIR, "CMakeCache.txt")
-        if os.path.exists(cache_path):
-            os.remove(cache_path)
-            safe_log("[DEBUG] Removed CMakeCache.txt for a clean configure.")
+        # Remove any stale CMake artifacts from the copied source
+        for stale in ["CMakeCache.txt", "CMakeFiles", "build"]:
+            stale_path = os.path.join(active_src, stale)
+            if os.path.exists(stale_path):
+                (
+                    shutil.rmtree(stale_path, ignore_errors=True)
+                    if os.path.isdir(stale_path)
+                    else os.remove(stale_path)
+                )
+                safe_log(f"[DEBUG] Removed stale CMake file/folder: {stale_path}")
+            else:
+                safe_log(f"[DEBUG] No stale CMake file/folder to remove: {stale_path}")
 
-        if not change_user_config(root, set_initial_time):
+        # # Delete any old CMake cache
+        # cache_path = os.path.join(BUILD_DIR, "CMakeCache.txt")
+        # if os.path.exists(cache_path):
+        #     os.remove(cache_path)
+        #     safe_log("[DEBUG] Removed CMakeCache.txt for a clean configure.")
+
+        if not change_user_config(root, set_initial_time, safe_log):
+            safe_log("[DEBUG] change_user_config() returned False — aborting build.")
             build_btn.config(state="normal")
             return
+        safe_log("[DEBUG] change_user_config() completed successfully.")
 
         # Preview user_config.h
         safe_log("[DEBUG] --- user_config.h preview ---")
         try:
-            with open(ensure_user_config(True), "r") as f:
+            with open(ensure_user_config(True, safe_log), "r") as f:
                 for i, line in enumerate(f.readlines()):
                     if i >= 20:
                         break
@@ -184,6 +225,10 @@ def build_and_flash(
 
         # --- Run CMake configure ---
         safe_log("[STEP] Running CMake configure...")
+
+        # ensure PATH includes our bundled ninja
+        os.environ["PATH"] = f"{os.path.dirname(NINJA)}:" + os.environ.get("PATH", "")
+
         if (
             run_with_log(
                 [
@@ -243,6 +288,10 @@ def build_and_flash(
         safe_log("\n[SUCCESS] ✅ Build and flash complete!")
 
     except subprocess.CalledProcessError as e:
+        safe_log(
+            f"\n[ERROR] ❌ Command failed: {e}\n[DEBUG] Exception details: {e.args}"
+        )
+        safe_log("[ERROR] Build/flash process terminated.")
         messagebox.showerror("Error", f"❌ Failed during build/flash: {e}")
 
 
