@@ -19,7 +19,6 @@ root.resizable(False, False)
 frame = tk.Frame(root, height=400, width=600, padx=20, pady=20)
 frame.pack()
 
-
 # ------------------------------
 # Title
 # ------------------------------
@@ -65,7 +64,6 @@ root.include_location_var = tk.IntVar(value=1)
 root.include_temperature_var = tk.IntVar(value=1)
 root.include_time_var = tk.IntVar(value=1)
 
-# Two-column grid for checkboxes
 tk.Checkbutton(
     include_frame, text="User String", variable=root.include_user_string_var
 ).grid(row=0, column=0, sticky="w")
@@ -87,7 +85,6 @@ tk.Checkbutton(include_frame, text="Timestamp", variable=root.include_time_var).
 # ------------------------------
 root.default_interval_var = tk.IntVar(value=1)
 
-
 interval_frame = tk.Frame(frame)
 interval_frame.grid(row=7, column=0, columnspan=2, pady=(10, 5), sticky="w")
 
@@ -107,7 +104,6 @@ root.interval_field.grid(row=1, column=1, padx=(10, 0))
 root.interval_field.insert(
     0, int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
 )
-
 
 # -------------------------------
 # Delay initial timestamp setting
@@ -142,7 +138,6 @@ tk.Label(
     frequency_frame, text="FSK Frequency Settings", font=("Arial", 15, "bold")
 ).grid(row=0, column=0, sticky="w", pady=(0, 5))
 
-# Dropdown menu for frequency pairs
 frequency_pairs = read_frequency_pairs()
 if not frequency_pairs:
     frequency_pairs = [
@@ -153,19 +148,15 @@ if not frequency_pairs:
     ]
 
 root.frequency_pair_var = tk.StringVar(value="1")
-
-# Map display text to 1-based index
 pair_display_map = {
     f"{f0:.2f} Hz & {f1:.2f} Hz": str(i + 1)
     for i, (f0, f1) in enumerate(frequency_pairs)
 }
 
-# The text shown in the dropdown
 menu_display_var = tk.StringVar(
     value=f"{frequency_pairs[0][0]:.2f} Hz & {frequency_pairs[0][1]:.2f} Hz"
 )
 
-# Dropdown
 frequency_menu = tk.OptionMenu(
     frequency_frame,
     menu_display_var,
@@ -174,13 +165,11 @@ frequency_menu = tk.OptionMenu(
 frequency_menu.grid(row=1, column=0, sticky="w", pady=(0, 5))
 
 
-# When user selects a new pair, store its 1-based index in the variable
 def on_pair_select(selection):
     root.frequency_pair_var.set(pair_display_map[selection])
     menu_display_var.set(selection)
 
 
-# Rebuild dropdown with callbacks
 frequency_menu["menu"].delete(0, "end")
 for display_text in pair_display_map:
     frequency_menu["menu"].add_command(
@@ -201,7 +190,6 @@ def toggle_delay_field():
     )
 
 
-# Initial toggle based on default values
 root.default_interval_var.trace_add("write", lambda *args: toggle_interval_field())
 toggle_interval_field()
 root.default_delay_var.trace_add("write", lambda *args: toggle_delay_field())
@@ -210,8 +198,6 @@ toggle_delay_field()
 # ------------------------------
 # Log checkbox
 # ------------------------------
-
-
 show_log_frame = tk.Frame(frame)
 show_log_frame.grid(row=11, column=0, columnspan=2, pady=(10, 5), sticky="w")
 
@@ -224,11 +210,10 @@ tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).gri
     row=1, column=0, sticky="w"
 )
 
+
 # ------------------------------
 # Validation logic
 # ------------------------------
-
-
 def is_field_valid(field, var_type, min_val=None, max_val=None):
     val = field.get().strip()
     if not val:
@@ -283,22 +268,38 @@ def validate_all_fields():
             f"⚠️ Please correct the following fields:\n\n{formatted}",
         )
         return False
-
     return True
 
 
 # ------------------------------
-# Background build logic (non-blocking)
+# Build button and status label
+# ------------------------------
+build_btn_frame = tk.Frame(frame)
+build_btn_frame.grid(row=12, column=0, columnspan=2, pady=20)
+
+build_btn = tk.Button(
+    build_btn_frame,
+    text="Build & Flash",
+    width=25,
+    command=lambda: start_dual_flash_thread(),
+)
+build_btn.pack()
+
+status_label = tk.Label(build_btn_frame, text="", font=("Arial", 14, "italic"))
+status_label.pack(pady=(10, 0))
+
+
+# ------------------------------
+# Background build logic
 # ------------------------------
 def start_dual_flash_thread():
     if not validate_all_fields():
         return
 
-    build_btn.config(state="disabled", text="Building...")
-    threading.Thread(
-        target=lambda: dual_build_flash_call(),
-        daemon=True,
-    ).start()
+    build_btn.config(state="disabled")
+    status_label.config(text="⏳ Building... Please wait.")
+
+    threading.Thread(target=dual_build_flash_call, daemon=True).start()
 
 
 def dual_build_flash_call():
@@ -308,27 +309,27 @@ def dual_build_flash_call():
         )
         root.after(
             0,
-            lambda: messagebox.showinfo(
-                "Build & Flash", "✅ Build and Flash completed successfully!"
-            ),
+            lambda: [
+                status_label.config(text="✅ Build & Flash completed successfully!"),
+                messagebox.showinfo(
+                    "Build & Flash", "✅ Build and Flash completed successfully!"
+                ),
+            ],
         )
     except Exception as e:
-        root.after(0, lambda: messagebox.showerror("Error", f"❌ {e}"))
+        root.after(
+            0,
+            lambda: [
+                status_label.config(text="❌ Build failed"),
+                messagebox.showerror("Error", f"❌ {e}"),
+            ],
+        )
     finally:
-        root.after(0, lambda: build_btn.config(state="normal", text="Build & Flash"))
+        root.after(0, lambda: build_btn.config(state="normal"))
+        root.after(4000, lambda: status_label.config(text=""))
 
 
-# ------------------------------
-# Build button
-# ------------------------------
-build_btn_frame = tk.Frame(frame)
-build_btn_frame.grid(row=12, column=0, columnspan=2)
-build_btn = tk.Button(
-    build_btn_frame,
-    text="Build & Flash",
-    width=25,
-    command=start_dual_flash_thread,
-)
-build_btn.grid(row=9, column=0, columnspan=2, pady=20)
+# Optional: Bind Enter to build
+root.bind("<Return>", lambda e: start_dual_flash_thread())
 
 root.mainloop()
