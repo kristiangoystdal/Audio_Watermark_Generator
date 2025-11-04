@@ -33,7 +33,7 @@ def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN):
     return np.array(E0), np.array(E1), np.array(S)
 
 
-def find_best_offset(x, fs, f0, f1, N, stepsize=10):
+def find_best_offset(x, fs, f0, f1, N, stepsize=50):
     """Brute-force offset search: pick r maximizing mean |E1-E0|."""
     best_r, best_val = 0, -np.inf
     for r in range(0, N, stepsize):
@@ -76,52 +76,33 @@ days_of_week = [
 
 
 def print_message(message, start_time, end_time, output, labels):
-    labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
-
     if len(message) == 0:
-        print("No message decoded")
-        output.write("No message decoded\n")
-        labels.write("Error: 0 length message\n")
+        output.write("Error: 0 length message\n")
         return
     elif message[0] != "/":
-        print("Error: Message might be corrupted (missing '/' preamble)")
         output.write("Error: Message might be corrupted (missing '/' preamble)\n")
-        labels.write("Error: missing '/' preamble\n")
         return
     elif message[-1] != "/":
-        print("Error: Message might be corrupted (missing '/' termination)")
         output.write("Error: Message might be corrupted (missing '/' termination)\n")
-        labels.write("Error: missing '/' termination\n")
         return
+    else:
+        labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
+        output.write("Decoded Message: " + message + "\n")
+        output.write(f"{len(message)} characters\n")
 
-    print("Decoded Message: ", message)
-    output.write("Decoded Message: " + message + "\n")
-    print(len(message), " characters")
-    output.write(f"{len(message)} characters\n")
-    messages_lines = message.split("/")
-    for line in messages_lines:
-        if line[0:3] == "STR":
-            print("Message: ", line[3:])
-            output.write("Message: " + line[3:] + "\n")
-            labels.write("Message: " + line[3:] + " | ")
-        elif line[0:3] == "LOC":
-            print("Location: ", line[3:])
-            output.write("Location: " + line[3:] + "\n")
-            labels.write("Location: " + line[3:] + " | ")
-        elif line[0:3] == "DID":
-            print("Device ID: ", line[3:])
-            output.write("Device ID: " + line[3:] + "\n")
-            labels.write("Device ID: " + line[3:] + " | ")
-        elif line[0:3] == "TMP":
-            print("Temperature: ", line[3:])
-            output.write("Temperature: " + line[3:] + "°C\n")
-            labels.write("Temperature: " + line[3:] + "°C | ")
-        elif line[0:3] == "TIM":
-            print(f"Timestamp: {line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}")
-            output.write(f"Timestamp: {line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}\n")
-            labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}" + "\n")
-
-    output.write("\n")
+        messages_lines = message.split("/")
+        for line in messages_lines:
+            if line[0:3] == "STR":
+                labels.write("Message: " + line[3:] + " | ")
+            elif line[0:3] == "LOC":
+                labels.write("Location: " + line[3:] + " | ")
+            elif line[0:3] == "DID":
+                labels.write("Device ID: " + line[3:] + " | ")
+            elif line[0:3] == "TMP":
+                labels.write("Temperature: " + line[3:] + "°C | ")
+            elif line[0:3] == "TIM":
+                labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}" + "\n")
+        output.write("\n")
 
 def seconds_to_hms(total_seconds):
     hours = int(total_seconds // 3600)
