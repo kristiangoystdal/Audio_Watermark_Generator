@@ -13,39 +13,39 @@ def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
     return lfilter(bp, [1.0], signal), group_delay
 
 
-def fsk_symbol_metrics(x, fs, f0, f1, N, start, stepN):
+def fsk_symbol_metrics(x, fs, f0, f1, N_samples, start, stepN):
     """Compute E0, E1, score per symbol for windows starting at 'start', stepping by N."""
-    W = windows.hann(N, sym=False)
-    n = np.arange(N)
-    e0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
-    e1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
+    W = windows.hann(N_samples, sym=False)
+    n = np.arange(N_samples)
+    e_0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
+    e_1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
     E0, E1, S = [], [], []
-    for s in range(start, len(x) - N + 1, stepN):
-        seg = x[s : s + N] * W
-        c0 = np.vdot(e0, seg)
-        c1 = np.vdot(e1, seg)
+    for seg_start in range(start, len(x) - N_samples+ 1, stepN):
+        seg = x[seg_start : seg_start + N_samples] * W
+        X0 = np.vdot(e_0, seg)
+        X1 = np.vdot(e_1, seg)
         denom = np.sum(W**2)
-        e0v = (np.abs(c0) ** 2) / denom
-        e1v = (np.abs(c1) ** 2) / denom
+        e0v = (np.abs(X0) ** 2) / denom
+        e1v = (np.abs(X1) ** 2) / denom
         E0.append(e0v)
         E1.append(e1v)
         S.append(abs(e1v - e0v))
     return np.array(E0), np.array(E1), np.array(S)
 
 
-def find_best_offset(x, fs, f0, f1, N, stepsize=50):
+def find_best_offset(x, fs, f0, f1, N, stepsize=1):
     """Brute-force offset search: pick r maximizing mean |E1-E0|."""
-    best_r, best_val = 0, -np.inf
-    for r in range(0, N, stepsize):
+    best_offset, best_val = 0, -np.inf
+    for offset in range(0, N, stepsize):
         _, _, S = fsk_symbol_metrics(
-            x, fs, f0, f1, N, start=r, stepN=N
+            x, fs, f0, f1, N, start=offset, stepN=N
         )
         if len(S) == 0:
             continue
         val = np.mean(S)
         if val > best_val:
-            best_val, best_r = val, r
-    return best_r, best_val
+            best_val, best_offset = val, offset
+    return best_offset, best_val
 
 
 def fsk_decode_aligned(x, fs, f0, f1, N, offset):
@@ -76,6 +76,7 @@ days_of_week = [
 
 
 def print_message(message, start_time, end_time, output, labels):
+    output.write("MESSAGE: \"" + message + "\"\n")
     if len(message) == 0:
         output.write("Error: 0 length message\n")
         return
@@ -166,7 +167,7 @@ def decode_fsk(input_filename: str,
 
         N = int(round(fs * sym_time))
 
-        audio = (audio - np.mean(audio)) * 25  # Scale and center
+        audio = (audio - np.mean(audio)) # Remove DC
 
         audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
 
@@ -194,7 +195,7 @@ def decode_fsk(input_filename: str,
             start_samples = best_offset + idx * N
             t = start_samples / fs
 
-            threshold = max(0.5, define_threshold(scores))
+            threshold = define_threshold(scores)
             print("Threshold: ", threshold)
             mask = np.abs(scores) > threshold
 
