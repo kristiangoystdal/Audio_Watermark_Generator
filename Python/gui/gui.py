@@ -129,6 +129,31 @@ root.delay_field.grid(row=1, column=1, padx=(10, 0))
 root.delay_field.insert(0, int(read_user_config_value("STARTING_MINUTE")))
 
 # ------------------------------
+# Transmission Settings Frame
+# ------------------------------
+root.use_cable_transmission = tk.IntVar(value=1)
+root.use_speaker_transmission = tk.IntVar(value=0)
+
+transmission_frame = tk.Frame(frame)
+transmission_frame.grid(row=9, column=0, columnspan=2, pady=(10, 5), sticky="w")
+
+tk.Label(
+    transmission_frame, text="Transmission Settings", font=("Arial", 15, "bold")
+).grid(row=0, column=0, sticky="w", pady=(0, 5))
+
+tk.Checkbutton(
+    transmission_frame,
+    text="Use Cable Transmission",
+    variable=root.use_cable_transmission,
+).grid(row=1, column=0, sticky="w")
+tk.Checkbutton(
+    transmission_frame,
+    text="Use Speaker Transmission",
+    variable=root.use_speaker_transmission,
+).grid(row=2, column=0, sticky="w")
+
+
+# ------------------------------
 # Frequency Settings Frame
 # ------------------------------
 frequency_frame = tk.Frame(frame)
@@ -260,6 +285,8 @@ def validate_all_fields():
         invalid_fields.append(
             "Initial Delay must be an integer between 0 and 59 minutes"
         )
+    if not (root.use_cable_transmission.get() or root.use_speaker_transmission.get()):
+        invalid_fields.append("At least one transmission method must be selected")
 
     if invalid_fields:
         formatted = "\n".join(f"• {msg}" for msg in invalid_fields)
