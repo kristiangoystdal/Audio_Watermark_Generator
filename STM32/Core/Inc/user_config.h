@@ -42,6 +42,10 @@
 // 2 = 12.5kHz and 11.1kHz
 // 3 = 8.3kHz and 6.9kHz
 // 4 = 2.8kHz and 1.4kHz
-#define FSK_FREQUENCY_PAIR 4
+#define FSK_FREQUENCY_PAIR 1
+
+// Configuration for transmission method
+#define USE_CABLE_DRIVEN_TRANSMISSION true
+#define USE_SPEAKER_DRIVEN_TRANSMISSION true
 
 #endif // USER_CONFIG_H
