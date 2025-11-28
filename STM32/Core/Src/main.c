@@ -113,7 +113,7 @@ uint32_t ticks = 0;
 
 static volatile bool tx_active = false;
 
-int counter = 0;
+int counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
 int delay_counter = 0;
 bool first_run = true;
 
@@ -305,8 +305,8 @@ void calculate_pulse_time(void) {
   }
 
   // Add silence time
-  total_time *= 1.05f;           // 5% margin
-  total_time += 10.0f / 1000.0f; // 10ms margin
+  total_time *= 1.05f;            // 5% margin
+  total_time += 100.0f / 1000.0f; // 100ms margin
 
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
@@ -424,7 +424,6 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
     update_time_temperature();
     // pulse_request_start = true;
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
     if (first_run && now.minutes != STARTING_MINUTE && ENABLE_DELAYED_START) {
       counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
       HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
@@ -436,7 +435,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         counter++;
         if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
           counter = 0;
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+
+          if (USE_SPEAKER_TRANSMISSION) {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+          }
+          if (USE_CABLE_TRANSMISSION) {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+          }
+          if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
+            DWT_Delay_ms(100);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+          }
+
           update_time_temperature();
           update_input_string();
           make_bitstream_from_string(input_string);
@@ -444,7 +454,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           reset_dac();
         }
       } else {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+
+        if (USE_SPEAKER_TRANSMISSION) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        }
+        if (USE_CABLE_TRANSMISSION) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+          DWT_Delay_ms(100);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+        }
+
         update_time_temperature();
         update_input_string();
         make_bitstream_from_string(input_string);
@@ -452,20 +471,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         reset_dac();
       }
     }
-
-    DWT_Delay_ms(20);
-
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
   }
 }
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-    DWT_Delay_ms(20);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+    if (USE_SPEAKER_TRANSMISSION) {
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+    }
+    if (USE_CABLE_TRANSMISSION) {
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+      DWT_Delay_ms(100);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+    }
 
     tx_active = false;
     HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
