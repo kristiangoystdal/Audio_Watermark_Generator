@@ -17,9 +17,13 @@ typedef struct {
 
 // Public functions
 void Get_Time(rtc_time_t *time);
-void Set_Time(uint8_t sec, uint8_t min, uint8_t hour,
-              uint8_t dow, uint8_t dom, uint8_t month, uint16_t year);
+void Set_Time(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow, uint8_t dom,
+              uint8_t month, uint16_t year);
 void DS3231_Init(void);
 void Read_Temperature(int8_t *temperature);
+void Set_Alarm1_Every_Minute(void);
+void Enable_Alarm1(void);
+void Disable_Alarm1(void);
+void Clear_Alarm1_Flag(void);
 
 #endif // DS3231_H

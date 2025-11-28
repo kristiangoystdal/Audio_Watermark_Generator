@@ -305,8 +305,8 @@ void calculate_pulse_time(void) {
   }
 
   // Add silence time
-  total_time *= 1.05f;           // 5% margin
-  total_time += 10.0f / 1000.0f; // 10ms margin
+  total_time *= 1.05f;            // 5% margin
+  total_time += 100.0f / 1000.0f; // 100ms margin
 
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
@@ -409,6 +409,10 @@ void reset_dac(void) {
   fill_half((uint16_t *)&output_buffer[0], current_bit);
   fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 
+  // --- RE-ENABLE PERIPHERAL CLOCKS ---
+  __HAL_RCC_TIM2_CLK_ENABLE();
+  __HAL_RCC_DAC1_CLK_ENABLE();
+
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   HAL_TIM_Base_Start(&htim2);
 
@@ -436,7 +440,16 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         counter++;
         if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
           counter = 0;
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+
+          if (USE_SPEAKER_DRIVEN_TRANSMISSION) {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+          }
+          if (USE_CABLE_DRIVEN_TRANSMISSION) {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+            DWT_Delay_ms(100);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+          }
+
           update_time_temperature();
           update_input_string();
           make_bitstream_from_string(input_string);
@@ -444,7 +457,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           reset_dac();
         }
       } else {
-        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        if (USE_SPEAKER_DRIVEN_TRANSMISSION) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        }
+        if (USE_CABLE_DRIVEN_TRANSMISSION) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+          DWT_Delay_ms(100);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+        }
+
         update_time_temperature();
         update_input_string();
         make_bitstream_from_string(input_string);
@@ -452,20 +473,19 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         reset_dac();
       }
     }
-
-    DWT_Delay_ms(20);
-
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
   }
 }
 
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-    DWT_Delay_ms(20);
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-
-    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+    if (USE_SPEAKER_DRIVEN_TRANSMISSION) {
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+    }
+    if (USE_CABLE_DRIVEN_TRANSMISSION) {
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+      DWT_Delay_ms(100);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+    }
 
     tx_active = false;
     HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
@@ -501,6 +521,30 @@ int main(void) {
 
   /* USER CODE BEGIN SysInit */
 
+  // 1) Enable HSI (should be ON already, but ensure it)
+  __HAL_RCC_HSI_ENABLE();
+  while (__HAL_RCC_GET_FLAG(RCC_FLAG_HSIRDY) == RESET) {
+  }
+
+  // 2) Switch SYSCLK source to HSI
+  __HAL_RCC_SYSCLK_CONFIG(RCC_SYSCLKSOURCE_HSI);
+  while (__HAL_RCC_GET_SYSCLK_SOURCE() != RCC_SYSCLKSOURCE_STATUS_HSI) {
+  }
+
+  __HAL_FLASH_SET_LATENCY(FLASH_LATENCY_0);
+
+  // 3) Now safely disable PLL
+  __HAL_RCC_PLL_DISABLE();
+  while (__HAL_RCC_GET_FLAG(RCC_FLAG_PLLRDY) != RESET) {
+  }
+
+  // 4) Update clock configuration in HAL
+  SystemCoreClockUpdate();
+  HAL_RCC_GetSysClockFreq(); // refresh HAL internal variables
+
+  // 5) Set Flash to low-power sleep mode
+  __HAL_FLASH_SLEEP_POWERDOWN_ENABLE();
+
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
@@ -515,9 +559,6 @@ int main(void) {
   DWT_Delay_Init();
 
   /* USER CODE END 2 */
-
-  /* Initialize leds */
-  BSP_LED_Init(LED_GREEN);
 
   /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
    */
@@ -607,6 +648,17 @@ int main(void) {
   //-------------------------------------------------------------------------------------------//
   // Set timer count to right before triggering the pulse
   //-------------------------------------------------------------------------------------------//
+
+  // Disable SysTick entirely BEFORE the sleep loop
+  SysTick->CTRL &= ~SysTick_CTRL_TICKINT_Msk;
+
+  // Stop everything except TIM8 (which wakes us)
+  HAL_TIM_Base_Stop_IT(&htim2);
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+  // __HAL_RCC_TIM2_CLK_DISABLE();
+  // __HAL_RCC_DAC1_CLK_DISABLE();
+  // __HAL_RCC_I2C2_CLK_DISABLE();
+  __HAL_FLASH_SLEEP_POWERDOWN_ENABLE();
 
   while (1) {
     /* USER CODE END WHILE */
@@ -770,7 +822,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 31;
+  htim2.Init.Period = 63;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -815,9 +867,9 @@ static void MX_TIM8_Init(void) {
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 31999;
+  htim8.Init.Prescaler = 7999;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 60129;
+  htim8.Init.Period = 59999;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim8.Init.RepetitionCounter = 0;
   htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
