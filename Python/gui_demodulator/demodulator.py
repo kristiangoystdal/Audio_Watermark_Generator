@@ -33,7 +33,7 @@ def fsk_symbol_metrics(x, fs, f0, f1, N_samples, start, stepN):
     return np.array(E0), np.array(E1), np.array(S)
 
 
-def find_best_offset(x, fs, f0, f1, N, stepsize=1):
+def find_best_offset(x, fs, f0, f1, N, stepsize=50):
     """Brute-force offset search: pick r maximizing mean |E1-E0|."""
     best_offset, best_val = 0, -np.inf
     for offset in range(0, N, stepsize):
@@ -57,11 +57,18 @@ def fsk_decode_aligned(x, fs, f0, f1, N, offset):
     return bits, scores, E0, E1
 
 
-def define_threshold(scores):
-    if len(scores) == 0:
-        return 0.0
-    else:
-        return np.max(np.abs(scores)) * 0.2
+def define_thresholds(scores):
+    pos_vals = [s for s in scores if s > 0.0003]
+    neg_vals = [s for s in scores if s < -0.0003]
+    
+    th1 = 0.2 * (sum(pos_vals) / len(pos_vals)) if pos_vals else 0.0
+    th0 = 0.2 * (sum(neg_vals) / len(neg_vals)) if neg_vals else 0.0
+    
+    return th0, th1
+
+def generate_mask(th0, th1, scores):
+    scores = np.asarray(scores, dtype=float)
+    return (scores > th1) | (scores < th0)
 
 
 days_of_week = [
@@ -76,19 +83,18 @@ days_of_week = [
 
 
 def print_message(message, start_time, end_time, output, labels):
-    output.write("MESSAGE: \"" + message + "\"\n")
+    output.write("Decoded Message: \"" + message + "\"\n")
     if len(message) == 0:
-        output.write("Error: 0 length message\n")
+        output.write("Warning: 0 length message\n")
         return
     elif message[0] != "/":
-        output.write("Error: Message might be corrupted (missing '/' preamble)\n")
+        output.write("Warning: Message might be corrupted (missing '/' preamble)\n")
         return
     elif message[-1] != "/":
-        output.write("Error: Message might be corrupted (missing '/' termination)\n")
+        output.write("Warning: Message might be corrupted (missing '/' termination)\n")
         return
     else:
         labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
-        output.write("Decoded Message: " + message + "\n")
         output.write(f"{len(message)} characters\n")
 
         messages_lines = message.split("/")
@@ -195,10 +201,11 @@ def decode_fsk(input_filename: str,
             start_samples = best_offset + idx * N
             t = start_samples / fs
 
-            threshold = define_threshold(scores)
-            print("Threshold: ", threshold)
-            mask = np.abs(scores) > threshold
+            th0, th1 = define_thresholds(scores)
 
+            print(f"Thresholds: f0: {th0:.4f} f1: {th1:.4f}")
+            
+            mask = generate_mask(th0, th1, scores)
             masked_bits = bits[mask]
 
             masked_time = t[mask]
