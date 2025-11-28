@@ -123,6 +123,9 @@ def change_user_config(root, set_initial_time, safe_log=None):
 
         enable_delayed_start = root.default_delay_var.get()
         use_default_interval = root.default_interval_var.get()
+
+        use_cable_transmission = root.use_cable_transmission.get()
+        use_speaker_transmission = root.use_speaker_transmission.get()
     except Exception as e:
         safe_log(f"[ERROR] Failed to read GUI fields: {str(e)}")
         return False
@@ -169,6 +172,8 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "STARTING_MINUTE": delay_minutes,
         "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": use_default_interval,
         "INTERVAL_BETWEEN_REPEATS_MINUTES": interval_minutes,
+        "USE_CABLE_TRANSMISSION": use_cable_transmission,
+        "USE_SPEAKER_TRANSMISSION": use_speaker_transmission,
     }
 
     if not user_string:
@@ -189,6 +194,8 @@ def change_user_config(root, set_initial_time, safe_log=None):
                         or var == "SET_INITIAL_TIME"
                         or var == "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS"
                         or var == "ENABLE_DELAYED_START"
+                        or var == "USE_CABLE_TRANSMISSION"
+                        or var == "USE_SPEAKER_TRANSMISSION"
                     ):
                         val_str = "true" if val else "false"
                         lines[i] = f"#define {var} {val_str}\n"
