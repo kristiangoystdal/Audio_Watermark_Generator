@@ -17,11 +17,11 @@
 
 // Configuration for which minute in the hour to start transmissions (0-59)
 #define ENABLE_DELAYED_START false
-#define STARTING_MINUTE 0
+#define STARTING_MINUTE 31
 
 // Configuration for the interval between repeats
 #define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
-#define INTERVAL_BETWEEN_REPEATS_MINUTES 10
+#define INTERVAL_BETWEEN_REPEATS_MINUTES 30
 
 // Configuration for values to include in the watermark
 #define USER_STRING "Hello World"
@@ -35,6 +35,10 @@
 #define INCLUDE_LOCATION true
 #define INCLUDE_TEMPERATURE true
 #define INCLUDE_TIME true
+
+// Configuration for transmission method
+#define USE_CABLE_TRANSMISSION true
+#define USE_SPEAKER_TRANSMISSION true
 
 // Configuration for FSK frequency pair
 // Options:
