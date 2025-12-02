@@ -439,13 +439,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
           }
           if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
           }
           if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
             DWT_Delay_ms(cable_speaker_delay_ms);
           }
           if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
           }
 
           update_time_temperature();
@@ -459,13 +459,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
         }
         if (USE_CABLE_TRANSMISSION) {
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
         }
         if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
           DWT_Delay_ms(cable_speaker_delay_ms);
         }
         if (USE_CABLE_TRANSMISSION) {
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
         }
         update_time_temperature();
         update_input_string();
@@ -483,13 +483,13 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
     }
     if (USE_CABLE_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
     }
     if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
       DWT_Delay_ms(20);
     }
     if (USE_CABLE_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
     }
 
     tx_active = false;
