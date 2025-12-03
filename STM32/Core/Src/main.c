@@ -123,8 +123,7 @@ char input_string[MAX_NUM_CHARS + 1]; // global
 rtc_time_t now;
 int8_t temp_int = 0;
 
-volatile bool pulse_request_start = false;
-volatile bool pulse_request_end = false;
+uint32_t cable_speaker_delay_ms = 100;
 
 /* USER CODE END PV */
 
@@ -307,8 +306,8 @@ void calculate_pulse_time(void) {
   }
 
   // Add silence time
-  total_time *= 1.05f;            // 5% margin
-  total_time += 100.0f / 1000.0f; // 100ms margin
+  total_time *= 1.05f;                            // 5% margin
+  total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
 
   // Convert to ticks using the PSC already set for TIM8
   uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
@@ -425,7 +424,6 @@ void reset_dac(void) {
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8) {
     update_time_temperature();
-    // pulse_request_start = true;
     if (first_run && now.minutes != STARTING_MINUTE && ENABLE_DELAYED_START) {
       counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
       HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
@@ -442,11 +440,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
           }
           if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
           }
           if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
-            DWT_Delay_ms(100);
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+            DWT_Delay_ms(cable_speaker_delay_ms);
+          }
+          if (USE_CABLE_TRANSMISSION) {
+            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
           }
 
           update_time_temperature();
@@ -461,11 +461,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
         }
         if (USE_CABLE_TRANSMISSION) {
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-          DWT_Delay_ms(100);
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
         }
-
+        if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
+          DWT_Delay_ms(cable_speaker_delay_ms);
+        }
+        if (USE_CABLE_TRANSMISSION) {
+          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+        }
         update_time_temperature();
         update_input_string();
         make_bitstream_from_string(input_string);
