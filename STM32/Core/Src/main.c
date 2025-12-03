@@ -95,8 +95,8 @@ TIM_HandleTypeDef htim8;
 __ALIGN_BEGIN __IO uint16_t
     output_buffer[2 * MAX_NUM_SAMPLES_BUFFER] __ALIGN_END;
 
-uint16_t sine_val_21k[MAX_SAMPLES_LOW];
-uint16_t sine_val_22k[MAX_SAMPLES_HIGH];
+uint16_t sine_val_low[MAX_SAMPLES_LOW];
+uint16_t sine_val_high[MAX_SAMPLES_HIGH];
 uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
 
 static uint16_t bitstream[BITSTREAM_LENGTH];
@@ -113,7 +113,7 @@ uint32_t ticks = 0;
 
 static volatile bool tx_active = false;
 
-int counter = 0;
+int counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
 int delay_counter = 0;
 bool first_run = true;
 
@@ -266,21 +266,21 @@ void update_input_string(void) {
   }
 }
 
-// Function to generate sine wave lookup table for 21kHz
-void get_sineval_21k(void) {
+// Function to generate sine wave lookup table for low frequency
+void get_sineval_low(void) {
   for (int i = 0; i < MAX_SAMPLES_LOW; i++) {
-    sine_val_21k[i] =
+    sine_val_low[i] =
         (uint16_t)((4095.0 / 2.0) *
                    (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_LOW) * (1.5 / 1.65)));
   }
 }
 
-// Function to generate sine wave lookup table for 22kHz
-void get_sineval_22k(void) {
+// Function to generate sine wave lookup table for the high frequency
+void get_sineval_high(void) {
   for (int i = 0; i < MAX_SAMPLES_HIGH; i++) {
-    sine_val_22k[i] = (uint16_t)((4095.0 / 2.0) *
-                                 (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_HIGH) *
-                                            (1.5 / 1.65)));
+    sine_val_high[i] = (uint16_t)((4095.0 / 2.0) *
+                                  (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_HIGH) *
+                                             (1.5 / 1.65)));
   }
 }
 
@@ -339,10 +339,10 @@ static inline void fill_half(uint16_t *dst, uint32_t bit) {
     for (size_t i = 0; i < MAX_NUM_SAMPLES_BUFFER; ++i)
       dst[i] = MID_12B;
   } else if (bit == 1) {
-    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_22k,
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_high,
                       MAX_SAMPLES_HIGH); // 16×
   } else {
-    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_21k,
+    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_low,
                       MAX_SAMPLES_LOW); // 15×
   }
 }
@@ -435,6 +435,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         counter++;
         if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
           counter = 0;
+
           if (USE_SPEAKER_TRANSMISSION) {
             HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
           }
@@ -455,6 +456,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
           reset_dac();
         }
       } else {
+
         if (USE_SPEAKER_TRANSMISSION) {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
         }
@@ -480,16 +482,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
     if (USE_SPEAKER_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
     }
     if (USE_CABLE_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-    }
-    if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
-      DWT_Delay_ms(20);
-    }
-    if (USE_CABLE_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+      DWT_Delay_ms(100);
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
     }
 
     tx_active = false;
@@ -600,8 +598,8 @@ int main(void) {
   // Generate the sine wave and mid-scale lookup tables
   //-------------------------------------------------------------------------------------------//
 
-  get_sineval_21k();
-  get_sineval_22k();
+  get_sineval_low();
+  get_sineval_high();
   get_dc_mid();
 
   //-------------------------------------------------------------------------------------------//
