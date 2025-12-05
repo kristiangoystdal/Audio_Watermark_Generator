@@ -4,6 +4,7 @@ import soundfile as sf
 import os
 import datetime
 import matplotlib.pyplot as plt
+import math
 
 
 def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
@@ -13,14 +14,17 @@ def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
     return lfilter(bp, [1.0], signal), group_delay
 
 
-def fsk_symbol_metrics(x, fs, f0, f1, N_samples, start, stepN):
+def fsk_symbol_metrics(x, fs, f0, f1, N_samples, N_err, start, stepN):
     """Compute E0, E1, score per symbol for windows starting at 'start', stepping by N."""
     W = windows.hann(N_samples, sym=False)
     n = np.arange(N_samples)
     e_0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
     e_1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
     E0, E1, S = [], [], []
+    acc_err = 0.0
     for seg_start in range(start, len(x) - N_samples+ 1, stepN):
+        acc_err += N_err
+        seg_start -= int(math.floor(acc_err))
         seg = x[seg_start : seg_start + N_samples] * W
         X0 = np.vdot(e_0, seg)
         X1 = np.vdot(e_1, seg)
@@ -33,12 +37,12 @@ def fsk_symbol_metrics(x, fs, f0, f1, N_samples, start, stepN):
     return np.array(E0), np.array(E1), np.array(S)
 
 
-def find_best_offset(x, fs, f0, f1, N, stepsize=50):
+def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
     """Brute-force offset search: pick r maximizing mean |E1-E0|."""
     best_offset, best_val = 0, -np.inf
     for offset in range(0, N, stepsize):
         _, _, S = fsk_symbol_metrics(
-            x, fs, f0, f1, N, start=offset, stepN=N
+            x, fs, f0, f1, N, N_err, start=offset, stepN=N
         )
         if len(S) == 0:
             continue
@@ -48,10 +52,9 @@ def find_best_offset(x, fs, f0, f1, N, stepsize=50):
     return best_offset, best_val
 
 
-def fsk_decode_aligned(x, fs, f0, f1, N, offset):
+def fsk_decode_aligned(x, fs, f0, f1, N, N_err, offset):
     E0, E1, _ = fsk_symbol_metrics(
-        x, fs, f0, f1, N, start=offset, stepN=N
-    )
+        x, fs, f0, f1, N, N_err, start=offset, stepN=N)
     bits = (E1 > E0).astype(int)
     scores = E1 - E0
     return bits, scores, E0, E1
@@ -173,6 +176,12 @@ def decode_fsk(input_filename: str,
 
         N = int(round(fs * sym_time))
 
+        N_true = fs * sym_time
+        if N < N_true:
+            N += 1  # round up to avoid negative error
+
+        N_err = N - N_true
+
         audio = (audio - np.mean(audio)) # Remove DC
 
         audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
@@ -189,8 +198,8 @@ def decode_fsk(input_filename: str,
         for audio in segments:
             print(f"\nSegment {segmentindex}: ")
             print("Finding the best offset for segment...")
-            best_offset, _ = find_best_offset(audio, fs, f0, f1, N)
-            bits, scores, E0, E1 = fsk_decode_aligned(audio, fs, f0, f1, N, best_offset)
+            best_offset, _ = find_best_offset(audio, fs, f0, f1, N, N_err)
+            bits, scores, E0, E1 = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
 
             if len(bits) == 0:
                 print("No bits found in this segment")
@@ -204,7 +213,6 @@ def decode_fsk(input_filename: str,
             th0, th1 = define_thresholds(scores)
 
             print(f"Thresholds: f0: {th0:.4f} f1: {th1:.4f}")
-            
             mask = generate_mask(th0, th1, scores)
             masked_bits = bits[mask]
 
@@ -224,7 +232,6 @@ def decode_fsk(input_filename: str,
                     + first_bit_time - filter_delay * Ts - DMA_reset_delay * Ts
                 )
 
-                print("Time in recording:", seconds_to_hms(time_in_recording))
                 output.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
 
                 start_time = time_in_recording
