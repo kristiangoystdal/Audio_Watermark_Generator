@@ -24,10 +24,10 @@ class App(tk.Tk):
 
         # Presets
         self.presets = {
-            "Frequency Pair 1": {"f0": 20833.33, "f1": 22222.22, "p0": 60},
-            "Frequency Pair 2": {"f0": 11111.11, "f1": 12500.00, "p0": 32},
-            "Frequency Pair 3": {"f0": 6944.44,  "f1": 8333.33,  "p0": 20},
-            "Frequency Pair 4": {"f0": 1388.88,  "f1": 2777.77,  "p0": 4},
+            "Frequency Pair 1": {"f0": 20884, "f1": 22274, "p0": 60},
+            "Frequency Pair 2": {"f0": 11133, "f1": 12525, "p0": 32},
+            "Frequency Pair 3": {"f0": 6957,  "f1": 8350,  "p0": 20},
+            "Frequency Pair 4": {"f0": 1392,  "f1": 2781,  "p0": 4},
         }
 
         # State
