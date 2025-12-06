@@ -51,9 +51,12 @@
 // Compute NUM_CHARS based on user_config.h toggles
 #define LEN_IF(cond, lit) ((cond) ? (sizeof(lit) - 1u) : 0u)
 
-#define MAX_NUM_CHARS 115
-
-#define MAX_NUM_USER_STRING_CHARS 48u
+#define MAX_NUM_CHARS                                                          \
+  (LEN_IF(INCLUDE_USER_STRING, "/STR" USER_STRING) +                           \
+   LEN_IF(INCLUDE_DEVICE_ID, "/DID0000") +                                     \
+   LEN_IF(INCLUDE_LOCATION, "/LOC00.0000,00.0000") +                           \
+   LEN_IF(INCLUDE_TEMPERATURE, "/TMP000") +                                    \
+   LEN_IF(INCLUDE_TIME, "/TIM00000000000000") + 4u)
 
 #define BITSTREAM_LENGTH (MAX_NUM_CHARS * 8u)
 
@@ -101,7 +104,7 @@ uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
 
 static uint16_t bitstream[BITSTREAM_LENGTH];
 
-static volatile uint32_t current_period = 0;
+static volatile uint32_t current_period = 1;
 static volatile uint32_t current_bit = 2;
 static volatile uint32_t current_idx = 0;
 
@@ -124,10 +127,15 @@ rtc_time_t now;
 int8_t temp_int = 0;
 
 uint32_t cable_speaker_delay_ms = 100;
+uint32_t fs = 0;
+
+float f_0_bit_duration = 0.0f;
+float f_1_bit_duration = 0.0f;
 
 /* USER CODE END PV */
 
-/* Private function prototypes -----------------------------------------------*/
+/* Private function prototypes
+ * -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
@@ -139,7 +147,8 @@ static void MX_I2C2_Init(void);
 
 /* USER CODE END PFP */
 
-/* Private user code ---------------------------------------------------------*/
+/* Private user code
+ * ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 void DWT_Delay_Init(void) {
@@ -159,7 +168,7 @@ void DWT_Delay_ms(uint32_t ms) { DWT_Delay_us(ms * 1000U); }
 
 int make_preamble(int start_idx) {
   int k = start_idx;
-  uint16_t id = 0b0010110111010100; // 0x2DD4
+  uint16_t id = 0; // 0x2DD4
   for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
   }
@@ -169,6 +178,11 @@ int make_preamble(int start_idx) {
 
 void make_bitstream_from_string(const char *str) {
   int k = 0;
+
+  // Preamble bit - silence
+  for (int i = 0; i < 1 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = 2; // silence
+  }
 
   // Data bits from string
   for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
@@ -290,10 +304,23 @@ void get_dc_mid(void) {
     dc_mid[i] = MID_12B;
 }
 
+uint32_t get_dac_sample_rate_hz(void) {
+  uint32_t tim_clk = HAL_RCC_GetPCLK1Freq();
+  if ((RCC->CFGR & RCC_CFGR_PPRE1) != RCC_CFGR_PPRE1_DIV1)
+    tim_clk *= 2; // timer clock doubled if APB prescaler != 1
+
+  return tim_clk / ((htim2.Init.Prescaler + 1) * (htim2.Init.Period + 1));
+}
+
 // Function to calculate the total time it takes to send the bitstream
 void calculate_pulse_time(void) {
-  float f_0 = 1000000.0f / (float)MAX_SAMPLES_LOW;  // Low freq, e.g., 21kHz
-  float f_1 = 1000000.0f / (float)MAX_SAMPLES_HIGH; // High freq, e.g., 22kHz
+  fs = get_dac_sample_rate_hz();
+
+  float f_0 = (float)fs / (float)MAX_SAMPLES_LOW;
+  float f_1 = (float)fs / (float)MAX_SAMPLES_HIGH;
+
+  f_0_bit_duration = (float)PERIODS_PER_BIT_LOW / f_0;
+  f_1_bit_duration = (float)PERIODS_PER_BIT_HIGH / f_1;
 
   // Exact bitstream time
   total_time = 0.0f;
@@ -509,9 +536,11 @@ int main(void) {
 
   /* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
+  /* MCU
+   * Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+  /* Reset of all peripherals, Initializes the Flash interface and the
+   * Systick.
    */
   HAL_Init();
 
@@ -542,7 +571,8 @@ int main(void) {
   /* Initialize leds */
   BSP_LED_Init(LED_GREEN);
 
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
+  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no
+   * parity
    */
   BspCOMInit.BaudRate = 115200;
   BspCOMInit.WordLength = COM_WORDLENGTH_8B;
@@ -608,7 +638,7 @@ int main(void) {
 
   // initialize state variables
   current_idx = 0;
-  current_period = 0;
+  current_period = 2;
   current_bit = bitstream[current_idx];
 
   // prefill both halves of the circular buffer with the first bit
@@ -963,9 +993,9 @@ static void MX_GPIO_Init(void) {
  * Copyright (c) 2025 STMicroelectronics.
  * All rights reserved.
  *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
+ * This software is licensed under terms that can be found in the LICENSE
+ *file in the root directory of this software component. If no LICENSE file
+ *comes with this software, it is provided AS-IS.
  *
  ******************************************************************************
  */
