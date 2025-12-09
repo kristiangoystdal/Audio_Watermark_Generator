@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-app_name = "STM32Tool"
+app_name = "Audio Watermark Flash Tool"
 
 a = Analysis(
     ['gui.py'],

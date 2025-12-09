@@ -13,7 +13,7 @@ from scripts.build import *
 # ---------------------------------------------------------
 
 root = tk.Tk()
-root.title("STM32 Builder & Flasher")
+root.title("Audio Watermark Flash Tool")
 root.resizable(False, False)
 
 frame = tk.Frame(root, height=400, width=600, padx=20, pady=20)
@@ -22,7 +22,7 @@ frame.pack()
 # ------------------------------
 # Title
 # ------------------------------
-tk.Label(frame, text="STM32 Build & Flash Tool", font=("Arial", 20, "bold")).grid(
+tk.Label(frame, text="Audio Watermark Flash Tool", font=("Arial", 20, "bold")).grid(
     row=0, column=0, columnspan=2, pady=10
 )
 
