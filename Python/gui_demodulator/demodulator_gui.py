@@ -8,7 +8,7 @@ from pathlib import Path
 
 # Import your decoder with the NEW signature:
 # def decode_fsk(input_filename: str, f0: float, f1: float, p0: int,
-#                generate_readable: bool = False, minutes_per_segment: int = 1)
+#                generate_debug: bool = False, minutes_per_segment: int = 1)
 from demodulator import decode_fsk
 
 def derive_txt_path(wav_path: str) -> str:
@@ -39,7 +39,7 @@ class App(tk.Tk):
         self.status = tk.StringVar(value="Idle")
 
         # New controls
-        self.generate_readable = tk.BooleanVar(value=False)
+        self.generate_debug = tk.BooleanVar(value=False)
         self.use_segmentation = tk.BooleanVar(value=True)
         self.minutes_per_segment = tk.IntVar(value=1)
 
@@ -58,9 +58,9 @@ class App(tk.Tk):
         self.preset_label.pack(anchor="w", padx=12, pady=(2, 6))
         self.selected_preset.trace_add("write", lambda *_: self._update_preset_label())
 
-        # Options row: generate_readable + segmentation controls
+        # Options row: generate_debug + segmentation controls
         opt = tk.Frame(self); opt.pack(fill="x", **pad)
-        tk.Checkbutton(opt, text="Generate readable file", variable=self.generate_readable).pack(side="left")
+        tk.Checkbutton(opt, text="Generate debug file", variable=self.generate_debug).pack(side="left")
 
         seg_frame = tk.Frame(self); seg_frame.pack(fill="x", **pad)
         tk.Checkbutton(seg_frame, text="Segmentation", variable=self.use_segmentation,
@@ -131,7 +131,7 @@ class App(tk.Tk):
         preset = self.presets[self.selected_preset.get()]
         f0, f1, p0 = preset["f0"], preset["f1"], preset["p0"]
 
-        gen_readable = self.generate_readable.get()
+        gen_debug = self.generate_debug.get()
         seg_minutes = self.minutes_per_segment.get() if self.use_segmentation.get() else -1
 
         self.run_btn.config(state="disabled")
@@ -149,7 +149,7 @@ class App(tk.Tk):
                         decode_fsk(
                             wav_path,
                             f0=f0, f1=f1, p0=p0,
-                            generate_readable=gen_readable,
+                            generate_debug=gen_debug,
                             minutes_per_segment=seg_minutes,
                         )
                     except Exception as e:
