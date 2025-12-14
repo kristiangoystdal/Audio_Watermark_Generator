@@ -11,23 +11,35 @@ from pathlib import Path
 #                generate_debug: bool = False, minutes_per_segment: int = 1)
 from demodulator import decode_fsk
 
+
 def derive_txt_path(wav_path: str) -> str:
     base, _ = os.path.splitext(wav_path)
     return base + ".txt"
 
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("FSK Demodulator")
-        self.geometry("520x360")
+        self.title("FSK Audio Demodulator")
+        self.geometry("520x500")
         self.resizable(False, False)
+
+        self.frame = tk.Frame(self, padx=20, pady=20)
+        self.frame.pack(fill="both", expand=True)
+
+        # ------------------------------
+        # Title
+        # ------------------------------
+        tk.Label(
+            self.frame, text="FSK Audio Demodulator", font=("Arial", 20, "bold")
+        ).pack(pady=(12, 6))
 
         # Presets
         self.presets = {
             "Frequency Pair 1": {"f0": 20884, "f1": 22274, "p0": 60},
             "Frequency Pair 2": {"f0": 11133, "f1": 12525, "p0": 32},
-            "Frequency Pair 3": {"f0": 6957,  "f1": 8350,  "p0": 20},
-            "Frequency Pair 4": {"f0": 1392,  "f1": 2781,  "p0": 4},
+            "Frequency Pair 3": {"f0": 6957, "f1": 8350, "p0": 20},
+            "Frequency Pair 4": {"f0": 1392, "f1": 2781, "p0": 4},
         }
 
         # State
@@ -46,45 +58,88 @@ class App(tk.Tk):
         pad = {"padx": 12, "pady": 4}
 
         # Input
-        tk.Label(self, text="Input WAV(s):").pack(anchor="w", **pad)
-        row = tk.Frame(self); row.pack(fill="x", **pad)
-        tk.Entry(row, textvariable=self.inp, state="readonly").pack(side="left", fill="x", expand=True)
-        tk.Button(row, text="Browse", command=self.pick_wavs).pack(side="left", padx=(6,0))
+        tk.Label(
+            self.frame, text="Input audio file(s)", font=("Arial", 15, "bold")
+        ).pack(anchor="w", **pad)
+        row = tk.Frame(self.frame)
+        row.pack(fill="x", **pad)
+        ttk.Entry(
+            row,
+            textvariable=self.inp,
+            state="readonly",
+        ).pack(side="left", fill="x", expand=True)
+
+        tk.Button(
+            row,
+            text="Browse",
+            command=self.pick_wavs,
+        ).pack(side="left", padx=(6, 0))
 
         # Preset
-        tk.Label(self, text="Preset:").pack(anchor="w", padx=12, pady=(8, 2))
-        tk.OptionMenu(self, self.selected_preset, *self.presets.keys()).pack(fill="x", padx=12)
-        self.preset_label = tk.Label(self, text=self._preset_text(), fg="gray")
+        tk.Label(self.frame, text="FSK Parameters", font=("Arial", 15, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 2)
+        )
+        tk.OptionMenu(self.frame, self.selected_preset, *self.presets.keys()).pack(
+            fill="x", padx=12
+        )
+        self.preset_label = tk.Label(self.frame, text=self._preset_text(), fg="gray")
         self.preset_label.pack(anchor="w", padx=12, pady=(2, 6))
         self.selected_preset.trace_add("write", lambda *_: self._update_preset_label())
 
-        # Options row: generate_debug + segmentation controls
-        opt = tk.Frame(self); opt.pack(fill="x", **pad)
-        tk.Checkbutton(opt, text="Generate debug file", variable=self.generate_debug).pack(side="left")
-
-        seg_frame = tk.Frame(self); seg_frame.pack(fill="x", **pad)
-        tk.Checkbutton(seg_frame, text="Segmentation", variable=self.use_segmentation,
-                       command=self._toggle_seg_controls).pack(side="left")
-        tk.Label(seg_frame, text="Minutes per segment:").pack(side="left", padx=(12,4))
-        self.mins_entry = tk.Spinbox(seg_frame, from_=1, to=120, width=6, textvariable=self.minutes_per_segment)
+        # Segmentation option
+        tk.Label(
+            self.frame, text="Segmentation Settings", font=("Arial", 15, "bold")
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+        seg_frame = tk.Frame(self.frame)
+        seg_frame.pack(fill="x", **pad)
+        tk.Checkbutton(
+            seg_frame,
+            text="Enable segmentation (minutes per segment)",
+            variable=self.use_segmentation,
+            command=self._toggle_seg_controls,
+        ).pack(side="left")
+        self.mins_entry = tk.Spinbox(
+            seg_frame, from_=1, to=120, width=6, textvariable=self.minutes_per_segment
+        )
         self.mins_entry.pack(side="left")
 
-        # Controls
-        ctrl = tk.Frame(self); ctrl.pack(fill="x", **pad)
-        self.run_btn = tk.Button(ctrl, text="Run", command=self.run_clicked)
-        self.run_btn.pack(side="left")
+        # Debug option
+        tk.Label(self.frame, text="Debug Settings", font=("Arial", 15, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 2)
+        )
+        opt = tk.Frame(self.frame)
+        opt.pack(fill="x", **pad)
+        tk.Checkbutton(
+            opt, text="Generate debug output", variable=self.generate_debug
+        ).pack(side="left")
 
-        ttk.Separator(self, orient="horizontal").pack(fill="x", padx=12, pady=(0, 6))
-        self.progress = ttk.Progressbar(self, mode="indeterminate")
+        # Add spacing
+        tk.Label(self.frame, text="").pack(pady=(4, 0))
+
+        # Controls
+        ctrl = tk.Frame(self.frame)
+        ctrl.pack(fill="x", **pad)
+        self.run_btn = tk.Button(
+            ctrl, text="Decode and Extract", command=self.run_clicked, width=25
+        )
+        self.run_btn.pack(side="left", expand=True)
+
+        self.run_btn.pack(pady=(0, 6))
+
+        ttk.Separator(self.frame, orient="horizontal").pack(
+            fill="x", padx=12, pady=(0, 6)
+        )
+        self.progress = ttk.Progressbar(self.frame, mode="indeterminate")
         self.progress.pack(fill="x", padx=12)
-        tk.Label(self, textvariable=self.status).pack(pady=(4, 8))
+        tk.Label(self.frame, textvariable=self.status).pack(pady=(4, 8))
 
         # Initial toggle state
         self._toggle_seg_controls()
 
         # Center window
         self.update_idletasks()
-        w = self.winfo_width(); h = self.winfo_height()
+        w = self.winfo_width()
+        h = self.winfo_height()
         x = (self.winfo_screenwidth() // 2) - (w // 2)
         y = (self.winfo_screenheight() // 2) - (h // 2)
         self.geometry(f"{w}x{h}+{x}+{y}")
@@ -112,8 +167,7 @@ class App(tk.Tk):
 
     def pick_wavs(self):
         paths = filedialog.askopenfilenames(
-            title="Select WAV file(s)",
-            filetypes=[("WAV files", "*.wav *.WAV")]
+            title="Select WAV file(s)", filetypes=[("WAV files", "*.wav *.WAV")]
         )
         if not paths:
             return
@@ -132,7 +186,9 @@ class App(tk.Tk):
         f0, f1, p0 = preset["f0"], preset["f1"], preset["p0"]
 
         gen_debug = self.generate_debug.get()
-        seg_minutes = self.minutes_per_segment.get() if self.use_segmentation.get() else -1
+        seg_minutes = (
+            self.minutes_per_segment.get() if self.use_segmentation.get() else -1
+        )
 
         self.run_btn.config(state="disabled")
         self.progress.start(12)
@@ -148,22 +204,36 @@ class App(tk.Tk):
                     try:
                         decode_fsk(
                             wav_path,
-                            f0=f0, f1=f1, p0=p0,
+                            f0=f0,
+                            f1=f1,
+                            p0=p0,
                             generate_debug=gen_debug,
                             minutes_per_segment=seg_minutes,
                         )
+
                     except Exception as e:
                         errors.append((wav_path, str(e)))
                 # Quiet on success; show error popup if any failed
                 if errors:
-                    msg = "Some files failed:\n\n" + "\n".join(f"- {Path(p).name}: {err}" for p, err in errors)
+                    msg = "Some files failed:\n\n" + "\n".join(
+                        f"- {Path(p).name}: {err}" for p, err in errors
+                    )
                     messagebox.showerror("Completed with errors", msg)
-                self.status.set("Done" if not errors else f"Done ({len(errors)} errors)")
+                self.status.set(
+                    "Done" if not errors else f"Done ({len(errors)} errors)"
+                )
             finally:
                 self.progress.stop()
                 self.run_btn.config(state="normal")
 
+                def reset_ui():
+                    self.status.set("")
+                    self.progress["value"] = 0
+
+                self.after(4000, reset_ui)
+
         threading.Thread(target=worker, daemon=True).start()
+
 
 if __name__ == "__main__":
     App().mainloop()
