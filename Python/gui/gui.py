@@ -158,15 +158,25 @@ tk.Label(
     transmission_frame, text="Transmission Settings", font=("Arial", 15, "bold")
 ).grid(row=0, column=0, sticky="w", pady=(0, 5))
 
+
+def toggle_transmission(selected_var):
+    if selected_var == root.use_cable_transmission:
+        root.use_speaker_transmission.set(0)
+    else:
+        root.use_cable_transmission.set(0)
+
+
 tk.Checkbutton(
     transmission_frame,
     text="Use Cable Transmission",
     variable=root.use_cable_transmission,
+    command=lambda: toggle_transmission(root.use_cable_transmission),
 ).grid(row=1, column=0, sticky="w")
 tk.Checkbutton(
     transmission_frame,
     text="Use Speaker Transmission",
     variable=root.use_speaker_transmission,
+    command=lambda: toggle_transmission(root.use_speaker_transmission),
 ).grid(row=2, column=0, sticky="w")
 
 
