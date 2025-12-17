@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox
+from tkinter import ttk
 import threading
 
 # Import scripts
@@ -99,11 +100,19 @@ default_interval_cb = tk.Checkbutton(
 )
 default_interval_cb.grid(row=1, column=0, sticky="w")
 
-root.interval_field = tk.Entry(interval_frame, width=10)
-root.interval_field.grid(row=1, column=1, padx=(10, 0))
-root.interval_field.insert(
-    0, int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
+root.interval_var = tk.IntVar(
+    value=int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
 )
+
+root.interval_field = tk.Spinbox(
+    interval_frame,
+    from_=1,
+    to=1440,
+    width=10,
+    textvariable=root.interval_var,
+)
+root.interval_field.grid(row=1, column=1, padx=(10, 0))
+
 
 # -------------------------------
 # Delay initial timestamp setting
@@ -124,9 +133,17 @@ default_delay_cb = tk.Checkbutton(
 )
 default_delay_cb.grid(row=1, column=0, sticky="w")
 
-root.delay_field = tk.Entry(delay_frame, width=10)
+root.delay_var = tk.IntVar(value=int(read_user_config_value("STARTING_MINUTE")))
+
+root.delay_field = tk.Spinbox(
+    delay_frame,
+    from_=0,
+    to=59,
+    width=10,
+    textvariable=root.delay_var,
+)
 root.delay_field.grid(row=1, column=1, padx=(10, 0))
-root.delay_field.insert(0, int(read_user_config_value("STARTING_MINUTE")))
+
 
 # ------------------------------
 # Transmission Settings Frame
@@ -159,10 +176,11 @@ tk.Checkbutton(
 frequency_frame = tk.Frame(frame)
 frequency_frame.grid(row=10, column=0, columnspan=2, pady=(10, 5), sticky="w")
 
-tk.Label(
-    frequency_frame, text="FSK Frequency Settings", font=("Arial", 15, "bold")
-).grid(row=0, column=0, sticky="w", pady=(0, 5))
+tk.Label(frequency_frame, text="FSK Parameters", font=("Arial", 15, "bold")).grid(
+    row=0, column=0, sticky="w", pady=(0, 5)
+)
 
+# Load frequency pairs
 frequency_pairs = read_frequency_pairs()
 if not frequency_pairs:
     frequency_pairs = [
@@ -172,35 +190,59 @@ if not frequency_pairs:
         (1388.88, 2777.77),
     ]
 
-root.frequency_pair_var = tk.StringVar(value="1")
-pair_display_map = {
-    f"{f0:.2f} Hz & {f1:.2f} Hz": str(i + 1)
-    for i, (f0, f1) in enumerate(frequency_pairs)
-}
+# ------------------------------
+# Preset model
+# ------------------------------
+root.presets = {}
+for i, (f0, f1) in enumerate(frequency_pairs, start=1):
+    root.presets[f"Frequency Pair {i}"] = {"f0": f0, "f1": f1, "pair_id": str(i)}
 
-menu_display_var = tk.StringVar(
-    value=f"{frequency_pairs[0][0]:.2f} Hz & {frequency_pairs[0][1]:.2f} Hz"
+root.selected_preset = tk.StringVar(value=list(root.presets.keys())[0])
+root.frequency_pair_var = tk.StringVar(
+    value=root.presets[root.selected_preset.get()]["pair_id"]
 )
 
-frequency_menu = tk.OptionMenu(
+# ------------------------------
+# UI
+# ------------------------------
+
+preset_menu = tk.OptionMenu(
     frequency_frame,
-    menu_display_var,
-    *pair_display_map.keys(),
+    root.selected_preset,
+    *root.presets.keys(),
 )
-frequency_menu.grid(row=1, column=0, sticky="w", pady=(0, 5))
+preset_menu.config(width=25)  # 👈 adjust as needed
+preset_menu.grid(row=1, column=0, sticky="w")
 
 
-def on_pair_select(selection):
-    root.frequency_pair_var.set(pair_display_map[selection])
-    menu_display_var.set(selection)
+root.preset_label = tk.Label(
+    frequency_frame,
+    text="",
+    fg="gray",
+)
+root.preset_label.grid(row=3, column=0, sticky="w", pady=(2, 6))
 
 
-frequency_menu["menu"].delete(0, "end")
-for display_text in pair_display_map:
-    frequency_menu["menu"].add_command(
-        label=display_text,
-        command=lambda v=display_text: on_pair_select(v),
+# ------------------------------
+# Update logic
+# ------------------------------
+def update_preset_label(*_):
+    preset = root.presets[root.selected_preset.get()]
+    root.preset_label.config(
+        text=f"f0 = {preset['f0']:.2f} Hz,  f1 = {preset['f1']:.2f} Hz"
     )
+    # Keep old variable in sync for build logic
+    root.frequency_pair_var.set(preset["pair_id"])
+
+
+# Initial update + trace
+update_preset_label()
+root.selected_preset.trace_add("write", update_preset_label)
+
+
+# ------------------------------
+# Field enabling/disabling logic
+# ------------------------------
 
 
 def toggle_interval_field():
@@ -299,10 +341,10 @@ def validate_all_fields():
 
 
 # ------------------------------
-# Build button and status label
+# Build button, progress bar, and status
 # ------------------------------
 build_btn_frame = tk.Frame(frame)
-build_btn_frame.grid(row=12, column=0, columnspan=2, pady=20)
+build_btn_frame.grid(row=12, column=0, columnspan=2, pady=20, sticky="ew")
 
 build_btn = tk.Button(
     build_btn_frame,
@@ -310,10 +352,22 @@ build_btn = tk.Button(
     width=25,
     command=lambda: start_dual_flash_thread(),
 )
-build_btn.pack()
+build_btn.pack(pady=(0, 6))
 
-status_label = tk.Label(build_btn_frame, text="", font=("Arial", 14, "italic"))
-status_label.pack(pady=(10, 0))
+ttk.Separator(build_btn_frame, orient="horizontal").pack(fill="x", padx=10, pady=(6, 6))
+
+progress_bar = ttk.Progressbar(
+    build_btn_frame,
+    mode="indeterminate",
+)
+progress_bar.pack(fill="x", padx=10)
+
+status_label = tk.Label(
+    build_btn_frame,
+    text="Idle",
+    font=("Arial", 12, "italic"),
+)
+status_label.pack(pady=(6, 0))
 
 
 # ------------------------------
@@ -324,7 +378,8 @@ def start_dual_flash_thread():
         return
 
     build_btn.config(state="disabled")
-    status_label.config(text="⏳ Building... Please wait.")
+    status_label.config(text="Building...")
+    progress_bar.start(12)
 
     threading.Thread(target=dual_build_flash_call, daemon=True).start()
 
@@ -337,9 +392,10 @@ def dual_build_flash_call():
         root.after(
             0,
             lambda: [
+                progress_bar.stop(),
                 status_label.config(text="✅ Build & Flash completed successfully!"),
                 messagebox.showinfo(
-                    "Build & Flash", "✅ Build and Flash completed successfully!"
+                    "Build & Flash", "Build and Flash completed successfully!"
                 ),
             ],
         )

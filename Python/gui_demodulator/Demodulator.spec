@@ -41,11 +41,11 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Demodulator',
+    name='FSK Audio Demodulator',
 )
 app = BUNDLE(
     coll,
-    name='Demodulator.app',
+    name='FSK Audio Demodulator.app',
     icon='icon.icns',
     bundle_identifier=None,
 )
