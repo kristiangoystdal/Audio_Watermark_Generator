@@ -1,0 +1,15 @@
+# KiCad lock files
+*.lck
+
+# Autosave / backup files
+#*#
+*-backups/
+_autosave-*
+
+# Temporary files
+*.bak
+*.tmp
+
+# OS junk
+.DS_Store
+Thumbs.db
