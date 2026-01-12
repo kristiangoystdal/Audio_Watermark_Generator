@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include <user_config.h>
 
+#include "cmsis_gcc.h"
 #include "ds3231.h"
 #include "stm32g431xx.h"
 #include "stm32g4xx_hal.h"
@@ -132,10 +133,12 @@ uint32_t fs = 0;
 float f_0_bit_duration = 0.0f;
 float f_1_bit_duration = 0.0f;
 
+static bool armed = false;
+volatile bool rtc_woke = false;
+
 /* USER CODE END PV */
 
-/* Private function prototypes
- * -----------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
@@ -147,8 +150,7 @@ static void MX_I2C2_Init(void);
 
 /* USER CODE END PFP */
 
-/* Private user code
- * ---------------------------------------------------------*/
+/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 void DWT_Delay_Init(void) {
@@ -214,7 +216,7 @@ void update_time_temperature(void) {
   DS3231_PowerOn();
   Get_Time(&now);
   Read_Temperature(&temp_int);
-  DS3231_PowerOff();
+  // DS3231_PowerOff();
 }
 
 void update_input_string(void) {
@@ -349,6 +351,26 @@ void calculate_pulse_time(void) {
   __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
 }
 
+void Configure_Alarm(uint32_t add_seconds) {
+  DS3231_ClearAllAlarms();
+
+  rtc_time_t t;
+  Get_Time(&t);
+
+  uint32_t total = (uint32_t)t.seconds + add_seconds;
+  t.seconds = total % 60;
+
+  uint32_t carry_min = total / 60;
+  uint32_t total_min = (uint32_t)t.minutes + carry_min;
+  t.minutes = total_min % 60;
+
+  uint32_t carry_hour = total_min / 60;
+  t.hours = (t.hours + carry_hour) % 24;
+
+  // NOTE: date rollover not handled (fine for small intervals like 60s)
+  Set_Alarm(&t);
+}
+
 // Function to fill a buffer with repeated patterns from a lookup table
 static inline void fill_lut_repeated(uint16_t *dst, size_t buffer_len,
                                      const uint16_t *lut, size_t lut_len) {
@@ -447,42 +469,18 @@ void reset_dac(void) {
                     2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
 }
 
-// Timer interrupt callback for TIM8
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM8) {
-    update_time_temperature();
-    if (first_run && now.minutes != STARTING_MINUTE && ENABLE_DELAYED_START) {
-      counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
-      HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-      HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
-      return;
-    } else {
-      first_run = false;
-      if (!USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-        counter++;
-        if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
-          counter = 0;
-
-          if (USE_SPEAKER_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-          }
-          if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          }
-          if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
-            DWT_Delay_ms(cable_speaker_delay_ms);
-          }
-          if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-          }
-
-          update_time_temperature();
-          update_input_string();
-          make_bitstream_from_string(input_string);
-          calculate_pulse_time();
-          reset_dac();
-        }
-      } else {
+void Run_Transmission(void) {
+  update_time_temperature();
+  if (first_run && now.minutes != STARTING_MINUTE && ENABLE_DELAYED_START) {
+    counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
+    HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
+  } else {
+    first_run = false;
+    if (!USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
+      counter++;
+      if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
+        counter = 0;
 
         if (USE_SPEAKER_TRANSMISSION) {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
@@ -496,12 +494,33 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
         if (USE_CABLE_TRANSMISSION) {
           HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
         }
+
         update_time_temperature();
         update_input_string();
         make_bitstream_from_string(input_string);
         calculate_pulse_time();
         reset_dac();
       }
+    } else {
+
+      if (USE_SPEAKER_TRANSMISSION) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+      }
+      if (USE_CABLE_TRANSMISSION) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
+      }
+      if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
+        DWT_Delay_ms(cable_speaker_delay_ms);
+      }
+      if (USE_CABLE_TRANSMISSION) {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
+      }
+      update_time_temperature();
+      update_input_string();
+      make_bitstream_from_string(input_string);
+      calculate_pulse_time();
+      Configure_Alarm(60);
+      reset_dac();
     }
   }
 }
@@ -524,6 +543,13 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
   }
 }
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+  if (GPIO_Pin == GPIO_PIN_1) {
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+    rtc_woke = true;
+  }
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -536,11 +562,9 @@ int main(void) {
 
   /* USER CODE END 1 */
 
-  /* MCU
-   * Configuration--------------------------------------------------------*/
+  /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the
-   * Systick.
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
    */
   HAL_Init();
 
@@ -571,8 +595,7 @@ int main(void) {
   /* Initialize leds */
   BSP_LED_Init(LED_GREEN);
 
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no
-   * parity
+  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
    */
   BspCOMInit.BaudRate = 115200;
   BspCOMInit.WordLength = COM_WORDLENGTH_8B;
@@ -597,8 +620,13 @@ int main(void) {
       Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
                INITIAL_MONTH, INITIAL_YEAR);
     }
-    DS3231_PowerOff();
+    // DS3231_PowerOff();
   }
+
+  DS3231_PowerOn();
+  HAL_Delay(5);
+  DS3231_ClearAllAlarms();
+  // DS3231_PowerOff();
 
   //-------------------------------------------------------------------------------------------//
   // Get current time and temperature from DS3231 RTC
@@ -645,17 +673,17 @@ int main(void) {
   fill_half((uint16_t *)&output_buffer[0], current_bit);
   fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
 
+  Configure_Alarm(60);
+
   //-------------------------------------------------------------------------------------------//
   // Start timers and interrupts
   //-------------------------------------------------------------------------------------------//
 
-  HAL_TIM_Base_Start_IT(&htim8);
   HAL_TIM_PWM_Start_IT(&htim8, TIM_CHANNEL_1);
 
-  // Force TIM8 to overflow immediately
-  __HAL_TIM_SET_COUNTER(&htim8, htim8.Init.Period - 1);
-
   HAL_TIM_Base_Start_IT(&htim2);
+
+  Run_Transmission();
 
   //-------------------------------------------------------------------------------------------//
   // Set timer count to right before triggering the pulse
@@ -666,13 +694,39 @@ int main(void) {
 
     /* USER CODE BEGIN 3 */
 
-    // Enter Sleep Mode, wake up is done by interrupts
-    __WFI();
+    // Let transmission run; don't spin at full speed
+    if (tx_active) {
+      __WFI();
+      continue;
+    }
+
+    // Stop stuff only when idle
+    HAL_TIM_PWM_Stop_IT(&htim8, TIM_CHANNEL_1);
+    HAL_TIM_Base_Stop(&htim2); // <-- IMPORTANT (not Stop_IT)
+
+    HAL_SuspendTick();
+    HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
+    HAL_ResumeTick();
+    SystemClock_Config();
+
+    if (rtc_woke) {
+      rtc_woke = false;
+
+      DS3231_ClearAllAlarms();
+      Configure_Alarm(60);
+
+      // Restart PWM cleanly (avoid immediate pulse-finished)
+      __HAL_TIM_SET_COUNTER(&htim8, 0);
+      __HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_CC1);
+      __HAL_TIM_CLEAR_FLAG(&htim8, TIM_FLAG_UPDATE);
+      HAL_TIM_PWM_Start_IT(&htim8, TIM_CHANNEL_1);
+
+      Run_Transmission(); // starts TIM2 base and DAC DMA via reset_dac()
+    }
 
     /* USER CODE END 3 */
   }
 }
-
 /**
  * @brief System Clock Configuration
  * @retval None
@@ -959,6 +1013,12 @@ static void MX_GPIO_Init(void) {
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin : PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   /*Configure GPIO pins : PA5 PA6 PA7 */
   GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -972,6 +1032,10 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -993,9 +1057,9 @@ static void MX_GPIO_Init(void) {
  * Copyright (c) 2025 STMicroelectronics.
  * All rights reserved.
  *
- * This software is licensed under terms that can be found in the LICENSE
- *file in the root directory of this software component. If no LICENSE file
- *comes with this software, it is provided AS-IS.
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
  *
  ******************************************************************************
  */
