@@ -107,6 +107,7 @@ int temp_int = 25;
 
 uint16_t sine_val_low[FSK_LOWER_NUM_SAMPLES];
 uint16_t sine_val_high[FSK_HIGHER_NUM_SAMPLES];
+uint16_t dc_mid[FSK_LOWER_NUM_SAMPLES]; // constant mid-level DC value
 
 // Pulse Calculation Variables
 uint32_t fs = 0;
@@ -117,12 +118,21 @@ float total_time = 0.0;
 
 // FSK
 typedef struct {
-  size_t moved;
-  size_t sine_index;
-  size_t sine_period;
+  size_t moved_to_next_bit;
+  size_t current_period;
+  size_t current_index;
 } FillResult;
 
-
+#define BUFFER_SIZE 512
+uint16_t output_buffer[BUFFER_SIZE];
+volatile bool tx_active = true;
+volatile size_t current_bitstream_index = 0;
+volatile uint8_t current_bit = 0;
+volatile uint8_t next_bit = 0;
+volatile size_t current_sine_period = 0;
+volatile size_t current_sine_index = 0;
+volatile bool moved_to_next_bit = false;
+FillResult result;
 
 /* USER CODE END PV */
 
@@ -143,6 +153,7 @@ void update_input_string(void);
 int make_preamble(int start_idx);
 void get_sineval_low(void);
 void get_sineval_high(void);
+void get_dc_mid(void);
 uint32_t get_dac_sample_rate_hz(void);
 
 /* USER CODE END PFP */
@@ -193,6 +204,7 @@ int main(void) {
 
   get_sineval_low();
   get_sineval_high();
+  get_dc_mid();
 
   //-----------------------------------------------------------------------------//
   // Prepare input string
@@ -226,7 +238,7 @@ int main(void) {
     StartActiveWindowMs(calculate_active_duration_ms());
 
     while (!active_done) {
-
+      // Stay active
     }
     active_done = 0;
 
@@ -648,6 +660,13 @@ void get_sineval_high(void) {
         (uint16_t)((4095.0 / 2.0) *
                    (1.0 + sinf(2.0 * pi * i / FSK_HIGHER_NUM_SAMPLES) *
                               (1.5 / 1.65)));
+  }
+}
+
+void get_dc_mid(void) {
+  uint16_t mid_value = (uint16_t)(4095.0 / 2.0);
+  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
+    dc_mid[i] = mid_value;
   }
 }
 
