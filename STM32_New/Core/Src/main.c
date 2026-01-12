@@ -22,6 +22,11 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <stdio.h>  // snprintf
+#include <string.h> // strlen
+
+#include "user_config.h"
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,6 +36,19 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define LEN_IF(cond, lit) ((cond) ? (sizeof(lit) - 1u) : 0u)
+
+#define MAX_NUM_CHARS                                                          \
+  (LEN_IF(INCLUDE_USER_STRING, "/STR" USER_STRING) +                           \
+   LEN_IF(INCLUDE_DEVICE_ID, "/DID0000") +                                     \
+   LEN_IF(INCLUDE_LOCATION, "/LOC00.0000,00.0000") +                           \
+   LEN_IF(INCLUDE_TEMPERATURE, "/TMP000") +                                    \
+   LEN_IF(INCLUDE_TIME, "/TIM00000000000000") + 4u)
+
+#define BITSTREAM_LENGTH (MAX_NUM_CHARS * 8u)
+
+#define BIT_POLARITY 0
 
 /* USER CODE END PD */
 
@@ -45,7 +63,25 @@ TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
 
+char input_string[MAX_NUM_CHARS] = {0};
+
+uint8_t bitstream[BITSTREAM_LENGTH] = {0};
+
 volatile uint8_t active_done = 0;
+
+typedef struct {
+  uint8_t seconds;
+  uint8_t minutes;
+  uint8_t hours;
+  uint8_t day;
+  uint8_t date;
+  uint8_t month;
+  uint16_t year;
+} rtc_time_t;
+
+rtc_time_t now = {0};
+
+int temp_int = 25;
 
 /* USER CODE END PV */
 
@@ -335,6 +371,105 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
   if (htim->Instance == TIM6) {
     HAL_TIM_Base_Stop_IT(&htim6); // <- makes it one-shot reliably
     active_done = 1;
+  }
+}
+
+int make_preamble(int start_idx) {
+  int k = start_idx;
+  uint16_t id = 0; // 0x2DD4
+  for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
+  }
+
+  return k;
+}
+
+void make_bitstream_from_string(const char *str) {
+  int k = 0;
+
+  // Preamble bit - silence
+  for (int i = 0; i < 1 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = 2; // silence
+  }
+
+  // Data bits from string
+  for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
+    for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
+      bitstream[k++] = ((str[i] >> b) & 1) ^ BIT_POLARITY; // data
+    }
+  }
+
+  // Add 8 bits of silence at the end if there's space
+  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
+    bitstream[k++] = 2; // silence
+  }
+
+  // Fill remaining bits with silence if any
+  while (k < BITSTREAM_LENGTH) {
+    bitstream[k++] = 2; // silence
+  }
+}
+
+void update_input_string(void) {
+  input_string[0] = '\0';
+  size_t offset = 0;
+  size_t remaining = MAX_NUM_CHARS;
+  int n = 0;
+
+  // Append USER_STRING if enabled
+  if (INCLUDE_USER_STRING) {
+    n = snprintf(&input_string[offset], remaining, "/STR%s", USER_STRING);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append DEVICE_ID if enabled
+  if (INCLUDE_DEVICE_ID) {
+    n = snprintf(&input_string[offset], remaining, "%s/DID%d",
+                 (offset > 0) ? "" : "", DEVICE_ID);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append LOCATION if enabled
+  if (INCLUDE_LOCATION) {
+    n = snprintf(&input_string[offset], remaining, "%s/LOC%s",
+                 (offset > 0) ? "" : "", LOCATION);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append TEMPERATURE if enabled
+  if (INCLUDE_TEMPERATURE) {
+    n = snprintf(&input_string[offset], remaining, "%s/TMP%d",
+                 (offset > 0) ? "" : "", temp_int);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Append TIME if enabled
+  if (INCLUDE_TIME) {
+    n = snprintf(&input_string[offset], remaining,
+                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
+                 now.hours, now.minutes, now.seconds, now.day, now.date,
+                 now.month, now.year);
+
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+  // Add termination sign
+  if (strlen(input_string) > 0) {
+    n = snprintf(&input_string[offset], remaining, "/");
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
   }
 }
 
