@@ -50,4 +50,7 @@
 // 4 = 2.8kHz and 1.4kHz
 #define FSK_FREQUENCY_PAIR 1
 
+#define FSK_LOWER_FREQUENCY 1000
+#define FSK_HIGHER_FREQUENCY 1200
+
 #endif // USER_CONFIG_H
