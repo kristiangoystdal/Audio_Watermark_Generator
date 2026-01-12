@@ -63,16 +63,28 @@
 
 #define MID_12B 2048
 
-#define MAX_SAMPLES_MID_VAL 20
-
-#define REPEAT_HALF 4
-#define PER_HALF_SIL 18
-#define PERIODS_PER_BIT_LOW (PER_HALF_LOW * REPEAT_HALF)
-#define PERIODS_PER_BIT_HIGH (PER_HALF_HIGH * REPEAT_HALF)
-#define PERIODS_PER_BIT_SIL (PER_HALF_SIL * REPEAT_HALF)
-
 #define BIT_POLARITY 0          // 0 = normal, 1 = inverted
 #define DS3231_ADDR (0x68 << 1) // 7-bit addr shifted for HAL
+
+#define DIV_FLOOR(n, d) ((uint32_t)((n) / (d)))
+#define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d))) // round half-up
+
+#define FSK_LOWER_NUM_SAMPLES DIV_FLOOR(FS_HZ, FSK_LOWER_FREQUENCY)
+#define FSK_HIGHER_NUM_SAMPLES DIV_FLOOR(FS_HZ, FSK_HIGHER_FREQUENCY)
+
+#define FSK_LOWER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_LOWER_NUM_SAMPLES)
+#define FSK_HIGHER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_HIGHER_NUM_SAMPLES)
+
+#define OUTPUT_SEGMENT 1000
+#define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
+
+// Add/keep these near your defines
+#define DMA_BUF_LEN (BUFFER_SIZE)
+
+// (Optional but recommended) make sure it's even at compile time
+#if (DMA_BUF_LEN % 2u) != 0u
+#error "BUFFER_SIZE must be even (so it can be split into two halves)."
+#endif
 
 /* USER CODE END PD */
 
@@ -96,18 +108,16 @@ TIM_HandleTypeDef htim8;
 /* USER CODE BEGIN PV */
 
 // Circular buffer for DAC output
-__ALIGN_BEGIN __IO uint16_t
-    output_buffer[2 * MAX_NUM_SAMPLES_BUFFER] __ALIGN_END;
+__ALIGN_BEGIN __IO uint16_t output_buffer[BUFFER_SIZE] __ALIGN_END;
 
-uint16_t sine_val_low[MAX_SAMPLES_LOW];
-uint16_t sine_val_high[MAX_SAMPLES_HIGH];
-uint16_t dc_mid[MAX_SAMPLES_MID_VAL];
+uint16_t sine_val_low[FSK_LOWER_NUM_SAMPLES];
+uint16_t sine_val_high[FSK_HIGHER_NUM_SAMPLES];
+uint16_t dc_mid[FSK_LOWER_NUM_SAMPLES];
 
 static uint16_t bitstream[BITSTREAM_LENGTH];
 
 static volatile uint32_t current_period = 1;
-static volatile uint32_t current_bit = 2;
-static volatile uint32_t current_idx = 0;
+static volatile uint16_t current_bit = 2;
 
 float total_time = 0.0;
 uint32_t pulse_time = 1000; // in timer ticks
@@ -118,7 +128,6 @@ uint32_t ticks = 0;
 static volatile bool tx_active = false;
 
 int counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
-int delay_counter = 0;
 bool first_run = true;
 
 // User string buffer
@@ -132,9 +141,23 @@ uint32_t fs = 0;
 
 float f_0_bit_duration = 0.0f;
 float f_1_bit_duration = 0.0f;
+float f_2_bit_duration = 0.0f;
 
-static bool armed = false;
-volatile bool rtc_woke = false;
+uint32_t current_bitstream_index = 0;
+
+bool moved_to_next_bit = false;
+
+typedef struct {
+  bool moved_to_next_bit;
+  size_t current_period;
+  size_t current_index;
+} FillResult;
+
+FillResult result = {false, 0, 0};
+
+size_t current_sine_period = 0;
+size_t current_sine_index = 0;
+uint16_t next_bit = 2;
 
 /* USER CODE END PV */
 
@@ -284,25 +307,27 @@ void update_input_string(void) {
 
 // Function to generate sine wave lookup table for low frequency
 void get_sineval_low(void) {
-  for (int i = 0; i < MAX_SAMPLES_LOW; i++) {
+  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
     sine_val_low[i] =
         (uint16_t)((4095.0 / 2.0) *
-                   (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_LOW) * (1.5 / 1.65)));
+                   (1.0 +
+                    sinf(2.0 * pi * i / FSK_LOWER_NUM_SAMPLES) * (1.5 / 1.65)));
   }
 }
 
 // Function to generate sine wave lookup table for the high frequency
 void get_sineval_high(void) {
-  for (int i = 0; i < MAX_SAMPLES_HIGH; i++) {
-    sine_val_high[i] = (uint16_t)((4095.0 / 2.0) *
-                                  (1.0 + sinf(2.0 * pi * i / MAX_SAMPLES_HIGH) *
-                                             (1.5 / 1.65)));
+  for (int i = 0; i < FSK_HIGHER_NUM_SAMPLES; i++) {
+    sine_val_high[i] =
+        (uint16_t)((4095.0 / 2.0) *
+                   (1.0 + sinf(2.0 * pi * i / FSK_HIGHER_NUM_SAMPLES) *
+                              (1.5 / 1.65)));
   }
 }
 
 // Function to generate mid-scale lookup table
 void get_dc_mid(void) {
-  for (int i = 0; i < MAX_SAMPLES_MID_VAL; ++i)
+  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; ++i)
     dc_mid[i] = MID_12B;
 }
 
@@ -318,19 +343,22 @@ uint32_t get_dac_sample_rate_hz(void) {
 void calculate_pulse_time(void) {
   fs = get_dac_sample_rate_hz();
 
-  float f_0 = (float)fs / (float)MAX_SAMPLES_LOW;
-  float f_1 = (float)fs / (float)MAX_SAMPLES_HIGH;
+  float f_0 = FSK_LOWER_FREQUENCY;
+  float f_1 = FSK_HIGHER_FREQUENCY;
 
-  f_0_bit_duration = (float)PERIODS_PER_BIT_LOW / f_0;
-  f_1_bit_duration = (float)PERIODS_PER_BIT_HIGH / f_1;
+  f_0_bit_duration = (float)FSK_LOWER_PERIODS / f_0;
+  f_1_bit_duration = (float)FSK_HIGHER_PERIODS / f_1;
+  f_2_bit_duration = f_0_bit_duration; // silence uses lower frequency
 
   // Exact bitstream time
   total_time = 0.0f;
   for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
     if (bitstream[i] == 0) {
-      total_time += ((float)PERIODS_PER_BIT_LOW) / f_0;
+      total_time += ((float)FSK_LOWER_PERIODS) / f_0;
     } else if (bitstream[i] == 1) {
-      total_time += (float)PERIODS_PER_BIT_HIGH / f_1;
+      total_time += (float)FSK_HIGHER_PERIODS / f_1;
+    } else {
+      total_time += (float)FSK_LOWER_PERIODS / f_0;
     }
   }
 
@@ -351,49 +379,75 @@ void calculate_pulse_time(void) {
   __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
 }
 
-void Configure_Alarm(uint32_t add_seconds) {
-  DS3231_ClearAllAlarms();
-
-  rtc_time_t t;
-  Get_Time(&t);
-
-  uint32_t total = (uint32_t)t.seconds + add_seconds;
-  t.seconds = total % 60;
-
-  uint32_t carry_min = total / 60;
-  uint32_t total_min = (uint32_t)t.minutes + carry_min;
-  t.minutes = total_min % 60;
-
-  uint32_t carry_hour = total_min / 60;
-  t.hours = (t.hours + carry_hour) % 24;
-
-  // NOTE: date rollover not handled (fine for small intervals like 60s)
-  Set_Alarm(&t);
-}
-
-// Function to fill a buffer with repeated patterns from a lookup table
-static inline void fill_lut_repeated(uint16_t *dst, size_t buffer_len,
-                                     const uint16_t *lut, size_t lut_len) {
-  size_t k = 0;
-  while (k < buffer_len) {
-    size_t to_copy = (buffer_len - k < lut_len) ? (buffer_len - k) : lut_len;
-    memcpy(&dst[k], lut, to_copy * sizeof(uint16_t));
-    k += to_copy;
-  }
-}
-
-// Function to fill half of the output buffer based on the current bit
-static inline void fill_half(uint16_t *dst, uint32_t bit) {
-  if (bit == 2) {
-    for (size_t i = 0; i < MAX_NUM_SAMPLES_BUFFER; ++i)
-      dst[i] = MID_12B;
+size_t get_target_bit_periods(uint16_t bit) {
+  if (bit == 0) {
+    return FSK_LOWER_PERIODS;
   } else if (bit == 1) {
-    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_high,
-                      MAX_SAMPLES_HIGH); // 16×
+    return FSK_HIGHER_PERIODS;
   } else {
-    fill_lut_repeated(dst, MAX_NUM_SAMPLES_BUFFER, sine_val_low,
-                      MAX_SAMPLES_LOW); // 15×
+    return FSK_LOWER_PERIODS; // silence uses lower frequency periods
   }
+}
+
+#include <string.h>
+
+FillResult fill_half_buffer(uint16_t *buffer, uint16_t bit, uint16_t next_bit,
+                            size_t generation_size, size_t current_sine_period,
+                            size_t current_sine_index) {
+  size_t out = 0;
+  size_t period = current_sine_period;
+  size_t idx = current_sine_index;
+  uint16_t cur_bit = bit;
+  bool moved = false;
+
+  while (out < generation_size) {
+
+    /* Select LUT */
+    const uint16_t *lut;
+    size_t lut_len;
+    size_t target_periods;
+
+    if (cur_bit == 0) {
+      lut = sine_val_low;
+      lut_len = FSK_LOWER_NUM_SAMPLES;
+      target_periods = FSK_LOWER_PERIODS;
+    } else if (cur_bit == 1) {
+      lut = sine_val_high;
+      lut_len = FSK_HIGHER_NUM_SAMPLES;
+      target_periods = FSK_HIGHER_PERIODS;
+    } else {
+      lut = dc_mid;
+      lut_len = FSK_LOWER_NUM_SAMPLES; // constant value
+      target_periods = FSK_LOWER_PERIODS;
+    }
+
+    /* How many samples can we copy this round? */
+    size_t left_buf = generation_size - out;
+    size_t left_lut = lut_len - idx;
+    size_t n = left_buf < left_lut ? left_buf : left_lut;
+
+    memcpy(&buffer[out], &lut[idx], n * sizeof(uint16_t));
+
+    out += n;
+    idx += n;
+
+    /* Wrapped LUT = completed one period */
+    if (idx == lut_len) {
+      idx = 0;
+      period++;
+
+      /* Completed all periods for this bit */
+      if (period == target_periods) {
+        period = 0;
+        cur_bit = next_bit;
+        moved = true;
+      }
+    }
+  }
+
+  return (FillResult){.moved_to_next_bit = moved,
+                      .current_period = period,
+                      .current_index = idx};
 }
 
 // DAC conversion complete callbacks for half buffer
@@ -401,24 +455,21 @@ void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   if (!tx_active)
     return;
 
-  // Update current period
-  uint32_t per = (current_bit == 0)   ? PER_HALF_LOW
-                 : (current_bit == 1) ? PER_HALF_HIGH
-                                      : PER_HALF_SIL;
-
-  current_period += per;
-
-  // Check if we need to move to the next bit
-  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_LOW) ||
-         (current_bit == 1 && current_period >= PERIODS_PER_BIT_HIGH) ||
-         (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
-    current_period = 0;
-    current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_idx];
-  }
-
   // Fill the first half of the buffer based on the current bit
-  fill_half((uint16_t *)&output_buffer[0], current_bit);
+  result = fill_half_buffer((uint16_t *)&output_buffer[0], current_bit,
+                            next_bit, BUFFER_SIZE / 2, current_sine_period,
+                            current_sine_index);
+
+  moved_to_next_bit = result.moved_to_next_bit;
+  current_sine_period = result.current_period;
+  current_sine_index = result.current_index;
+
+  if (moved_to_next_bit) {
+    moved_to_next_bit = false;
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
 }
 
 // DAC conversion complete callback for the full buffer
@@ -426,24 +477,21 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   if (!tx_active)
     return;
 
-  // Update current period
-  uint32_t per = (current_bit == 0)   ? PER_HALF_LOW
-                 : (current_bit == 1) ? PER_HALF_HIGH
-                                      : PER_HALF_SIL;
-
-  current_period += per;
-
-  // Check if we need to move to the next bit
-  while ((current_bit == 0 && current_period >= PERIODS_PER_BIT_LOW) ||
-         (current_bit == 1 && current_period >= PERIODS_PER_BIT_HIGH) ||
-         (current_bit == 2 && current_period >= PERIODS_PER_BIT_SIL)) {
-    current_period = 0;
-    current_idx = (current_idx + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_idx];
-  }
-
   // Fill the first half of the buffer based on the current bit
-  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
+  result = fill_half_buffer((uint16_t *)&output_buffer[BUFFER_SIZE / 2],
+                            current_bit, next_bit, BUFFER_SIZE / 2,
+                            current_sine_period, current_sine_index);
+
+  moved_to_next_bit = result.moved_to_next_bit;
+  current_sine_period = result.current_period;
+  current_sine_index = result.current_index;
+
+  if (moved_to_next_bit) {
+    moved_to_next_bit = false;
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
 }
 
 void reset_dac(void) {
@@ -451,13 +499,42 @@ void reset_dac(void) {
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 
   // Restart the bitstream from the beginning
-  current_idx = 0;
   current_period = 0;
+  current_bitstream_index = 0;
   current_bit = bitstream[0];
+  next_bit = bitstream[1 % BITSTREAM_LENGTH];
+  current_sine_period = 0;
+  current_sine_index = 0;
 
   // Prefill both halves of the circular buffer with the first bit
-  fill_half((uint16_t *)&output_buffer[0], current_bit);
-  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
+  result = fill_half_buffer((uint16_t *)&output_buffer[0], current_bit,
+                            next_bit, BUFFER_SIZE / 2, 0, 0);
+
+  moved_to_next_bit = result.moved_to_next_bit;
+  current_sine_period = result.current_period;
+  current_sine_index = result.current_index;
+
+  if (moved_to_next_bit) {
+    moved_to_next_bit = false;
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
+
+  result = fill_half_buffer((uint16_t *)&output_buffer[BUFFER_SIZE / 2],
+                            current_bit, next_bit, BUFFER_SIZE / 2,
+                            current_sine_period, current_sine_index);
+
+  moved_to_next_bit = result.moved_to_next_bit;
+  current_sine_period = result.current_period;
+  current_sine_index = result.current_index;
+
+  if (moved_to_next_bit) {
+    moved_to_next_bit = false;
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
 
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   HAL_TIM_Base_Start(&htim2);
@@ -466,7 +543,7 @@ void reset_dac(void) {
 
   // Restart DAC with the circular buffer
   HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                    2 * MAX_NUM_SAMPLES_BUFFER, DAC_ALIGN_12B_R);
+                    BUFFER_SIZE, DAC_ALIGN_12B_R);
 }
 
 void Run_Transmission(void) {
@@ -664,16 +741,42 @@ int main(void) {
   // Filling the circular buffer for the DAC
   //-------------------------------------------------------------------------------------------//
 
-  // initialize state variables
-  current_idx = 0;
-  current_period = 2;
-  current_bit = bitstream[current_idx];
+  current_sine_period = 0;
+  current_sine_index = 0;
+  current_bitstream_index = 0;
 
-  // prefill both halves of the circular buffer with the first bit
-  fill_half((uint16_t *)&output_buffer[0], current_bit);
-  fill_half((uint16_t *)&output_buffer[MAX_NUM_SAMPLES_BUFFER], current_bit);
+  current_bit = bitstream[current_bitstream_index];
+  next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
 
-  Configure_Alarm(60);
+  result = fill_half_buffer((uint16_t *)&output_buffer[0], current_bit,
+                            next_bit, BUFFER_SIZE / 2, current_sine_period,
+                            current_sine_index);
+
+  moved_to_next_bit = result.moved_to_next_bit;
+  current_sine_period = result.current_period;
+  current_sine_index = result.current_index;
+
+  if (moved_to_next_bit) {
+    moved_to_next_bit = false;
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
+
+  result = fill_half_buffer((uint16_t *)&output_buffer[BUFFER_SIZE / 2],
+                            current_bit, next_bit, BUFFER_SIZE / 2,
+                            current_sine_period, current_sine_index);
+
+  moved_to_next_bit = result.moved_to_next_bit;
+  current_sine_period = result.current_period;
+  current_sine_index = result.current_index;
+
+  if (moved_to_next_bit) {
+    moved_to_next_bit = false;
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
 
   //-------------------------------------------------------------------------------------------//
   // Start timers and interrupts
