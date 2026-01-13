@@ -159,6 +159,8 @@ size_t current_sine_period = 0;
 size_t current_sine_index = 0;
 uint16_t next_bit = 2;
 
+bool rtc_woke = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -596,7 +598,7 @@ void Run_Transmission(void) {
       update_input_string();
       make_bitstream_from_string(input_string);
       calculate_pulse_time();
-      Configure_Alarm(60);
+      // Configure_Alarm(60);
       reset_dac();
     }
   }
@@ -816,7 +818,7 @@ int main(void) {
       rtc_woke = false;
 
       DS3231_ClearAllAlarms();
-      Configure_Alarm(60);
+      // Configure_Alarm(60);
 
       // Restart PWM cleanly (avoid immediate pulse-finished)
       __HAL_TIM_SET_COUNTER(&htim8, 0);
