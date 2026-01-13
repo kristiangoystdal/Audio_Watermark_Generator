@@ -22,11 +22,19 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include <math.h>
-#include <stdio.h>  // snprintf
-#include <string.h> // strlen
+#include <user_config.h>
 
-#include "user_config.h"
+#include "cmsis_gcc.h"
+#include "stm32g431xx.h"
+#include "stm32g4xx_hal.h"
+#include "stm32g4xx_hal_dac.h"
+#include "stm32g4xx_hal_gpio.h"
+#include <math.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
 /* USER CODE END Includes */
 
@@ -68,6 +76,9 @@
 #define FSK_LOWER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_LOWER_NUM_SAMPLES)
 #define FSK_HIGHER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_HIGHER_NUM_SAMPLES)
 
+#define OUTPUT_SEGMENT 1000
+#define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -76,6 +87,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+
+COM_InitTypeDef BspCOMInit;
 
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac1_ch1;
@@ -123,8 +136,8 @@ typedef struct {
   size_t current_index;
 } FillResult;
 
-#define BUFFER_SIZE 512
-uint16_t output_buffer[BUFFER_SIZE];
+__ALIGN_BEGIN uint16_t output_buffer[BUFFER_SIZE] __ALIGN_END;
+
 volatile bool tx_active = true;
 volatile size_t current_bitstream_index = 0;
 volatile uint8_t current_bit = 0;
@@ -146,7 +159,7 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
-uint32_t calculate_active_duration_ms(void);
+void calculate_active_duration_ms(void);
 void StartActiveWindowMs(uint32_t ms);
 void make_bitstream_from_string(const char *str);
 void update_input_string(void);
@@ -155,6 +168,9 @@ void get_sineval_low(void);
 void get_sineval_high(void);
 void get_dc_mid(void);
 uint32_t get_dac_sample_rate_hz(void);
+
+static void TX_Start(void);
+static void TX_Stop(void);
 
 /* USER CODE END PFP */
 
@@ -219,32 +235,109 @@ int main(void) {
   make_bitstream_from_string(input_string);
 
   //-----------------------------------------------------------------------------//
+  // Calculate active duration
+  //-----------------------------------------------------------------------------//
+
+  calculate_active_duration_ms();
+
+  //-----------------------------------------------------------------------------//
+  // Start DAC DMA
+  //-----------------------------------------------------------------------------//
+  current_bitstream_index = 0;
+  current_bit = bitstream[current_bitstream_index];
+  next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  current_sine_period = 0;
+  current_sine_index = 0;
+  tx_active = true;
+
+  //---------------------------------------------------------------------------//
+  // Main loop
+  //---------------------------------------------------------------------------//
 
   /* USER CODE END 2 */
+
+  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
+   */
+  BspCOMInit.BaudRate = 115200;
+  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
+  BspCOMInit.StopBits = COM_STOPBITS_1;
+  BspCOMInit.Parity = COM_PARITY_NONE;
+  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
+  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
+    Error_Handler();
+  }
 
   /* USER CODE BEGIN BSP */
 
   /* -- Sample board code to send message over COM1 port ---- */
+  printf("\033[2J\033[H");
+  printf("-------------------------\r\n");
+  printf("Hello from VCP!\r\n");
 
   /* USER CODE END BSP */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  HAL_TIM_Base_Start(&htim2);
+
+  tx_active = true;
+
+  // Restart DAC with the circular buffer
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                    BUFFER_SIZE, DAC_ALIGN_12B_R);
+
+  HAL_Delay(5);
+  printf("CNDTR=%lu ISR=0x%08lx CR=0x%08lx\r\n",
+         (unsigned long)DMA1_Channel1->CNDTR, (unsigned long)DMA1->ISR,
+         (unsigned long)DAC1->CR);
+
+  uint32_t c0 = __HAL_TIM_GET_COUNTER(&htim2);
+  HAL_Delay(10);
+  uint32_t c1 = __HAL_TIM_GET_COUNTER(&htim2);
+  printf("TIM2 CNT diff=%lu\r\n", (unsigned long)(c1 - c0));
+
+  printf("-------------------------\r\n");
+  printf("Input string prepared:\r\n%s\r\n", input_string);
+  printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
+  uint32_t ms = (uint32_t)(total_time * 1000.0f);
+  printf("Active duration: %lu ms\r\n", (unsigned long)ms);
+  printf("Bitstream:\r\n");
+  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
+    printf("%u", bitstream[i]);
+  }
+  printf("\r\n");
+  printf("-------------------------\r\n");
+
   while (1) {
-    // Sleep until EXTI wakes you
+
+    // 1) sleep until button wakes you
     EnterStopMode();
 
-    // Active for 2000 ms
-    StartActiveWindowMs(calculate_active_duration_ms());
+    printf("Woke up!\r\n");
 
-    while (!active_done) {
-      // Stay active
-    }
-    active_done = 0;
-
+    // wait for release (active-low button)
     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
     }
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+
+    // 2) start TX
+    TX_Start();
+
+    // 3) run for duration
+    calculate_active_duration_ms();
+    uint32_t ms = (uint32_t)(total_time * 1000.0f);
+    printf("Active duration: %lu ms\r\n", (unsigned long)ms);
+
+    StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+    while (!active_done) {
+      __WFI(); // CPU sleeps while DMA+TIM2+DAC run
+    }
+    active_done = 0;
+
+    // 4) stop TX and loop back to sleep
+    TX_Stop();
 
     /* USER CODE END WHILE */
 
@@ -463,14 +556,12 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA2 PA3 PA5
-                           PA6 PA7 PA8 PA9
-                           PA10 PA11 PA12 PA13
-                           PA14 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_5 |
-                        GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9 |
-                        GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
-                        GPIO_PIN_14 | GPIO_PIN_15;
+  /*Configure GPIO pins : PA0 PA5 PA6 PA7
+                           PA8 PA9 PA10 PA11
+                           PA12 PA13 PA14 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
+                        GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 |
+                        GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -678,7 +769,7 @@ uint32_t get_dac_sample_rate_hz(void) {
   return tim_clk / ((htim2.Init.Prescaler + 1) * (htim2.Init.Period + 1));
 }
 
-uint32_t calculate_active_duration_ms(void) {
+void calculate_active_duration_ms(void) {
   fs = get_dac_sample_rate_hz();
 
   float f_0 = (float)fs / (float)FSK_LOWER_NUM_SAMPLES;
@@ -694,14 +785,14 @@ uint32_t calculate_active_duration_ms(void) {
       total_time += ((float)FSK_LOWER_PERIODS) / f_0;
     } else if (bitstream[i] == 1) {
       total_time += (float)FSK_HIGHER_PERIODS / f_1;
+    } else {
+      total_time += ((float)FSK_LOWER_PERIODS) / f_0; // silence
     }
   }
 
   // Add silence time
   total_time *= 1.05f;                            // 5% margin
   total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
-
-  return total_time * 1000.0f; // in ms
 }
 
 FillResult fill_half_buffer(uint16_t *buffer, uint16_t bit, uint16_t next_bit,
@@ -805,6 +896,54 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
     current_bit = bitstream[current_bitstream_index];
     next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
   }
+}
+
+static void TX_Start(void) {
+  printf("TX_Start()\r\n");
+  // reset FSK state
+  current_bitstream_index = 0;
+  current_bit = bitstream[current_bitstream_index];
+  next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  current_sine_period = 0;
+  current_sine_index = 0;
+  tx_active = true;
+
+  printf("Filling initial buffer...\r\n");
+  // IMPORTANT: fill BOTH halves before starting DMA
+  FillResult r1 = fill_half_buffer(&output_buffer[0], current_bit, next_bit,
+                                   BUFFER_SIZE / 2, current_sine_period,
+                                   current_sine_index);
+  current_sine_period = r1.current_period;
+  current_sine_index = r1.current_index;
+  if (r1.moved_to_next_bit) {
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
+
+  FillResult r2 = fill_half_buffer(&output_buffer[BUFFER_SIZE / 2], current_bit,
+                                   next_bit, BUFFER_SIZE / 2,
+                                   current_sine_period, current_sine_index);
+  current_sine_period = r2.current_period;
+  current_sine_index = r2.current_index;
+  if (r2.moved_to_next_bit) {
+    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
+    current_bit = bitstream[current_bitstream_index];
+    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  }
+
+  printf("Starting DAC DMA...\r\n");
+  // start DAC first, then timer triggers
+  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                    BUFFER_SIZE, DAC_ALIGN_12B_R);
+  HAL_TIM_Base_Start(&htim2);
+}
+
+static void TX_Stop(void) {
+  tx_active = false;
+
+  HAL_TIM_Base_Stop(&htim2);
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 }
 
 /* USER CODE END 4 */
