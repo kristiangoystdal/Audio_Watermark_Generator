@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file    stm32g4xx_it.c
-  * @brief   Interrupt Service Routines.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file    stm32g4xx_it.c
+ * @brief   Interrupt Service Routines.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2026 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Includes ------------------------------------------------------------------*/
@@ -74,8 +74,7 @@ void NMI_Handler(void)
 
   /* USER CODE END NonMaskableInt_IRQn 0 */
   /* USER CODE BEGIN NonMaskableInt_IRQn 1 */
-   while (1)
-  {
+  while (1) {
   }
   /* USER CODE END NonMaskableInt_IRQn 1 */
 }
@@ -220,10 +219,16 @@ void EXTI1_IRQHandler(void)
 void DMA1_Channel1_IRQHandler(void)
 {
   /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
+  uint32_t isr = DMA1->ISR;
+  printf("DMA IRQ: ISR=0x%08lx\r\n", (unsigned long)isr);
 
   /* USER CODE END DMA1_Channel1_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_dac1_ch1);
   /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
+  printf("DMA after HAL: CCR=0x%08lx CNDTR=%lu err=0x%lx\r\n",
+         (unsigned long)((DMA_Channel_TypeDef *)hdma_dac1_ch1.Instance)->CCR,
+         (unsigned long)((DMA_Channel_TypeDef *)hdma_dac1_ch1.Instance)->CNDTR,
+         (unsigned long)hdma_dac1_ch1.ErrorCode);
 
   /* USER CODE END DMA1_Channel1_IRQn 1 */
 }
@@ -243,19 +248,15 @@ void TIM6_DAC_IRQHandler(void)
   /* USER CODE END TIM6_DAC_IRQn 1 */
 }
 
-/**
-  * @brief This function handles DMAMUX overrun interrupt.
-  */
-void DMAMUX_OVR_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMAMUX_OVR_IRQn 0 */
-
-  /* USER CODE END DMAMUX_OVR_IRQn 0 */
-  /* USER CODE BEGIN DMAMUX_OVR_IRQn 1 */
-
-  /* USER CODE END DMAMUX_OVR_IRQn 1 */
-}
-
 /* USER CODE BEGIN 1 */
+
+void DMAMUX_OVR_IRQHandler(void) {
+  // Clear all DMAMUX request generator overrun flags
+  DMAMUX1_RequestGenStatus->RGCFR = 0xFFFFFFFFu;
+
+  // If you want, also clear any leftover DMA flags for ch1:
+  DMA1->IFCR =
+      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
+}
 
 /* USER CODE END 1 */
