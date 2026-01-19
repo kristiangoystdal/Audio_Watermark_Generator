@@ -124,14 +124,14 @@ uint32_t dc_mid[FSK_LOWER_NUM_SAMPLES]; // constant mid-level DC value
 
 // Pulse Calculation Variables
 uint32_t fs = 0;
-uint32_t cable_speaker_delay_ms = 100;
+uint32_t cable_speaker_delay_ms = 0;
 float f_0_bit_duration = 0.0f;
 float f_1_bit_duration = 0.0f;
 float total_time = 0.0;
 
 // FSK
 typedef struct {
-  size_t moved_to_next_bit;
+  size_t bit_index;
   size_t current_period;
   size_t current_index;
 } FillResult;
@@ -168,6 +168,7 @@ void get_sineval_low(void);
 void get_sineval_high(void);
 void get_dc_mid(void);
 uint32_t get_dac_sample_rate_hz(void);
+void Set_DAC_Output_To_Midlevel(void);
 
 static void TX_Start(void);
 static void TX_Stop(void);
@@ -293,38 +294,42 @@ int main(void) {
 
   TX_Stop();
 
+  Set_DAC_Output_To_Midlevel();
+
   while (1) {
-    // 1) sleep until button wakes you
-    EnterStopMode();
 
-    printf("Woke up!\r\n");
-
-    // wait for release (active-low button)
-    while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
-    }
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
-
-    // 2) start TX
+    // 1) Start TX
     TX_Start();
 
-    // 3) run for duration
+    // 2) Calculate active duration
     calculate_active_duration_ms();
-    uint32_t ms = (uint32_t)(total_time * 1000.0f);
-    printf("Active duration: %lu ms\r\n", (unsigned long)ms);
+    printf("Starting transmission for %.2f seconds...\r\n", total_time);
 
+    // 3) Set an active window timer and wait for completion
     StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
     while (!active_done) {
       __WFI(); // CPU sleeps while DMA+TIM2+DAC run
     }
     active_done = 0;
 
-    // 4) stop TX and loop back to sleep
+    // 4) Stop TX
     TX_Stop();
 
+    printf("\r\n");
     printf("Transmission complete.\r\n");
     printf("-------------------------\r\n");
 
     HAL_Delay(100);
+
+    // 5) Enter STOP mode until button press
+    EnterStopMode();
+
+    printf("Woke up!\r\n");
+
+    // 6) Debounce button
+    while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
+    }
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
 
     /* USER CODE END WHILE */
 
@@ -775,22 +780,31 @@ void calculate_active_duration_ms(void) {
   }
 
   // Add silence time
-  total_time *= 1.05f;                            // 5% margin
-  total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
+  // total_time *= 1.05f;                            // 5% margin
+  // total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
 }
 
-FillResult fill_half_buffer(uint32_t *buffer, uint16_t bit, uint16_t next_bit,
-                            size_t generation_size, size_t current_sine_period,
-                            size_t current_sine_index) {
+static inline FillResult
+fill_half_buffer(uint32_t *buffer, size_t generation_size,
+                 const uint8_t *bitstream, size_t bitstream_len,
+                 size_t bit_index, size_t current_sine_period,
+                 size_t current_sine_index) {
   size_t out = 0;
   size_t period = current_sine_period;
   size_t idx = current_sine_index;
-  uint16_t cur_bit = bit;
-  bool moved = false;
 
   while (out < generation_size) {
+    // If finished, just output mid forever (prevents repeats)
+    if (bit_index >= bitstream_len) {
+      for (; out < generation_size; ++out) {
+        buffer[out] = dc_mid[0];
+      }
+      break;
+    }
 
-    /* Select LUT */
+    uint8_t cur_bit = bitstream[bit_index];
+
+    /* Select LUT + target periods for THIS bit */
     const uint32_t *lut;
     size_t lut_len;
     size_t target_periods;
@@ -803,122 +817,98 @@ FillResult fill_half_buffer(uint32_t *buffer, uint16_t bit, uint16_t next_bit,
       lut = sine_val_high;
       lut_len = FSK_HIGHER_NUM_SAMPLES;
       target_periods = FSK_HIGHER_PERIODS;
-    } else {
+    } else { // silence
       lut = dc_mid;
-      lut_len = FSK_LOWER_NUM_SAMPLES; // constant value
+      lut_len = FSK_LOWER_NUM_SAMPLES;
       target_periods = FSK_LOWER_PERIODS;
     }
 
-    /* How many samples can we copy this round? */
+    /* Copy as much as we can from current LUT position */
     size_t left_buf = generation_size - out;
     size_t left_lut = lut_len - idx;
-    size_t n = left_buf < left_lut ? left_buf : left_lut;
+    size_t n = (left_buf < left_lut) ? left_buf : left_lut;
 
     memcpy(&buffer[out], &lut[idx], n * sizeof(uint32_t));
-
     out += n;
     idx += n;
 
-    /* Wrapped LUT = completed one period */
+    /* Completed one period? */
     if (idx == lut_len) {
       idx = 0;
       period++;
 
-      /* Completed all periods for this bit */
+      /* Completed this bit? -> advance to next bit */
       if (period == target_periods) {
         period = 0;
-        cur_bit = next_bit;
-        moved = true;
+        if (bit_index + 1u < bitstream_len) {
+          bit_index++;
+        } else {
+          // reached end -> hold at end
+          bit_index = bitstream_len;
+        }
       }
     }
   }
 
-  return (FillResult){.moved_to_next_bit = moved,
-                      .current_period = period,
-                      .current_index = idx};
+  return (FillResult){
+      .bit_index = bit_index, .current_period = period, .current_index = idx};
 }
 
-// DAC conversion complete callbacks for half buffer
+// DMA Half Transfer Complete callback
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   if (!tx_active)
     return;
 
-  // Fill the first half of the buffer based on the current bit
-  result = fill_half_buffer((uint32_t *)&output_buffer[0], current_bit,
-                            next_bit, BUFFER_SIZE / 2, current_sine_period,
-                            current_sine_index);
+  FillResult r =
+      fill_half_buffer((uint32_t *)&output_buffer[0], BUFFER_SIZE / 2,
+                       bitstream, BITSTREAM_LENGTH, current_bitstream_index,
+                       current_sine_period, current_sine_index);
 
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    printf("Moved to next bit (half)\r\n");
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
+  current_bitstream_index = r.bit_index;
+  current_sine_period = r.current_period;
+  current_sine_index = r.current_index;
 }
 
-// DAC conversion complete callback for the full buffer
+// DMA Transfer Complete callback
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   if (!tx_active)
     return;
 
-  // Fill the first half of the buffer based on the current bit
-  result = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
-                            current_bit, next_bit, BUFFER_SIZE / 2,
-                            current_sine_period, current_sine_index);
+  FillResult r = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
+                                  BUFFER_SIZE / 2, bitstream, BITSTREAM_LENGTH,
+                                  current_bitstream_index, current_sine_period,
+                                  current_sine_index);
 
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    printf("Moved to next bit (full)\r\n");
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
+  current_bitstream_index = r.bit_index;
+  current_sine_period = r.current_period;
+  current_sine_index = r.current_index;
 }
 
 static void TX_Start(void) {
   printf("\r\nTX_Start()\r\n");
 
-  // Reset TX state
   current_bitstream_index = 0;
-  current_bit = bitstream[current_bitstream_index];
-  next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
   current_sine_period = 0;
   current_sine_index = 0;
   tx_active = true;
 
-  printf("  State reset OK\r\n");
+  FillResult r1 =
+      fill_half_buffer((uint32_t *)&output_buffer[0], BUFFER_SIZE / 2,
+                       bitstream, BITSTREAM_LENGTH, current_bitstream_index,
+                       current_sine_period, current_sine_index);
 
-  // Prefill both halves
-  FillResult r1 = fill_half_buffer((uint32_t *)&output_buffer[0], current_bit,
-                                   next_bit, BUFFER_SIZE / 2,
-                                   current_sine_period, current_sine_index);
+  current_bitstream_index = r1.bit_index;
   current_sine_period = r1.current_period;
   current_sine_index = r1.current_index;
-  if (r1.moved_to_next_bit) {
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
 
   FillResult r2 = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
-                                   current_bit, next_bit, BUFFER_SIZE / 2,
-                                   current_sine_period, current_sine_index);
+                                   BUFFER_SIZE / 2, bitstream, BITSTREAM_LENGTH,
+                                   current_bitstream_index, current_sine_period,
+                                   current_sine_index);
+
+  current_bitstream_index = r2.bit_index;
   current_sine_period = r2.current_period;
   current_sine_index = r2.current_index;
-  if (r2.moved_to_next_bit) {
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
 
   printf("  Buffer filled\r\n");
 
@@ -936,18 +926,21 @@ static void TX_Start(void) {
   // Start DAC
   HAL_StatusTypeDef st;
   st = HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-  printf("  HAL_DAC_Start = %d, CR=0x%08lx\r\n", st, (unsigned long)DAC1->CR);
+  if (st != HAL_OK) {
+    printf("  HAL_DAC_Start error: %d\r\n", st);
+  } else {
+    printf("  HAL_DAC_Start OK\r\n");
+  }
 
   // Start DMA
   st = HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
                          BUFFER_SIZE, DAC_ALIGN_12B_R);
 
-  DMA_Channel_TypeDef *ch = (DMA_Channel_TypeDef *)hdma_dac1_ch1.Instance;
-
-  printf("  HAL_DAC_Start_DMA = %d\r\n", st);
-  printf("    CPAR=0x%08lx CMAR=0x%08lx CNDTR=%lu CCR=0x%08lx\r\n",
-         (unsigned long)ch->CPAR, (unsigned long)ch->CMAR,
-         (unsigned long)ch->CNDTR, (unsigned long)ch->CCR);
+  if (st != HAL_OK) {
+    printf("  HAL_DAC_Start_DMA error: %d\r\n", st);
+  } else {
+    printf("  HAL_DAC_Start_DMA OK\r\n");
+  }
 
   // Ensure trigger enabled
   SET_BIT(DAC1->CR, DAC_CR_TEN1);
@@ -955,18 +948,12 @@ static void TX_Start(void) {
   // Start timer last
   __HAL_TIM_SET_COUNTER(&htim2, 0);
   st = HAL_TIM_Base_Start(&htim2);
-  printf("  TIM2 start = %d\r\n", st);
 
-  // Quick sanity check
-  uint32_t n0 = ch->CNDTR;
-  uint32_t t0 = TIM2->CNT;
-  HAL_Delay(2);
-  uint32_t n1 = ch->CNDTR;
-  uint32_t t1 = TIM2->CNT;
-
-  printf("  RUN: CNDTR %lu→%lu | TIM2 %lu→%lu | DMA_EN=%lu\r\n",
-         (unsigned long)n0, (unsigned long)n1, (unsigned long)t0,
-         (unsigned long)t1, (unsigned long)((ch->CCR & DMA_CCR_EN) != 0));
+  if (st != HAL_OK) {
+    printf("  HAL_TIM_Base_Start error: %d\r\n", st);
+  } else {
+    printf("  HAL_TIM_Base_Start OK\r\n");
+  }
 }
 
 static void TX_Stop(void) {
@@ -974,15 +961,31 @@ static void TX_Stop(void) {
 
   tx_active = false;
 
+  // Stop trigger + DMA first
   HAL_TIM_Base_Stop(&htim2);
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-  HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
+
+  Set_DAC_Output_To_Midlevel();
+
+  // Optional: if you want to *keep* the mid DC during STOP, leave DAC
+  // running. If you want lowest power, stop it (output may go undefined
+  // depending on buffer mode): HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
 
   DMA1->IFCR =
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
 
-  printf("  TX stopped cleanly\r\n");
+  printf("  TX stopped cleanly (DAC set to mid)\r\n");
+}
+
+void Set_DAC_Output_To_Midlevel(void) {
+  CLEAR_BIT(DAC1->CR, DAC_CR_TEN1);
+
+  // Ensure DAC channel is enabled
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+
+  // Set mid-scale (12-bit right aligned)
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dc_mid[0]);
 }
 
 /* USER CODE END 4 */
