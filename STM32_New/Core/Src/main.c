@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "ds3231.h"
 #include <user_config.h>
 
 #include "cmsis_gcc.h"
@@ -61,6 +62,10 @@
 
 #define BIT_POLARITY 0
 
+#define DS3231_ADDR (0x68 << 1) // 7-bit addr shifted for HAL
+#define T4B_I2C_ADDR_7BIT 0x20
+#define T4B_I2C_ADDR_HAL (T4B_I2C_ADDR_7BIT << 1) // 0x40 for HAL
+
 #define DIV_FLOOR(n, d) ((uint32_t)((n) / (d)))
 #define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d)))
 
@@ -93,6 +98,8 @@ COM_InitTypeDef BspCOMInit;
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac1_ch1;
 
+I2C_HandleTypeDef hi2c2;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
@@ -103,16 +110,6 @@ char input_string[MAX_NUM_CHARS] = {0};
 uint8_t bitstream[BITSTREAM_LENGTH] = {0};
 
 volatile uint8_t active_done = 0;
-
-typedef struct {
-  uint8_t seconds;
-  uint8_t minutes;
-  uint8_t hours;
-  uint8_t day;
-  uint8_t date;
-  uint8_t month;
-  uint16_t year;
-} rtc_time_t;
 
 rtc_time_t now = {0};
 
@@ -156,6 +153,7 @@ static void MX_DMA_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_I2C2_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
@@ -213,6 +211,7 @@ int main(void) {
   MX_TIM6_Init();
   MX_DAC1_Init();
   MX_TIM2_Init();
+  MX_I2C2_Init();
   /* USER CODE BEGIN 2 */
 
   //-----------------------------------------------------------------------------//
@@ -295,6 +294,15 @@ int main(void) {
   TX_Stop();
 
   Set_DAC_Output_To_Midlevel();
+
+  DS3231_PowerOn();
+  if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
+    DS3231_Init();
+    Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
+             INITIAL_MONTH, INITIAL_YEAR);
+  }
+  Get_Time(&now);
+  printf("-------------------------\r\n");
 
   while (1) {
 
@@ -425,6 +433,49 @@ static void MX_DAC1_Init(void) {
 }
 
 /**
+ * @brief I2C2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C2_Init(void) {
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x10B17DB5;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+   */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+   */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+}
+
+/**
  * @brief TIM2 Initialization Function
  * @param None
  * @retval None
@@ -533,6 +584,9 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : PF0 PF1 */
   GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
@@ -546,11 +600,11 @@ static void MX_GPIO_Init(void) {
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA0 PA5 PA6 PA7
-                           PA8 PA9 PA10 PA11
-                           PA12 PA13 PA14 PA15 */
+                           PA10 PA11 PA12 PA13
+                           PA14 PA15 */
   GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
-                        GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 |
-                        GPIO_PIN_12 | GPIO_PIN_13 | GPIO_PIN_14 | GPIO_PIN_15;
+                        GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
+                        GPIO_PIN_14 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -561,10 +615,17 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB3 PB4 PB5
-                           PB6 PB7 PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 |
-                        GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
+  /*Configure GPIO pin : PB0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB3 PB4 PB5 PB6
+                           PB7 PB8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 |
+                        GPIO_PIN_7 | GPIO_PIN_8;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
