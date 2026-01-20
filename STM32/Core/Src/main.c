@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "cmsis_gcc.h"
 #include "ds3231.h"
 #include <user_config.h>
 
@@ -345,7 +346,6 @@ int main(void) {
   }
   /* USER CODE END 3 */
 }
-
 /**
  * @brief System Clock Configuration
  * @retval None
