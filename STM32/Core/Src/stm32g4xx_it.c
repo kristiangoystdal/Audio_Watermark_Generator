@@ -6,7 +6,7 @@
  ******************************************************************************
  * @attention
  *
- * Copyright (c) 2025 STMicroelectronics.
+ * Copyright (c) 2026 STMicroelectronics.
  * All rights reserved.
  *
  * This software is licensed under terms that can be found in the LICENSE file
@@ -56,12 +56,9 @@
 
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_dac1_ch1;
-extern TIM_HandleTypeDef htim2;
-extern TIM_HandleTypeDef htim8;
+extern DAC_HandleTypeDef hdac1;
+extern TIM_HandleTypeDef htim6;
 /* USER CODE BEGIN EV */
-extern TIM_HandleTypeDef htim8;      // from main.c
-extern void GenerateSeq(uint16_t *); // from main.c
-extern uint16_t out_seq[4097];       // from main.c
 
 /* USER CODE END EV */
 
@@ -217,67 +214,43 @@ void EXTI1_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles DMA1 channel2 global interrupt.
+  * @brief This function handles DMA1 channel1 global interrupt.
   */
-void DMA1_Channel2_IRQHandler(void)
+void DMA1_Channel1_IRQHandler(void)
 {
-  /* USER CODE BEGIN DMA1_Channel2_IRQn 0 */
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
 
-  /* USER CODE END DMA1_Channel2_IRQn 0 */
+  /* USER CODE END DMA1_Channel1_IRQn 0 */
   HAL_DMA_IRQHandler(&hdma_dac1_ch1);
-  /* USER CODE BEGIN DMA1_Channel2_IRQn 1 */
+  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
 
-  /* USER CODE END DMA1_Channel2_IRQn 1 */
+  /* USER CODE END DMA1_Channel1_IRQn 1 */
 }
 
 /**
-  * @brief This function handles TIM2 global interrupt.
+  * @brief This function handles TIM6 global interrupt, DAC1 and DAC3 channel underrun error interrupts.
   */
-void TIM2_IRQHandler(void)
+void TIM6_DAC_IRQHandler(void)
 {
-  /* USER CODE BEGIN TIM2_IRQn 0 */
+  /* USER CODE BEGIN TIM6_DAC_IRQn 0 */
 
-  /* USER CODE END TIM2_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim2);
-  /* USER CODE BEGIN TIM2_IRQn 1 */
+  /* USER CODE END TIM6_DAC_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim6);
+  HAL_DAC_IRQHandler(&hdac1);
+  /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
 
-  /* USER CODE END TIM2_IRQn 1 */
-}
-
-/**
-  * @brief This function handles TIM8 update interrupt.
-  */
-void TIM8_UP_IRQHandler(void)
-{
-  /* USER CODE BEGIN TIM8_UP_IRQn 0 */
-
-  /* USER CODE END TIM8_UP_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim8);
-  /* USER CODE BEGIN TIM8_UP_IRQn 1 */
-
-  /* USER CODE END TIM8_UP_IRQn 1 */
-}
-
-/**
-  * @brief This function handles TIM8 capture compare interrupt.
-  */
-void TIM8_CC_IRQHandler(void)
-{
-  /* USER CODE BEGIN TIM8_CC_IRQn 0 */
-
-  /* USER CODE END TIM8_CC_IRQn 0 */
-  HAL_TIM_IRQHandler(&htim8);
-  /* USER CODE BEGIN TIM8_CC_IRQn 1 */
-
-  /* USER CODE END TIM8_CC_IRQn 1 */
+  /* USER CODE END TIM6_DAC_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */
 
-// void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
-//   if (hdac->Instance == DAC1) {
-//     BSP_LED_Toggle(LED_GREEN); // blink once per burst
-//   }
-// }
+void DMAMUX_OVR_IRQHandler(void) {
+  // Clear all DMAMUX request generator overrun flags
+  DMAMUX1_RequestGenStatus->RGCFR = 0xFFFFFFFFu;
+
+  // If you want, also clear any leftover DMA flags for ch1:
+  DMA1->IFCR =
+      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
+}
 
 /* USER CODE END 1 */
