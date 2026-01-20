@@ -9,6 +9,7 @@ _autosave-*
 # Temporary files
 *.bak
 *.tmp
+Audio_watermark_generator-backups/**
 
 # OS junk
 .DS_Store
