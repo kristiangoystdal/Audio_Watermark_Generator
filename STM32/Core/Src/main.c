@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 
 #include "ds3231.h"
+#include "ism.h"
+#include "spi.h"
 #include <user_config.h>
 
 #include "cmsis_gcc.h"
@@ -100,6 +102,8 @@ DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c2;
 
+SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
@@ -144,6 +148,8 @@ volatile size_t current_sine_index = 0;
 volatile bool moved_to_next_bit = false;
 FillResult result;
 
+static ism_handle_t radio;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -154,6 +160,7 @@ static void MX_TIM6_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
@@ -170,6 +177,8 @@ void Set_DAC_Output_To_Midlevel(void);
 
 static void TX_Start(void);
 static void TX_Stop(void);
+
+void app_radio_test(void);
 
 /* USER CODE END PFP */
 
@@ -212,6 +221,7 @@ int main(void) {
   MX_DAC1_Init();
   MX_TIM2_Init();
   MX_I2C2_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
   //-----------------------------------------------------------------------------//
@@ -279,55 +289,73 @@ int main(void) {
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-  printf("-------------------------\r\n");
-  printf("Input string prepared:\r\n%s\r\n", input_string);
-  printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
-  uint32_t ms = (uint32_t)(total_time * 1000.0f);
-  printf("Active duration: %lu ms\r\n", (unsigned long)ms);
-  printf("Bitstream:\r\n");
-  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
-    printf("%u", bitstream[i]);
-  }
-  printf("\r\n");
-  printf("-------------------------\r\n");
+  // printf("-------------------------\r\n");
+  // printf("Input string prepared:\r\n%s\r\n", input_string);
+  // printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
+  // uint32_t ms = (uint32_t)(total_time * 1000.0f);
+  // printf("Active duration: %lu ms\r\n", (unsigned long)ms);
+  // printf("Bitstream:\r\n");
+  // for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
+  //   printf("%u", bitstream[i]);
+  // }
 
   TX_Stop();
 
-  Set_DAC_Output_To_Midlevel();
+  // printf("\r\n");
+  // printf("-------------------------\r\n");
 
-  DS3231_PowerOn();
-  if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
-    DS3231_Init();
-    Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
-             INITIAL_MONTH, INITIAL_YEAR);
-  }
-  Get_Time(&now);
+  // Set_DAC_Output_To_Midlevel();
+
+  // DS3231_PowerOn();
+  // if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
+  //   DS3231_Init();
+  //   Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
+  //   INITIAL_DOM,
+  //            INITIAL_MONTH, INITIAL_YEAR);
+  // }
+  // Get_Time(&now);
+  // printf("-------------------------\r\n");
+
+  // SPI1_Write((uint8_t *)input_string, (uint16_t)strlen(input_string));
+
   printf("-------------------------\r\n");
+
+  // SPI1_Read((uint8_t *)input_string, (uint16_t)strlen(input_string));
+
+  printf("-------------------------\r\n");
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+  HAL_Delay(5); // let radio settle
+
+  app_radio_test();
+
+  printf("--------------------------\r\n");
+
+  printf("Entering main loop...\r\n");
 
   while (1) {
 
-    // 1) Start TX
-    TX_Start();
+    // // 1) Start TX
+    // TX_Start();
 
-    // 2) Calculate active duration
-    calculate_active_duration_ms();
-    printf("Starting transmission for %.2f seconds...\r\n", total_time);
+    // // 2) Calculate active duration
+    // calculate_active_duration_ms();
+    // printf("Starting transmission for %.2f seconds...\r\n", total_time);
 
-    // 3) Set an active window timer and wait for completion
-    StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
-    while (!active_done) {
-      __WFI(); // CPU sleeps while DMA+TIM2+DAC run
-    }
-    active_done = 0;
+    // // 3) Set an active window timer and wait for completion
+    // StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+    // while (!active_done) {
+    //   __WFI(); // CPU sleeps while DMA+TIM2+DAC run
+    // }
+    // active_done = 0;
 
-    // 4) Stop TX
-    TX_Stop();
+    // // 4) Stop TX
+    // TX_Stop();
 
-    printf("\r\n");
-    printf("Transmission complete.\r\n");
-    printf("-------------------------\r\n");
+    // printf("\r\n");
+    // printf("Transmission complete.\r\n");
+    // printf("-------------------------\r\n");
 
-    HAL_Delay(100);
+    // HAL_Delay(100);
 
     // 5) Enter STOP mode until button press
     EnterStopMode();
@@ -476,6 +504,43 @@ static void MX_I2C2_Init(void) {
 }
 
 /**
+ * @brief SPI1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SPI1_Init(void) {
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 7;
+  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+}
+
+/**
  * @brief TIM2 Initialization Function
  * @param None
  * @retval None
@@ -585,6 +650,9 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PF0 PF1 */
@@ -599,14 +667,11 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA5 PA6 PA7
-                           PA10 PA11 PA12 PA13
-                           PA14 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
-                        GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
-                        GPIO_PIN_14 | GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA1 */
@@ -621,6 +686,14 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA10 PA11 PA12 PA13
+                           PA14 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
+                        GPIO_PIN_14 | GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB3 PB4 PB5 PB6
                            PB7 PB8 */
@@ -1047,6 +1120,49 @@ void Set_DAC_Output_To_Midlevel(void) {
 
   // Set mid-scale (12-bit right aligned)
   HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dc_mid[0]);
+}
+
+void app_radio_test(void) {
+  radio.hspi = &hspi1;
+  radio.cs_port = GPIOA;
+  radio.cs_pin = GPIO_PIN_0;
+
+  radio.miso_port = GPIOA;
+  radio.miso_pin = GPIO_PIN_6;
+
+  radio.spi_timeout_ms = 50;
+  radio.miso_ready_timeout_ms = 10;
+
+  printf("MISO idle=%d\r\n", (int)HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
+
+  ism_status_t s;
+
+  s = ism_init(&radio);
+  printf("ism_init=%d\r\n", s);
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+  HAL_Delay(5);
+  printf("CS=1 MISO=%d\r\n", HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
+  HAL_Delay(5);
+  printf("CS=0 MISO=%d\r\n", HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+  HAL_Delay(1);
+  printf("CS=1 MISO=%d\r\n", HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
+  HAL_Delay(10);
+
+  s = ism_reset(&radio);
+  printf("ism_reset=%d\r\n", s);
+
+  uint8_t part = 0, ver = 0;
+  s = ism_read_part_version(&radio, &part, &ver);
+  printf("read_pv=%d part=0x%02X ver=0x%02X\r\n", s, part, ver);
+
+  const uint8_t msg[] = "HELLO";
+  s = ism_send_packet(&radio, msg, (uint8_t)(sizeof(msg) - 1), false);
+  printf("send=%d\r\n", s);
 }
 
 /* USER CODE END 4 */
