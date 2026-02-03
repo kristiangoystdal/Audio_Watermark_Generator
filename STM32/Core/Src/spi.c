@@ -4,9 +4,40 @@
 // If not, remove it and handle errors your own way.
 #include "main.h"
 
+#define CC1101_MISO_GPIO_Port GPIOB
+#define CC1101_MISO_Pin GPIO_PIN_4
+
 // ---------------------------
 // Transactions (CS toggled)
 // ---------------------------
+
+// HAL_StatusTypeDef CC1101_ReadReg(uint8_t addr, uint8_t *val) {
+//   uint8_t tx[2] = {(uint8_t)(addr | 0x80), 0xFF}; // READ + dummy
+//   uint8_t rx[2] = {0};
+
+//   SPI1_CS_Low();
+//   HAL_StatusTypeDef st =
+//       HAL_SPI_TransmitReceive(&hspi1, tx, rx, 2, SPI1_TIMEOUT_MS);
+//   SPI1_CS_High();
+
+//   if (st == HAL_OK)
+//     *val = rx[1]; // rx[0] is status byte on CC1101
+//   return st;
+// }
+
+static inline void CC1101_WaitReady(void) {
+  // SO == MISO. Wait until it goes low.
+  // Add timeout so you don’t hang forever.
+  uint32_t t0 = HAL_GetTick();
+  while (HAL_GPIO_ReadPin(CC1101_MISO_GPIO_Port, CC1101_MISO_Pin) ==
+         GPIO_PIN_SET) {
+    if ((HAL_GetTick() - t0) > 5)
+      break; // ~5ms timeout (tweak)
+  }
+
+  printf("MISO=%d\r\n",
+         HAL_GPIO_ReadPin(CC1101_MISO_GPIO_Port, CC1101_MISO_Pin));
+}
 
 HAL_StatusTypeDef SPI1_Write(const uint8_t *tx, uint16_t len) {
   if (!tx || len == 0) {
@@ -22,6 +53,7 @@ HAL_StatusTypeDef SPI1_Write(const uint8_t *tx, uint16_t len) {
   printf("\r\n");
 
   SPI1_CS_Low();
+  CC1101_WaitReady();
   HAL_StatusTypeDef st =
       HAL_SPI_Transmit(&hspi1, (uint8_t *)tx, len, SPI1_TIMEOUT_MS);
   if (st != HAL_OK)
@@ -43,6 +75,8 @@ HAL_StatusTypeDef SPI1_Read(uint8_t *rx, uint16_t len) {
   printf("SPI1_Read: Reading %u bytes\r\n", len);
 
   SPI1_CS_Low();
+
+  CC1101_WaitReady();
 
   HAL_StatusTypeDef st = HAL_SPI_Receive(&hspi1, rx, len, SPI1_TIMEOUT_MS);
 
@@ -70,6 +104,8 @@ HAL_StatusTypeDef SPI1_WriteRead(const uint8_t *tx, uint8_t *rx, uint16_t len) {
   uint8_t dummy = 0xFF;
 
   SPI1_CS_Low();
+
+  CC1101_WaitReady();
 
   HAL_StatusTypeDef st;
   if (tx) {
