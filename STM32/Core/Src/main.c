@@ -24,13 +24,16 @@
 
 #include "ds3231.h"
 #include "ism.h"
+#include "ism_config_433.h"
 #include "spi.h"
 #include <user_config.h>
 
 #include "cmsis_gcc.h"
 #include "stm32g431xx.h"
+#include "stm32g4xx.h"
 #include "stm32g4xx_hal.h"
 #include "stm32g4xx_hal_dac.h"
+#include "stm32g4xx_hal_def.h"
 #include "stm32g4xx_hal_gpio.h"
 #include <math.h>
 #include <stdbool.h>
@@ -150,6 +153,8 @@ FillResult result;
 
 static ism_handle_t radio;
 
+bool RX = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -179,6 +184,8 @@ static void TX_Start(void);
 static void TX_Stop(void);
 
 void app_radio_test(void);
+
+void read_buffer(void);
 
 /* USER CODE END PFP */
 
@@ -299,7 +306,7 @@ int main(void) {
   //   printf("%u", bitstream[i]);
   // }
 
-  TX_Stop();
+  // TX_Stop();
 
   // printf("\r\n");
   // printf("-------------------------\r\n");
@@ -366,6 +373,12 @@ int main(void) {
     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
     }
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+
+    read_buffer();
+
+    HAL_Delay(3000);
+
+    printf("Going back to sleep...\r\n");
 
     /* USER CODE END WHILE */
 
@@ -653,6 +666,10 @@ static void MX_GPIO_Init(void) {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
+                    GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PF0 PF1 */
@@ -667,8 +684,8 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  /*Configure GPIO pins : PA0 PA5 PA6 PA7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -687,18 +704,14 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA10 PA11 PA12 PA13
-                           PA14 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
-                        GPIO_PIN_14 | GPIO_PIN_15;
+  /*Configure GPIO pins : PA10 PA11 PA12 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB3 PB4 PB5 PB6
-                           PB7 PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 |
-                        GPIO_PIN_7 | GPIO_PIN_8;
+  /*Configure GPIO pins : PB6 PB7 PB8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -1122,47 +1135,163 @@ void Set_DAC_Output_To_Midlevel(void) {
   HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dc_mid[0]);
 }
 
+HAL_StatusTypeDef CC1101_Strobe(uint8_t strobe, uint8_t *status) {
+  uint8_t tx[1] = {strobe};
+  uint8_t rx[1] = {0};
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 1);
+  if (st == HAL_OK && status)
+    *status = rx[0];
+  printf("CC1101 Strobe 0x%02X, status=0x%02X\r\n", strobe, rx[0]);
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_ReadReg(uint8_t addr, uint8_t *val, uint8_t *status) {
+  uint8_t tx[2] = {(uint8_t)(addr | 0x80), 0xFF};
+  uint8_t rx[2] = {0};
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 2);
+  if (st == HAL_OK) {
+    if (status)
+      *status = rx[0];
+    if (val)
+      *val = rx[1];
+  }
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_WriteReg(uint8_t addr, uint8_t val, uint8_t *status) {
+  uint8_t tx[2] = {(uint8_t)(addr & 0x7F), val};
+  uint8_t rx[2] = {0};
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 2);
+  if (st == HAL_OK && status)
+    *status = rx[1]; // status comes back while sending addr
+  printf("CC1101 WriteReg 0x%02X=0x%02X, status=0x%02X\r\n", addr, val, rx[1]);
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_WriteBurstReg(uint8_t addr, uint8_t *vals, size_t len,
+                                       uint8_t *status) {
+  if (len == 0)
+    return HAL_OK;
+
+  uint8_t tx[len + 1];
+  uint8_t rx[len + 1];
+
+  tx[0] = (uint8_t)(addr | 0x40); // burst write
+  memcpy(&tx[1], vals, len);
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, len + 1);
+  if (st == HAL_OK && status)
+    *status = rx[0];
+  printf("CC1101 WriteBurstReg 0x%02X, len=%d, status=0x%02X\r\n", addr, len,
+         rx[0]);
+  return st;
+}
+
+void transmit_bytes(void) {
+  size_t len_bytes = 1;
+  printf("Transmitting %d bytes...\r\n", len_bytes);
+  uint8_t status = 0;
+
+  // for (size_t i = 0; i < len_bytes; i++) {
+  //   CC1101_WriteReg(0x3F, 0x69,
+  //                   &status); // Write 1 byte to TX FIFO (example data)
+
+  //   HAL_Delay(100); // Wait for transmission to complete
+  // }
+
+  uint8_t pkt[2] = {0x01, 0x69}; // length=1, payload=0x69
+
+  CC1101_WriteBurstReg(0x3F, pkt, 2, &status);
+
+  CC1101_Strobe(0x35, &status); // Go to TX state (STX)
+
+  printf("Transmission complete.\r\n");
+}
+
 void app_radio_test(void) {
-  radio.hspi = &hspi1;
-  radio.cs_port = GPIOA;
-  radio.cs_pin = GPIO_PIN_0;
+  printf("Starting radio test...\r\n");
 
-  radio.miso_port = GPIOA;
-  radio.miso_pin = GPIO_PIN_6;
-
-  radio.spi_timeout_ms = 50;
-  radio.miso_ready_timeout_ms = 10;
-
-  printf("MISO idle=%d\r\n", (int)HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
-
-  ism_status_t s;
-
-  s = ism_init(&radio);
-  printf("ism_init=%d\r\n", s);
-
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
-  HAL_Delay(5);
-  printf("CS=1 MISO=%d\r\n", HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
-
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_RESET);
-  HAL_Delay(5);
-  printf("CS=0 MISO=%d\r\n", HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
-
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
-  HAL_Delay(1);
-  printf("CS=1 MISO=%d\r\n", HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_6));
-  HAL_Delay(10);
-
-  s = ism_reset(&radio);
-  printf("ism_reset=%d\r\n", s);
-
+  uint8_t status = 0;
   uint8_t part = 0, ver = 0;
-  s = ism_read_part_version(&radio, &part, &ver);
-  printf("read_pv=%d part=0x%02X ver=0x%02X\r\n", s, part, ver);
+  uint8_t temp = 0;
 
-  const uint8_t msg[] = "HELLO";
-  s = ism_send_packet(&radio, msg, (uint8_t)(sizeof(msg) - 1), false);
-  printf("send=%d\r\n", s);
+  // Reset (strobe)
+  CC1101_Strobe(0x30, &status);
+  HAL_Delay(1);
+
+  // Read PARTNUM + VERSION
+  CC1101_ReadReg(0xF1, &part, &status);
+  CC1101_ReadReg(0x00, &ver, &status);
+
+  printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
+
+  if (RX == true) {
+    // Write configuration for RX
+    for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
+      CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
+    }
+
+    CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
+    printf("FREQ2 register: 0x%02X\r\n", temp);
+    CC1101_ReadReg(0x0E, &temp, &status); // Read FREQ1 register as example
+    printf("FREQ1 register: 0x%02X\r\n", temp);
+    CC1101_ReadReg(0x0F, &temp, &status); // Read FREQ0 register as example
+    printf("FREQ0 register: 0x%02X\r\n", temp);
+
+    CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
+
+    CC1101_ReadReg(0xF5, &temp,
+                   &status); // Read MARCSTATE to confirm RX state entered
+
+    printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+
+    HAL_Delay(3000); // Wait 10 seconds in RX
+
+    CC1101_ReadReg(0xF5, &temp,
+                   &status); // Read MARCSTATE to confirm RX state entered
+
+    printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+  } else {
+    // Write configuration for TX
+    for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
+      CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
+    }
+
+    CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
+    printf("FREQ2 register: 0x%02X\r\n", temp);
+    CC1101_ReadReg(0x0E, &temp, &status); // Read FREQ1 register as example
+    printf("FREQ1 register: 0x%02X\r\n", temp);
+    CC1101_ReadReg(0x0F, &temp, &status); // Read FREQ0 register as example
+    printf("FREQ0 register: 0x%02X\r\n", temp);
+
+    transmit_bytes();
+
+    CC1101_ReadReg(0xF5, &temp,
+                   &status); // Read MARCSTATE to confirm TX state entered
+
+    printf("MARCSTATE after TX strobe: 0x%02X\r\n", temp);
+
+    HAL_Delay(3000); // Wait 3 seconds in TX
+
+    CC1101_ReadReg(0xF5, &temp,
+                   &status); // Read MARCSTATE to confirm TX state entered
+
+    printf("MARCSTATE after TX strobe: 0x%02X\r\n", temp);
+  }
+
+  printf("Radio test complete.\r\n");
+}
+
+void read_buffer(void) {
+  uint8_t status = 0;
+  uint8_t temp = 0;
+
+  CC1101_ReadReg(0xFB, &temp,
+                 &status); // Read RXBYTES to confirm bytes in RX FIFO
+  printf("Bytes in RX FIFO: 0x%02X\r\n", temp);
 }
 
 /* USER CODE END 4 */
