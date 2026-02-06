@@ -22,8 +22,3 @@ static const ism_reg_t cc1101_cfg_tx[] = {
     {0x0E, 0xA7}, // FREQ1
     {0x0F, 0x62}, // FREQ0
 };
-
-static const ism_reg_t cc1101_tx[] = {
-    {0x3F, 0x69}, // Write 1 byte to TX FIFO (example data)
-    {0x35, 0x00}  // Go to TX state (STX)
-};
