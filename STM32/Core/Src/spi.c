@@ -34,9 +34,6 @@ static inline void CC1101_WaitReady(void) {
     if ((HAL_GetTick() - t0) > 5)
       break; // ~5ms timeout (tweak)
   }
-
-  printf("MISO=%d\r\n",
-         HAL_GPIO_ReadPin(CC1101_MISO_GPIO_Port, CC1101_MISO_Pin));
 }
 
 HAL_StatusTypeDef SPI1_Write(const uint8_t *tx, uint16_t len) {
