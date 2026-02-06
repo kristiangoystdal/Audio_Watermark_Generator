@@ -3,8 +3,8 @@
 # Collect all user .c files from Core/Src
 file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ds3231.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/i2c-lcd.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/liquidcrystal_i2c.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/spi.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ism.c
 )
 
 # Collect all user include directories

@@ -23,12 +23,17 @@
 /* USER CODE BEGIN Includes */
 
 #include "ds3231.h"
+#include "ism.h"
+#include "ism_config_433.h"
+#include "spi.h"
 #include <user_config.h>
 
 #include "cmsis_gcc.h"
 #include "stm32g431xx.h"
+#include "stm32g4xx.h"
 #include "stm32g4xx_hal.h"
 #include "stm32g4xx_hal_dac.h"
+#include "stm32g4xx_hal_def.h"
 #include "stm32g4xx_hal_gpio.h"
 #include <math.h>
 #include <stdbool.h>
@@ -100,6 +105,8 @@ DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c2;
 
+SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
@@ -144,6 +151,10 @@ volatile size_t current_sine_index = 0;
 volatile bool moved_to_next_bit = false;
 FillResult result;
 
+static ism_handle_t radio;
+
+bool RX = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -154,6 +165,7 @@ static void MX_TIM6_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
@@ -170,6 +182,10 @@ void Set_DAC_Output_To_Midlevel(void);
 
 static void TX_Start(void);
 static void TX_Stop(void);
+
+void app_radio_test(void);
+
+void read_buffer(void);
 
 /* USER CODE END PFP */
 
@@ -212,7 +228,37 @@ int main(void) {
   MX_DAC1_Init();
   MX_TIM2_Init();
   MX_I2C2_Init();
+  MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
+
+  //---------------------------------------------------------------------------//
+  // Main loop
+  //---------------------------------------------------------------------------//
+
+  /* USER CODE END 2 */
+
+  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
+   */
+  BspCOMInit.BaudRate = 115200;
+  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
+  BspCOMInit.StopBits = COM_STOPBITS_1;
+  BspCOMInit.Parity = COM_PARITY_NONE;
+  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
+  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN BSP */
+
+  /* -- Sample board code to send message over COM1 port ---- */
+  printf("\033[2J\033[H");
+  printf("-------------------------\r\n");
+  printf("Hello from VCP!\r\n");
+
+  /* USER CODE END BSP */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
 
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
@@ -250,94 +296,99 @@ int main(void) {
   current_sine_index = 0;
   tx_active = true;
 
-  //---------------------------------------------------------------------------//
-  // Main loop
-  //---------------------------------------------------------------------------//
-
-  /* USER CODE END 2 */
-
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
-   */
-  BspCOMInit.BaudRate = 115200;
-  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits = COM_STOPBITS_1;
-  BspCOMInit.Parity = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
-    Error_Handler();
-  }
-
-  /* USER CODE BEGIN BSP */
-
-  /* -- Sample board code to send message over COM1 port ---- */
-  printf("\033[2J\033[H");
-  printf("-------------------------\r\n");
-  printf("Hello from VCP!\r\n");
-
-  /* USER CODE END BSP */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-
   printf("-------------------------\r\n");
   printf("Input string prepared:\r\n%s\r\n", input_string);
+  printf("Input string length: %zu characters\r\n", strlen(input_string));
   printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
-  uint32_t ms = (uint32_t)(total_time * 1000.0f);
-  printf("Active duration: %lu ms\r\n", (unsigned long)ms);
-  printf("Bitstream:\r\n");
-  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
-    printf("%u", bitstream[i]);
-  }
-  printf("\r\n");
+  // uint32_t ms = (uint32_t)(total_time * 1000.0f);
+  // printf("Active duration: %lu ms\r\n", (unsigned long)ms);
+  // printf("Bitstream:\r\n");
+  // for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
+  //   printf("%u", bitstream[i]);
+  // }
   printf("-------------------------\r\n");
 
   TX_Stop();
 
+  printf("\r\n");
+  printf("-------------------------\r\n");
+
   Set_DAC_Output_To_Midlevel();
 
-  DS3231_PowerOn();
-  if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
-    DS3231_Init();
-    Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
-             INITIAL_MONTH, INITIAL_YEAR);
-  }
-  Get_Time(&now);
+  // DS3231_PowerOn();
+  // if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
+  //   DS3231_Init();
+  //   Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
+  //   INITIAL_DOM,
+  //            INITIAL_MONTH, INITIAL_YEAR);
+  // }
+  // Get_Time(&now);
+  // printf("-------------------------\r\n");
+
+  // SPI1_Write((uint8_t *)input_string, (uint16_t)strlen(input_string));
+
   printf("-------------------------\r\n");
+
+  // SPI1_Read((uint8_t *)input_string, (uint16_t)strlen(input_string));
+
+  printf("-------------------------\r\n");
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+  HAL_Delay(5); // let radio settle
+
+  app_radio_test();
+
+  printf("--------------------------\r\n");
+
+  printf("Entering main loop...\r\n");
 
   while (1) {
 
-    // 1) Start TX
-    TX_Start();
+    // // 1) Start TX
+    // TX_Start();
 
-    // 2) Calculate active duration
-    calculate_active_duration_ms();
-    printf("Starting transmission for %.2f seconds...\r\n", total_time);
+    // // 2) Calculate active duration
+    // calculate_active_duration_ms();
+    // printf("Starting transmission for %.2f seconds...\r\n", total_time);
 
-    // 3) Set an active window timer and wait for completion
-    StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
-    while (!active_done) {
-      __WFI(); // CPU sleeps while DMA+TIM2+DAC run
-    }
-    active_done = 0;
+    // // 3) Set an active window timer and wait for completion
+    // StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+    // while (!active_done) {
+    //   __WFI(); // CPU sleeps while DMA+TIM2+DAC run
+    // }
+    // active_done = 0;
 
-    // 4) Stop TX
+    // // 4) Stop TX
     TX_Stop();
 
-    printf("\r\n");
-    printf("Transmission complete.\r\n");
-    printf("-------------------------\r\n");
+    // printf("\r\n");
+    // printf("Transmission complete.\r\n");
+    // printf("-------------------------\r\n");
 
-    HAL_Delay(100);
+    // HAL_Delay(100);
 
     // 5) Enter STOP mode until button press
+
+    printf("Entering STOP mode...\r\n");
     EnterStopMode();
 
+    // re-enable after wake
+    // EXTI->IMR1 |= EXTI_IMR1_IM1;
+
     printf("Woke up!\r\n");
+
+    // Check state and go to sleep if state is not RX (e.g. if we woke up due to
+    // noise or something else)
 
     // 6) Debounce button
     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
     }
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+
+    read_buffer();
+
+    HAL_Delay(5000);
+
+    printf("Going back to sleep...\r\n");
 
     /* USER CODE END WHILE */
 
@@ -476,6 +527,43 @@ static void MX_I2C2_Init(void) {
 }
 
 /**
+ * @brief SPI1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SPI1_Init(void) {
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 7;
+  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+}
+
+/**
  * @brief TIM2 Initialization Function
  * @param None
  * @retval None
@@ -585,6 +673,13 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
+                    GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PF0 PF1 */
@@ -599,20 +694,17 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA5 PA6 PA7
-                           PA10 PA11 PA12 PA13
-                           PA14 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
-                        GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_13 |
-                        GPIO_PIN_14 | GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  /*Configure GPIO pins : PA0 PA5 PA6 PA7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PA1 */
   GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB0 */
@@ -622,10 +714,14 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB3 PB4 PB5 PB6
-                           PB7 PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 |
-                        GPIO_PIN_7 | GPIO_PIN_8;
+  /*Configure GPIO pins : PA10 PA11 PA12 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB6 PB7 PB8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -641,28 +737,54 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
+static void dump_wake_reason(const char *tag) {
+  printf("\r\n[%s]\r\n", tag);
+  printf("  PWR->SR1 = 0x%08lX\r\n", (unsigned long)PWR->SR1);
+  printf("  PWR->SR2 = 0x%08lX\r\n", (unsigned long)PWR->SR2);
+  printf("  EXTI->PR1= 0x%08lX\r\n", (unsigned long)EXTI->PR1);
+
+  printf("  NVIC pending: EXTI1=%lu DMA1Ch1=%lu TIM6=%lu\r\n",
+         (unsigned long)NVIC_GetPendingIRQ(EXTI1_IRQn),
+         (unsigned long)NVIC_GetPendingIRQ(DMA1_Channel1_IRQn),
+         (unsigned long)NVIC_GetPendingIRQ(TIM6_DAC_IRQn));
+}
+
+static inline int debugger_attached(void) {
+  return (CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) ? 1 : 0;
+}
+
 void EnterStopMode(void) {
-  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+  // Print BEFORE sleeping (clock is normal here)
+  // dump_wake_reason("before STOP");
+  // printf("  debugger_attached=%d\r\n", debugger_attached());
+
+  // Clear EXTI pending + NVIC pending for PA1
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+
+  // Clear PWR wake flags
+  PWR->SCR = PWR_SCR_CWUF;
+
+  // Optional: disable debug in STOP (important on ST-LINK boards)
+  DBGMCU->CR &=
+      ~(DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STANDBY);
+
   HAL_SuspendTick();
 
-  // Optional small savings:
-  __HAL_RCC_GPIOF_CLK_DISABLE();
-  __HAL_RCC_GPIOG_CLK_DISABLE();
-  __HAL_RCC_GPIOB_CLK_DISABLE();
-  __HAL_RCC_GPIOA_CLK_DISABLE();
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  PWR->SCR = PWR_SCR_CWUF;
+  __DSB();
+  __ISB();
 
   HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
 
-  // After wake
+  // We are awake here, but clocks are still not restored:
   SystemClock_Config();
-
-  // Re-enable clocks if you disabled them
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-
   HAL_ResumeTick();
+
+  // Now UART baud is correct again
+  // dump_wake_reason("after STOP");
 }
 
 void StartActiveWindowMs(uint32_t ms) {
@@ -1047,6 +1169,249 @@ void Set_DAC_Output_To_Midlevel(void) {
 
   // Set mid-scale (12-bit right aligned)
   HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dc_mid[0]);
+}
+
+HAL_StatusTypeDef CC1101_Strobe(uint8_t strobe, uint8_t *status) {
+  uint8_t tx[1] = {strobe};
+  uint8_t rx[1] = {0};
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 1);
+  if (st == HAL_OK && status)
+    *status = rx[0];
+  // printf("CC1101 Strobe 0x%02X, status=0x%02X\r\n", strobe, rx[0]);
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_ReadReg(uint8_t addr, uint8_t *val, uint8_t *status) {
+  uint8_t tx[2] = {(uint8_t)(addr | 0x80), 0xFF};
+  uint8_t rx[2] = {0};
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 2);
+  if (st == HAL_OK) {
+    if (status)
+      *status = rx[0];
+    if (val)
+      *val = rx[1];
+  }
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_WriteReg(uint8_t addr, uint8_t val, uint8_t *status) {
+  uint8_t tx[2] = {(uint8_t)(addr & 0x7F), val};
+  uint8_t rx[2] = {0};
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 2);
+  if (st == HAL_OK && status)
+    *status = rx[1]; // status comes back while sending addr
+  // printf("CC1101 WriteReg 0x%02X=0x%02X, status=0x%02X\r\n", addr, val,
+  // rx[1]);
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_WriteBurstReg(uint8_t addr, uint8_t *vals, size_t len,
+                                       uint8_t *status) {
+  if (len == 0)
+    return HAL_OK;
+
+  uint8_t tx[len + 1];
+  uint8_t rx[len + 1];
+
+  tx[0] = (uint8_t)(addr | 0x40); // burst write
+  memcpy(&tx[1], vals, len);
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, len + 1);
+  if (st == HAL_OK && status)
+    *status = rx[0];
+  // printf("CC1101 WriteBurstReg 0x%02X, len=%d, status=0x%02X\r\n", addr, len,
+  //        rx[0]);
+  return st;
+}
+
+HAL_StatusTypeDef CC1101_ReadBurstReg(uint8_t addr, uint8_t *vals, size_t len,
+                                      uint8_t *status) {
+  if (len == 0)
+    return HAL_OK;
+
+  uint8_t tx[len + 1];
+  uint8_t rx[len + 1];
+
+  tx[0] = (uint8_t)(addr | 0xC0); // burst read
+  memset(&tx[1], 0xFF, len);
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, len + 1);
+  if (st == HAL_OK) {
+    if (status)
+      *status = rx[0];
+    if (vals)
+      memcpy(vals, &rx[1], len);
+  }
+  // printf("CC1101 ReadBurstReg 0x%02X, len=%d, status=0x%02X\r\n", addr, len,
+  //        rx[0]);
+  return st;
+}
+
+void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
+  size_t str_len = strlen(str);
+  size_t max_bytes =
+      (hex_buf_size < (str_len / 2)) ? hex_buf_size : (str_len / 2);
+
+  for (size_t i = 0; i < max_bytes; i++) {
+    sscanf(&str[i * 2], "%2hhx", &hex_buf[i]);
+  }
+}
+
+void transmit_bytes(void) {
+  uint8_t status = 0;
+
+  const char payload_str[] = "Einar suger";
+  const uint8_t *payload = (const uint8_t *)payload_str;
+  uint8_t payload_len = (uint8_t)strlen(payload_str); // 11
+
+  printf("Transmitting payload: %s\r\n", payload_str);
+  printf("Payload in hex: ");
+  for (size_t i = 0; i < payload_len; i++) {
+    printf("%02X ", payload[i]);
+  }
+  printf("\r\n");
+  uint8_t pkt[2 + payload_len]; // length byte + payload
+  pkt[0] = payload_len + 1;     // length
+  pkt[1] = 0xEB;
+  memcpy(&pkt[2], payload, payload_len);
+
+  // Optional: flush TX FIFO before loading (good practice)
+  CC1101_Strobe(0x3B, &status); // SFTX :contentReference[oaicite:1]{index=1}
+
+  // Burst write into TX FIFO
+  CC1101_WriteBurstReg(
+      0x3F, pkt, sizeof(pkt),
+      &status); // 0x3F = TXFIFO :contentReference[oaicite:2]{index=2}
+
+  // Start TX
+  CC1101_Strobe(0x35, &status); // STX :contentReference[oaicite:3]{index=3}
+
+  // Wait for IDLE (mask state bits)
+  while (1) {
+    uint8_t marcstate = 0;
+    CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
+    marcstate &= 0x1F;
+    if (marcstate == 0x01) {
+      break; // IDLE
+    }
+  }
+}
+
+void app_radio_test(void) {
+  printf("Starting radio test...\r\n");
+
+  uint8_t status = 0;
+  uint8_t part = 0, ver = 0;
+  uint8_t temp = 0;
+
+  // Reset (strobe)
+  CC1101_Strobe(0x30, &status);
+  HAL_Delay(1);
+
+  // Read PARTNUM + VERSION
+  CC1101_ReadReg(0xF1, &part, &status);
+  CC1101_ReadReg(0x00, &ver, &status);
+
+  printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
+
+  if (RX == true) {
+    // Write configuration for RX
+    for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
+      CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
+    }
+
+    CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+    printf("Calibrate: 0x%02X\r\n", status);
+
+    CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
+
+    // CC1101_ReadReg(0xF5, &temp,
+    //                &status); // Read MARCSTATE to confirm RX state entered
+
+    // printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+
+    // HAL_Delay(3000); // Wait 10 seconds in RX
+
+    // CC1101_ReadReg(0xF5, &temp,
+    //                &status); // Read MARCSTATE to confirm RX state entered
+
+    // printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+  } else {
+    // Write configuration for TX
+    for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
+      CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
+    }
+
+    CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+    printf("Calibrate: 0x%02X\r\n", status);
+
+    CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
+    printf("FREQ2 register: 0x%02X\r\n", temp);
+    CC1101_ReadReg(0x0E, &temp, &status); // Read FREQ1 register as example
+    printf("FREQ1 register: 0x%02X\r\n", temp);
+    CC1101_ReadReg(0x0F, &temp, &status); // Read FREQ0 register as example
+    printf("FREQ0 register: 0x%02X\r\n", temp);
+
+    // Transmit bytes for 2 minutes
+    while (1) {
+
+      // transmit_bytes();
+      transmit_bytes();
+
+      // Break after 2 minutes
+      static uint32_t start_time = 0;
+      if (start_time == 0) {
+        start_time = HAL_GetTick();
+      } else if (HAL_GetTick() - start_time >= 120000) {
+        break;
+      }
+
+      // Optional: add delay between transmissions if desired
+      // HAL_Delay(1000);
+
+      // break; // for quick test
+    }
+
+    // Read MARCSTATE to confirm TX complete
+    CC1101_ReadReg(0xF5, &temp,
+                   &status); // Read MARCSTATE to confirm TX state entered
+
+    printf("MARCSTATE after TX complete: 0x%02X\r\n", temp);
+
+    printf("TX complete signal received.\r\n");
+  }
+
+  printf("Radio test complete.\r\n");
+}
+
+void read_buffer(void) {
+  uint8_t status = 0;
+  uint8_t temp = 0;
+
+  CC1101_ReadReg(0xFB, &temp,
+                 &status); // Read RXBYTES to confirm bytes in RX FIFO
+  printf("Bytes in RX FIFO: 0x%02X\r\n", temp);
+
+  if (temp > 0) {
+    uint8_t rx_buf[temp];
+    CC1101_ReadBurstReg(0xFF, rx_buf, temp,
+                        &status); // Read from RX FIFO (0xFF)
+
+    printf("Received bytes: ");
+    for (size_t i = 0; i < temp; i++) {
+      printf("%02X ", rx_buf[i]);
+    }
+    printf("\r\n");
+  } else {
+    printf("No bytes in RX FIFO.\r\n");
+  }
+
+  CC1101_Strobe(0x36, &status); // SIDLE (optional but robust)
+  CC1101_Strobe(0x3A, &status); // SFRX
+  CC1101_Strobe(0x34, &status); // SRX  <-- IMPORTANT
 }
 
 /* USER CODE END 4 */
