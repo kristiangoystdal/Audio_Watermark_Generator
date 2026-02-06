@@ -231,6 +231,35 @@ int main(void) {
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
 
+  //---------------------------------------------------------------------------//
+  // Main loop
+  //---------------------------------------------------------------------------//
+
+  /* USER CODE END 2 */
+
+  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
+   */
+  BspCOMInit.BaudRate = 115200;
+  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
+  BspCOMInit.StopBits = COM_STOPBITS_1;
+  BspCOMInit.Parity = COM_PARITY_NONE;
+  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
+  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN BSP */
+
+  /* -- Sample board code to send message over COM1 port ---- */
+  printf("\033[2J\033[H");
+  printf("-------------------------\r\n");
+  printf("Hello from VCP!\r\n");
+
+  /* USER CODE END BSP */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
   //-----------------------------------------------------------------------------//
@@ -267,44 +296,17 @@ int main(void) {
   current_sine_index = 0;
   tx_active = true;
 
-  //---------------------------------------------------------------------------//
-  // Main loop
-  //---------------------------------------------------------------------------//
-
-  /* USER CODE END 2 */
-
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
-   */
-  BspCOMInit.BaudRate = 115200;
-  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits = COM_STOPBITS_1;
-  BspCOMInit.Parity = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
-    Error_Handler();
-  }
-
-  /* USER CODE BEGIN BSP */
-
-  /* -- Sample board code to send message over COM1 port ---- */
-  printf("\033[2J\033[H");
   printf("-------------------------\r\n");
-  printf("Hello from VCP!\r\n");
-
-  /* USER CODE END BSP */
-
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-
-  // printf("-------------------------\r\n");
-  // printf("Input string prepared:\r\n%s\r\n", input_string);
-  // printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
+  printf("Input string prepared:\r\n%s\r\n", input_string);
+  printf("Input string length: %zu characters\r\n", strlen(input_string));
+  printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
   // uint32_t ms = (uint32_t)(total_time * 1000.0f);
   // printf("Active duration: %lu ms\r\n", (unsigned long)ms);
   // printf("Bitstream:\r\n");
   // for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
   //   printf("%u", bitstream[i]);
   // }
+  printf("-------------------------\r\n");
 
   // TX_Stop();
 
@@ -1142,7 +1144,7 @@ HAL_StatusTypeDef CC1101_Strobe(uint8_t strobe, uint8_t *status) {
   HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 1);
   if (st == HAL_OK && status)
     *status = rx[0];
-  printf("CC1101 Strobe 0x%02X, status=0x%02X\r\n", strobe, rx[0]);
+  // printf("CC1101 Strobe 0x%02X, status=0x%02X\r\n", strobe, rx[0]);
   return st;
 }
 
@@ -1167,7 +1169,8 @@ HAL_StatusTypeDef CC1101_WriteReg(uint8_t addr, uint8_t val, uint8_t *status) {
   HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, 2);
   if (st == HAL_OK && status)
     *status = rx[1]; // status comes back while sending addr
-  printf("CC1101 WriteReg 0x%02X=0x%02X, status=0x%02X\r\n", addr, val, rx[1]);
+  // printf("CC1101 WriteReg 0x%02X=0x%02X, status=0x%02X\r\n", addr, val,
+  // rx[1]);
   return st;
 }
 
@@ -1185,30 +1188,59 @@ HAL_StatusTypeDef CC1101_WriteBurstReg(uint8_t addr, uint8_t *vals, size_t len,
   HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, len + 1);
   if (st == HAL_OK && status)
     *status = rx[0];
-  printf("CC1101 WriteBurstReg 0x%02X, len=%d, status=0x%02X\r\n", addr, len,
-         rx[0]);
+  // printf("CC1101 WriteBurstReg 0x%02X, len=%d, status=0x%02X\r\n", addr, len,
+  //        rx[0]);
   return st;
 }
 
+void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
+  size_t str_len = strlen(str);
+  size_t max_bytes =
+      (hex_buf_size < (str_len / 2)) ? hex_buf_size : (str_len / 2);
+
+  for (size_t i = 0; i < max_bytes; i++) {
+    sscanf(&str[i * 2], "%2hhx", &hex_buf[i]);
+  }
+}
+
 void transmit_bytes(void) {
-  size_t len_bytes = 1;
-  printf("Transmitting %d bytes...\r\n", len_bytes);
   uint8_t status = 0;
 
-  // for (size_t i = 0; i < len_bytes; i++) {
-  //   CC1101_WriteReg(0x3F, 0x69,
-  //                   &status); // Write 1 byte to TX FIFO (example data)
+  const char payload_str[] = "Einar suger";
+  const uint8_t *payload = (const uint8_t *)payload_str;
+  uint8_t payload_len = (uint8_t)strlen(payload_str); // 11
 
-  //   HAL_Delay(100); // Wait for transmission to complete
-  // }
+  printf("Transmitting payload: %s\r\n", payload_str);
+  printf("Payload in hex: ");
+  for (size_t i = 0; i < payload_len; i++) {
+    printf("%02X ", payload[i]);
+  }
+  printf("\r\n");
+  uint8_t pkt[2 + payload_len]; // length byte + payload
+  pkt[0] = payload_len + 1;     // length
+  pkt[1] = 0xEB;
+  memcpy(&pkt[2], payload, payload_len);
 
-  uint8_t pkt[2] = {0x01, 0x69}; // length=1, payload=0x69
+  // Optional: flush TX FIFO before loading (good practice)
+  CC1101_Strobe(0x3B, &status); // SFTX :contentReference[oaicite:1]{index=1}
 
-  CC1101_WriteBurstReg(0x3F, pkt, 2, &status);
+  // Burst write into TX FIFO
+  CC1101_WriteBurstReg(
+      0x3F, pkt, sizeof(pkt),
+      &status); // 0x3F = TXFIFO :contentReference[oaicite:2]{index=2}
 
-  CC1101_Strobe(0x35, &status); // Go to TX state (STX)
+  // Start TX
+  CC1101_Strobe(0x35, &status); // STX :contentReference[oaicite:3]{index=3}
 
-  printf("Transmission complete.\r\n");
+  // Wait for IDLE (mask state bits)
+  while (1) {
+    uint8_t marcstate = 0;
+    CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
+    marcstate &= 0x1F;
+    if (marcstate == 0x01) {
+      break; // IDLE
+    }
+  }
 }
 
 void app_radio_test(void) {
@@ -1233,6 +1265,9 @@ void app_radio_test(void) {
     for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
       CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
     }
+
+    CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+    printf("Calibrate: 0x%02X\r\n", status);
 
     CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
     printf("FREQ2 register: 0x%02X\r\n", temp);
@@ -1260,6 +1295,9 @@ void app_radio_test(void) {
       CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
     }
 
+    CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+    printf("Calibrate: 0x%02X\r\n", status);
+
     CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
     printf("FREQ2 register: 0x%02X\r\n", temp);
     CC1101_ReadReg(0x0E, &temp, &status); // Read FREQ1 register as example
@@ -1267,19 +1305,33 @@ void app_radio_test(void) {
     CC1101_ReadReg(0x0F, &temp, &status); // Read FREQ0 register as example
     printf("FREQ0 register: 0x%02X\r\n", temp);
 
-    transmit_bytes();
+    // Transmit bytes for 2 minutes
+    while (1) {
 
+      // transmit_bytes();
+      transmit_bytes();
+
+      // Break after 2 minutes
+      static uint32_t start_time = 0;
+      if (start_time == 0) {
+        start_time = HAL_GetTick();
+      } else if (HAL_GetTick() - start_time >= 120000) {
+        break;
+      }
+
+      // Optional: add delay between transmissions if desired
+      HAL_Delay(1000);
+
+      // break; // for quick test
+    }
+
+    // Read MARCSTATE to confirm TX complete
     CC1101_ReadReg(0xF5, &temp,
                    &status); // Read MARCSTATE to confirm TX state entered
 
-    printf("MARCSTATE after TX strobe: 0x%02X\r\n", temp);
+    printf("MARCSTATE after TX complete: 0x%02X\r\n", temp);
 
-    HAL_Delay(3000); // Wait 3 seconds in TX
-
-    CC1101_ReadReg(0xF5, &temp,
-                   &status); // Read MARCSTATE to confirm TX state entered
-
-    printf("MARCSTATE after TX strobe: 0x%02X\r\n", temp);
+    printf("TX complete signal received.\r\n");
   }
 
   printf("Radio test complete.\r\n");
