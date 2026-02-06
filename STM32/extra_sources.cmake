@@ -5,6 +5,7 @@ file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ds3231.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/spi.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ism.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/cc1101.c
 )
 
 # Collect all user include directories
