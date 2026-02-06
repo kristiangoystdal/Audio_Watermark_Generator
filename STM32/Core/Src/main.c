@@ -308,12 +308,12 @@ int main(void) {
   // }
   printf("-------------------------\r\n");
 
-  // TX_Stop();
+  TX_Stop();
 
-  // printf("\r\n");
-  // printf("-------------------------\r\n");
+  printf("\r\n");
+  printf("-------------------------\r\n");
 
-  // Set_DAC_Output_To_Midlevel();
+  Set_DAC_Output_To_Midlevel();
 
   // DS3231_PowerOn();
   // if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
@@ -358,7 +358,7 @@ int main(void) {
     // active_done = 0;
 
     // // 4) Stop TX
-    // TX_Stop();
+    TX_Stop();
 
     // printf("\r\n");
     // printf("Transmission complete.\r\n");
@@ -367,9 +367,17 @@ int main(void) {
     // HAL_Delay(100);
 
     // 5) Enter STOP mode until button press
+
+    printf("Entering STOP mode...\r\n");
     EnterStopMode();
 
+    // re-enable after wake
+    // EXTI->IMR1 |= EXTI_IMR1_IM1;
+
     printf("Woke up!\r\n");
+
+    // Check state and go to sleep if state is not RX (e.g. if we woke up due to
+    // noise or something else)
 
     // 6) Debounce button
     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
@@ -378,7 +386,7 @@ int main(void) {
 
     read_buffer();
 
-    HAL_Delay(3000);
+    HAL_Delay(5000);
 
     printf("Going back to sleep...\r\n");
 
@@ -695,8 +703,8 @@ static void MX_GPIO_Init(void) {
 
   /*Configure GPIO pin : PA1 */
   GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB0 */
@@ -729,28 +737,54 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
+static void dump_wake_reason(const char *tag) {
+  printf("\r\n[%s]\r\n", tag);
+  printf("  PWR->SR1 = 0x%08lX\r\n", (unsigned long)PWR->SR1);
+  printf("  PWR->SR2 = 0x%08lX\r\n", (unsigned long)PWR->SR2);
+  printf("  EXTI->PR1= 0x%08lX\r\n", (unsigned long)EXTI->PR1);
+
+  printf("  NVIC pending: EXTI1=%lu DMA1Ch1=%lu TIM6=%lu\r\n",
+         (unsigned long)NVIC_GetPendingIRQ(EXTI1_IRQn),
+         (unsigned long)NVIC_GetPendingIRQ(DMA1_Channel1_IRQn),
+         (unsigned long)NVIC_GetPendingIRQ(TIM6_DAC_IRQn));
+}
+
+static inline int debugger_attached(void) {
+  return (CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) ? 1 : 0;
+}
+
 void EnterStopMode(void) {
-  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+  // Print BEFORE sleeping (clock is normal here)
+  // dump_wake_reason("before STOP");
+  // printf("  debugger_attached=%d\r\n", debugger_attached());
+
+  // Clear EXTI pending + NVIC pending for PA1
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+
+  // Clear PWR wake flags
+  PWR->SCR = PWR_SCR_CWUF;
+
+  // Optional: disable debug in STOP (important on ST-LINK boards)
+  DBGMCU->CR &=
+      ~(DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STANDBY);
+
   HAL_SuspendTick();
 
-  // Optional small savings:
-  __HAL_RCC_GPIOF_CLK_DISABLE();
-  __HAL_RCC_GPIOG_CLK_DISABLE();
-  __HAL_RCC_GPIOB_CLK_DISABLE();
-  __HAL_RCC_GPIOA_CLK_DISABLE();
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  PWR->SCR = PWR_SCR_CWUF;
+  __DSB();
+  __ISB();
 
   HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
 
-  // After wake
+  // We are awake here, but clocks are still not restored:
   SystemClock_Config();
-
-  // Re-enable clocks if you disabled them
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-
   HAL_ResumeTick();
+
+  // Now UART baud is correct again
+  // dump_wake_reason("after STOP");
 }
 
 void StartActiveWindowMs(uint32_t ms) {
@@ -1193,6 +1227,29 @@ HAL_StatusTypeDef CC1101_WriteBurstReg(uint8_t addr, uint8_t *vals, size_t len,
   return st;
 }
 
+HAL_StatusTypeDef CC1101_ReadBurstReg(uint8_t addr, uint8_t *vals, size_t len,
+                                      uint8_t *status) {
+  if (len == 0)
+    return HAL_OK;
+
+  uint8_t tx[len + 1];
+  uint8_t rx[len + 1];
+
+  tx[0] = (uint8_t)(addr | 0xC0); // burst read
+  memset(&tx[1], 0xFF, len);
+
+  HAL_StatusTypeDef st = SPI1_WriteRead(tx, rx, len + 1);
+  if (st == HAL_OK) {
+    if (status)
+      *status = rx[0];
+    if (vals)
+      memcpy(vals, &rx[1], len);
+  }
+  // printf("CC1101 ReadBurstReg 0x%02X, len=%d, status=0x%02X\r\n", addr, len,
+  //        rx[0]);
+  return st;
+}
+
 void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
   size_t str_len = strlen(str);
   size_t max_bytes =
@@ -1269,26 +1326,19 @@ void app_radio_test(void) {
     CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
     printf("Calibrate: 0x%02X\r\n", status);
 
-    CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
-    printf("FREQ2 register: 0x%02X\r\n", temp);
-    CC1101_ReadReg(0x0E, &temp, &status); // Read FREQ1 register as example
-    printf("FREQ1 register: 0x%02X\r\n", temp);
-    CC1101_ReadReg(0x0F, &temp, &status); // Read FREQ0 register as example
-    printf("FREQ0 register: 0x%02X\r\n", temp);
-
     CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
 
-    CC1101_ReadReg(0xF5, &temp,
-                   &status); // Read MARCSTATE to confirm RX state entered
+    // CC1101_ReadReg(0xF5, &temp,
+    //                &status); // Read MARCSTATE to confirm RX state entered
 
-    printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+    // printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
 
-    HAL_Delay(3000); // Wait 10 seconds in RX
+    // HAL_Delay(3000); // Wait 10 seconds in RX
 
-    CC1101_ReadReg(0xF5, &temp,
-                   &status); // Read MARCSTATE to confirm RX state entered
+    // CC1101_ReadReg(0xF5, &temp,
+    //                &status); // Read MARCSTATE to confirm RX state entered
 
-    printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+    // printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
   } else {
     // Write configuration for TX
     for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
@@ -1320,7 +1370,7 @@ void app_radio_test(void) {
       }
 
       // Optional: add delay between transmissions if desired
-      HAL_Delay(1000);
+      // HAL_Delay(1000);
 
       // break; // for quick test
     }
@@ -1344,6 +1394,24 @@ void read_buffer(void) {
   CC1101_ReadReg(0xFB, &temp,
                  &status); // Read RXBYTES to confirm bytes in RX FIFO
   printf("Bytes in RX FIFO: 0x%02X\r\n", temp);
+
+  if (temp > 0) {
+    uint8_t rx_buf[temp];
+    CC1101_ReadBurstReg(0xFF, rx_buf, temp,
+                        &status); // Read from RX FIFO (0xFF)
+
+    printf("Received bytes: ");
+    for (size_t i = 0; i < temp; i++) {
+      printf("%02X ", rx_buf[i]);
+    }
+    printf("\r\n");
+  } else {
+    printf("No bytes in RX FIFO.\r\n");
+  }
+
+  CC1101_Strobe(0x36, &status); // SIDLE (optional but robust)
+  CC1101_Strobe(0x3A, &status); // SFRX
+  CC1101_Strobe(0x34, &status); // SRX  <-- IMPORTANT
 }
 
 /* USER CODE END 4 */
