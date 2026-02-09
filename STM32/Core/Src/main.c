@@ -26,9 +26,13 @@
 #include "ds3231.h"
 #include "ism.h"
 #include "ism_config_433.h"
+#include "radio.h"
 #include "spi.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/_intsup.h>
 #include <user_config.h>
-
 
 #include "cmsis_gcc.h"
 #include "stm32g431xx.h"
@@ -155,7 +159,10 @@ FillResult result;
 
 static ism_handle_t radio;
 
-bool RX = false;
+bool RX = true; // set to false for TX mode, true for RX mode
+
+uint8_t transmission[256] = {0};
+int dBm_value = 0;
 
 /* USER CODE END PV */
 
@@ -171,7 +178,7 @@ static void MX_SPI1_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
-void calculate_active_duration_ms(void);
+void calculate_active_duration_ms(size_t bitstream_len);
 void StartActiveWindowMs(uint32_t ms);
 void make_bitstream_from_string(const char *str);
 void update_input_string(void);
@@ -188,6 +195,12 @@ static void TX_Stop(void);
 void app_radio_test(void);
 
 void read_buffer(void);
+
+void process_transmission(const uint8_t *transmission, int *dBm_value);
+
+void create_string_from_received_data(const uint8_t *transmission,
+                                      int dBm_value, char *output_str,
+                                      size_t output_str_size);
 
 /* USER CODE END PFP */
 
@@ -271,51 +284,14 @@ int main(void) {
   get_dc_mid();
 
   //-----------------------------------------------------------------------------//
-  // Prepare input string
+  // Set DAC output to mid-level (silence) before starting
   //-----------------------------------------------------------------------------//
-
-  update_input_string();
-
-  //-----------------------------------------------------------------------------//
-  // Prepare bitstream from input string
-  //-----------------------------------------------------------------------------//
-
-  make_bitstream_from_string(input_string);
-
-  //-----------------------------------------------------------------------------//
-  // Calculate active duration
-  //-----------------------------------------------------------------------------//
-
-  calculate_active_duration_ms();
-
-  //-----------------------------------------------------------------------------//
-  // Start DAC DMA
-  //-----------------------------------------------------------------------------//
-  current_bitstream_index = 0;
-  current_bit = bitstream[current_bitstream_index];
-  next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  current_sine_period = 0;
-  current_sine_index = 0;
-  tx_active = true;
-
-  printf("-------------------------\r\n");
-  printf("Input string prepared:\r\n%s\r\n", input_string);
-  printf("Input string length: %zu characters\r\n", strlen(input_string));
-  printf("Bitstream length: %u bits\r\n", BITSTREAM_LENGTH);
-  // uint32_t ms = (uint32_t)(total_time * 1000.0f);
-  // printf("Active duration: %lu ms\r\n", (unsigned long)ms);
-  // printf("Bitstream:\r\n");
-  // for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
-  //   printf("%u", bitstream[i]);
-  // }
-  printf("-------------------------\r\n");
-
-  TX_Stop();
-
-  printf("\r\n");
-  printf("-------------------------\r\n");
 
   Set_DAC_Output_To_Midlevel();
+
+  //-----------------------------------------------------------------------------//
+  // Initialize RTC
+  //-----------------------------------------------------------------------------//
 
   // DS3231_PowerOn();
   // if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
@@ -327,17 +303,11 @@ int main(void) {
   // Get_Time(&now);
   // printf("-------------------------\r\n");
 
-  // SPI1_Write((uint8_t *)input_string, (uint16_t)strlen(input_string));
+  printf("-------------------------\r\n");
 
   printf("-------------------------\r\n");
 
-  // SPI1_Read((uint8_t *)input_string, (uint16_t)strlen(input_string));
-
-  printf("-------------------------\r\n");
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
-  HAL_Delay(5); // let radio settle
-
-  app_radio_test();
+  init_radio(RX);
 
   printf("--------------------------\r\n");
 
@@ -345,50 +315,75 @@ int main(void) {
 
   while (1) {
 
-    // // 1) Start TX
-    // TX_Start();
-
-    // // 2) Calculate active duration
-    // calculate_active_duration_ms();
-    // printf("Starting transmission for %.2f seconds...\r\n", total_time);
-
-    // // 3) Set an active window timer and wait for completion
-    // StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
-    // while (!active_done) {
-    //   __WFI(); // CPU sleeps while DMA+TIM2+DAC run
-    // }
-    // active_done = 0;
-
-    // // 4) Stop TX
-    TX_Stop();
-
-    // printf("\r\n");
-    // printf("Transmission complete.\r\n");
-    // printf("-------------------------\r\n");
-
-    // HAL_Delay(100);
-
-    // 5) Enter STOP mode until button press
-
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOA Pin 1)
     printf("Entering STOP mode...\r\n");
     EnterStopMode();
 
-    // re-enable after wake
-    // EXTI->IMR1 |= EXTI_IMR1_IM1;
-
-    printf("Woke up!\r\n");
-
-    // Check state and go to sleep if state is not RX (e.g. if we woke up due to
-    // noise or something else)
-
-    // 6) Debounce button
+    // 2) Debounce button
     while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
     }
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
 
-    read_buffer();
+    printf("Woke up!\r\n");
 
-    HAL_Delay(5000);
+    // 3) Check state and either start RX or TX
+    if (RX) {
+      // RX mode: read from radio and store in string
+      read_RX(transmission, sizeof(transmission));
+      printf("Received transmission: ");
+      for (size_t i = 0; i < sizeof(transmission); i++) {
+        printf("%02X ", transmission[i]);
+      }
+      printf("\r\n");
+
+      // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
+      // etc.)
+      process_transmission(transmission, &dBm_value);
+
+      printf("Processed transmission into %s\r\n", transmission);
+      printf("dBm value: %d\r\n", dBm_value);
+
+      // Create output string based on received data and dBm value (e.g.
+      // "/STR.../DID.../LOC.../TMP.../TIM...")
+      char output_str[256] = {0};
+      create_string_from_received_data(transmission, dBm_value, output_str,
+                                       sizeof(output_str));
+
+      printf("Final output string: %s\r\n", output_str);
+
+      // Make bitstream from output string
+      make_bitstream_from_string(output_str);
+      printf("Prepared bitstream from output string.\r\n");
+      printf("Output string length: %d characters\r\n",
+             (int)strlen(output_str));
+
+      // Calculate active duration based on bitstream length and bit durations
+      size_t bitstream_len = strlen(output_str) * 8u;
+      calculate_active_duration_ms(bitstream_len);
+      uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
+      printf("Calculated active duration for response: %lu ms\r\n",
+             (unsigned long)total_ms);
+
+      // Send transmission over audio
+      printf("Starting transmission of response over audio...\r\n");
+      TX_Start();
+
+      // Wait for active window to complete (enters low-power sleep while
+      // waiting)
+      StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+      while (!active_done) {
+        __WFI(); // CPU sleeps while DMA+TIM2+DAC run
+      }
+      active_done = 0;
+
+      // Stop transmission and go back to sleep
+      TX_Stop();
+
+    } else {
+      // Send transmission over radio
+      printf("Starting transmission over radio...\r\n");
+      start_TX();
+    }
 
     printf("Going back to sleep...\r\n");
 
@@ -739,26 +734,7 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
-static void dump_wake_reason(const char *tag) {
-  printf("\r\n[%s]\r\n", tag);
-  printf("  PWR->SR1 = 0x%08lX\r\n", (unsigned long)PWR->SR1);
-  printf("  PWR->SR2 = 0x%08lX\r\n", (unsigned long)PWR->SR2);
-  printf("  EXTI->PR1= 0x%08lX\r\n", (unsigned long)EXTI->PR1);
-
-  printf("  NVIC pending: EXTI1=%lu DMA1Ch1=%lu TIM6=%lu\r\n",
-         (unsigned long)NVIC_GetPendingIRQ(EXTI1_IRQn),
-         (unsigned long)NVIC_GetPendingIRQ(DMA1_Channel1_IRQn),
-         (unsigned long)NVIC_GetPendingIRQ(TIM6_DAC_IRQn));
-}
-
-static inline int debugger_attached(void) {
-  return (CoreDebug->DHCSR & CoreDebug_DHCSR_C_DEBUGEN_Msk) ? 1 : 0;
-}
-
 void EnterStopMode(void) {
-  // Print BEFORE sleeping (clock is normal here)
-  // dump_wake_reason("before STOP");
-  // printf("  debugger_attached=%d\r\n", debugger_attached());
 
   // Clear EXTI pending + NVIC pending for PA1
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
@@ -784,9 +760,6 @@ void EnterStopMode(void) {
   // We are awake here, but clocks are still not restored:
   SystemClock_Config();
   HAL_ResumeTick();
-
-  // Now UART baud is correct again
-  // dump_wake_reason("after STOP");
 }
 
 void StartActiveWindowMs(uint32_t ms) {
@@ -943,7 +916,7 @@ uint32_t get_dac_sample_rate_hz(void) {
   return tim_clk / ((htim2.Init.Prescaler + 1) * (htim2.Init.Period + 1));
 }
 
-void calculate_active_duration_ms(void) {
+void calculate_active_duration_ms(size_t bitstream_len) {
   fs = get_dac_sample_rate_hz();
 
   float f_0 = (float)fs / (float)FSK_LOWER_NUM_SAMPLES;
@@ -954,7 +927,7 @@ void calculate_active_duration_ms(void) {
 
   // Exact bitstream time
   total_time = 0.0f;
-  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
+  for (int i = 0; i < bitstream_len; ++i) {
     if (bitstream[i] == 0) {
       total_time += ((float)FSK_LOWER_PERIODS) / f_0;
     } else if (bitstream[i] == 1) {
@@ -1183,158 +1156,184 @@ void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
   }
 }
 
-void transmit_bytes(void) {
-  uint8_t status = 0;
+void process_transmission(const uint8_t *transmission, int *dBm_value) {
+  size_t len = strlen((const char *)transmission);
+  if (len <= 4) {
+    printf("Transmission too short to process.\r\n");
+    return;
+  }
 
-  const char payload_str[] = "Einar suger";
-  const uint8_t *payload = (const uint8_t *)payload_str;
-  uint8_t payload_len = (uint8_t)strlen(payload_str); // 11
-
-  printf("Transmitting payload: %s\r\n", payload_str);
-  printf("Payload in hex: ");
-  for (size_t i = 0; i < payload_len; i++) {
-    printf("%02X ", payload[i]);
+  for (size_t i = 0; i < len; i++) {
+    printf("%02X ", transmission[i]);
   }
   printf("\r\n");
-  uint8_t pkt[2 + payload_len]; // length byte + payload
-  pkt[0] = payload_len + 1;     // length
-  pkt[1] = 0xEB;
-  memcpy(&pkt[2], payload, payload_len);
 
-  // Optional: flush TX FIFO before loading (good practice)
-  CC1101_Strobe(0x3B, &status); // SFTX :contentReference[oaicite:1]{index=1}
+  uint8_t rssi_hex = transmission[len - 2]; // 2nd from end
 
-  // Burst write into TX FIFO
-  CC1101_WriteBurstReg(
-      0x3F, pkt, sizeof(pkt),
-      &status); // 0x3F = TXFIFO :contentReference[oaicite:2]{index=2}
+  // printf("Extracted RSSI hex: %02X\r\n", rssi_hex);
 
-  // Start TX
-  CC1101_Strobe(0x35, &status); // STX :contentReference[oaicite:3]{index=3}
+  int8_t rssi_signed = (int8_t)rssi_hex; // 2's complement
 
-  // Wait for IDLE (mask state bits)
-  while (1) {
-    uint8_t marcstate = 0;
-    CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
-    marcstate &= 0x1F;
-    if (marcstate == 0x01) {
-      break; // IDLE
-    }
+  // printf("RSSI signed value: %d\r\n", rssi_signed);
+
+  int rssi_dbm = (rssi_signed / 2) - 74; // integer dBm
+
+  // printf("RSSI: %d dBm\r\n", rssi_dbm);
+
+  dBm_value[0] = (int)rssi_dbm;
+
+  // Create cleaned string: skip first 2 char, skip last 2 chars
+  size_t cleaned_len = (len > 4) ? (len - 4) : 0;
+  char cleaned_str[MAX_NUM_CHARS] = {0};
+  if (cleaned_len > 0) {
+    strncpy(cleaned_str, (const char *)transmission + 2, cleaned_len);
+    cleaned_str[cleaned_len] = '\0'; // Null-terminate
   }
+
+  // Overwrite the transmission parameter (cast needed for const)
+  strncpy((char *)transmission, cleaned_str, MAX_NUM_CHARS - 1);
 }
 
-void app_radio_test(void) {
-  printf("Starting radio test...\r\n");
+void create_string_from_received_data(const uint8_t *transmission,
+                                      int dBm_value, char *output_str,
+                                      size_t output_str_size) {
+  if (!output_str || output_str_size == 0)
+    return;
 
-  uint8_t status = 0;
-  uint8_t part = 0, ver = 0;
-  uint8_t temp = 0;
+  // Clear the entire output string buffer to ensure no leftover data, and set
+  // first char to null for safe concatenation
+  memset(output_str, 0, output_str_size);
+  output_str[0] = '\0';
 
-  // Reset (strobe)
-  CC1101_Strobe(0x30, &status);
-  HAL_Delay(1);
+  // Initialize with default values
+  char user_string[64] = USER_STRING; // fallback from user_config.h
+  int device_id = DEVICE_ID;          // fallback from user_config.h
+  char location[64] = LOCATION;       // fallback from user_config.h
+  int temperature = temp_int;         // runtime value
+  rtc_time_t time_val = now;          // runtime value
 
-  // Read PARTNUM + VERSION
-  CC1101_ReadReg(0xF1, &part, &status);
-  CC1101_ReadReg(0x00, &ver, &status);
+  // Copy transmission to local buffer for tokenization
+  char buf[256];
+  size_t in_len = strnlen((const char *)transmission, sizeof(buf) - 1);
+  memcpy(buf, transmission, in_len);
+  buf[in_len] = '\0';
 
-  printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
+  // Parse tokens in the format /KEYvalue, where KEY is 3 chars and value is
+  // variable length, separated by '/'
+  for (char *tok = strtok(buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
 
-  if (RX == true) {
-    // Write configuration for RX
-    for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
-      CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
-    }
+    if (strncmp(tok, "STR", 3) == 0) {
+      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
+      user_string[sizeof(user_string) - 1] = '\0';
 
-    CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
-    printf("Calibrate: 0x%02X\r\n", status);
+    } else if (strncmp(tok, "DID", 3) == 0) {
+      device_id = atoi(tok + 3);
 
-    CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
+    } else if (strncmp(tok, "LOC", 3) == 0) {
+      strncpy(location, tok + 3, sizeof(location) - 1);
+      location[sizeof(location) - 1] = '\0';
 
-    // CC1101_ReadReg(0xF5, &temp,
-    //                &status); // Read MARCSTATE to confirm RX state entered
+    } else if (strncmp(tok, "TMP", 3) == 0) {
+      temperature = atoi(tok + 3);
 
-    // printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
+    } else if (strncmp(tok, "TIM", 3) == 0) {
+      const char *p = tok + 3;
+      if (strlen(p) >= 14) {
+        char t[3] = {0};
 
-    // HAL_Delay(3000); // Wait 10 seconds in RX
+        t[0] = p[0];
+        t[1] = p[1];
+        time_val.hours = (uint8_t)atoi(t);
+        t[0] = p[2];
+        t[1] = p[3];
+        time_val.minutes = (uint8_t)atoi(t);
+        t[0] = p[4];
+        t[1] = p[5];
+        time_val.seconds = (uint8_t)atoi(t);
+        t[0] = p[6];
+        t[1] = p[7];
+        time_val.day = (uint8_t)atoi(t);
+        t[0] = p[8];
+        t[1] = p[9];
+        time_val.date = (uint8_t)atoi(t);
+        t[0] = p[10];
+        t[1] = p[11];
+        time_val.month = (uint8_t)atoi(t);
 
-    // CC1101_ReadReg(0xF5, &temp,
-    //                &status); // Read MARCSTATE to confirm RX state entered
-
-    // printf("MARCSTATE after RX strobe: 0x%02X\r\n", temp);
-  } else {
-    // Write configuration for TX
-    for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
-      CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
-    }
-
-    CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
-    printf("Calibrate: 0x%02X\r\n", status);
-
-    CC1101_ReadReg(0x0D, &temp, &status); // Read FREQ2 register as example
-    printf("FREQ2 register: 0x%02X\r\n", temp);
-    CC1101_ReadReg(0x0E, &temp, &status); // Read FREQ1 register as example
-    printf("FREQ1 register: 0x%02X\r\n", temp);
-    CC1101_ReadReg(0x0F, &temp, &status); // Read FREQ0 register as example
-    printf("FREQ0 register: 0x%02X\r\n", temp);
-
-    // Transmit bytes for 2 minutes
-    while (1) {
-
-      // transmit_bytes();
-      transmit_bytes();
-
-      // Break after 2 minutes
-      static uint32_t start_time = 0;
-      if (start_time == 0) {
-        start_time = HAL_GetTick();
-      } else if (HAL_GetTick() - start_time >= 120000) {
-        break;
+        char y[5] = {p[12], p[13], p[14], p[15], 0};
+        time_val.year = (uint16_t)atoi(y);
       }
-
-      // Optional: add delay between transmissions if desired
-      // HAL_Delay(1000);
-
-      // break; // for quick test
     }
-
-    // Read MARCSTATE to confirm TX complete
-    CC1101_ReadReg(0xF5, &temp,
-                   &status); // Read MARCSTATE to confirm TX state entered
-
-    printf("MARCSTATE after TX complete: 0x%02X\r\n", temp);
-
-    printf("TX complete signal received.\r\n");
   }
 
-  printf("Radio test complete.\r\n");
-}
+  // Build output string based on parsed tokens and compile-time flags, with
+  // careful buffer management
+  size_t offset = 0;
+  size_t remaining = output_str_size;
+  int n = 0;
 
-void read_buffer(void) {
-  uint8_t status = 0;
-  uint8_t temp = 0;
+  output_str[0] = '\0';
 
-  CC1101_ReadReg(0xFB, &temp,
-                 &status); // Read RXBYTES to confirm bytes in RX FIFO
-  printf("Bytes in RX FIFO: 0x%02X\r\n", temp);
-
-  if (temp > 0) {
-    uint8_t rx_buf[temp];
-    CC1101_ReadBurstReg(0xFF, rx_buf, temp,
-                        &status); // Read from RX FIFO (0xFF)
-
-    printf("Received bytes: ");
-    for (size_t i = 0; i < temp; i++) {
-      printf("%02X ", rx_buf[i]);
+  if (INCLUDE_USER_STRING) {
+    n = snprintf(&output_str[offset], remaining, "/STR%s", user_string);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
     }
-    printf("\r\n");
-  } else {
-    printf("No bytes in RX FIFO.\r\n");
   }
 
-  CC1101_Strobe(0x36, &status); // SIDLE (optional but robust)
-  CC1101_Strobe(0x3A, &status); // SFRX
-  CC1101_Strobe(0x34, &status); // SRX  <-- IMPORTANT
+  if (INCLUDE_DEVICE_ID) {
+    n = snprintf(&output_str[offset], remaining, "%s/DID%d",
+                 (offset > 0) ? "" : "", device_id);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  if (INCLUDE_LOCATION) {
+    n = snprintf(&output_str[offset], remaining, "%s/LOC%s",
+                 (offset > 0) ? "" : "", location);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  if (INCLUDE_TEMPERATURE) {
+    n = snprintf(&output_str[offset], remaining, "%s/TMP%d",
+                 (offset > 0) ? "" : "", temperature);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  if (INCLUDE_TIME) {
+    n = snprintf(&output_str[offset], remaining,
+                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
+                 time_val.hours, time_val.minutes, time_val.seconds,
+                 time_val.day, time_val.date, time_val.month, time_val.year);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  // Add termination slash
+  if (strlen(output_str) > 0) {
+    n = snprintf(&output_str[offset], remaining, "/");
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  // Optional: append RSSI info for debug/logging
+  // snprintf(&output_str[offset], remaining, " RSSI=%d dBm", dBm_value);
+
+  // Hard guarantee null-termination
+  output_str[output_str_size - 1] = '\0';
 }
 
 /* USER CODE END 4 */
