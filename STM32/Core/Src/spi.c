@@ -11,20 +11,6 @@
 // Transactions (CS toggled)
 // ---------------------------
 
-// HAL_StatusTypeDef CC1101_ReadReg(uint8_t addr, uint8_t *val) {
-//   uint8_t tx[2] = {(uint8_t)(addr | 0x80), 0xFF}; // READ + dummy
-//   uint8_t rx[2] = {0};
-
-//   SPI1_CS_Low();
-//   HAL_StatusTypeDef st =
-//       HAL_SPI_TransmitReceive(&hspi1, tx, rx, 2, SPI1_TIMEOUT_MS);
-//   SPI1_CS_High();
-
-//   if (st == HAL_OK)
-//     *val = rx[1]; // rx[0] is status byte on CC1101
-//   return st;
-// }
-
 static inline void CC1101_WaitReady(void) {
   // SO == MISO. Wait until it goes low.
   // Add timeout so you don’t hang forever.

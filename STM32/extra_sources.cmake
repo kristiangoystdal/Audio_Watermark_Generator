@@ -7,6 +7,7 @@ file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ism.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/cc1101.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/radio.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/frequency_config.c
 )
 
 # Collect all user include directories

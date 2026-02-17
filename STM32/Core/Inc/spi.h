@@ -21,7 +21,7 @@ extern SPI_HandleTypeDef hspi1;
 
 // Pick your CS pin here (CHANGE THIS to match your wiring)
 #define SPI1_CS_GPIO_PORT GPIOB
-#define SPI1_CS_PIN GPIO_PIN_0
+#define SPI1_CS_PIN GPIO_PIN_6
 
 // ---------------------------
 // API
