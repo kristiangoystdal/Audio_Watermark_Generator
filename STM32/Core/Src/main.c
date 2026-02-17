@@ -28,6 +28,7 @@
 #include "ism_config_433.h"
 #include "radio.h"
 #include "spi.h"
+#include <frequency_config.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -80,18 +81,6 @@
 #define DIV_FLOOR(n, d) ((uint32_t)((n) / (d)))
 #define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d)))
 
-#define FS_HZ 95952
-
-#define MIN_BIT_US 3000u
-#define MIN_BIT_SAMPLES ((FS_HZ * MIN_BIT_US) / 1000000u)
-#define MAX_BIT_DURATION_SAMPLES MIN_BIT_SAMPLES
-
-#define FSK_LOWER_NUM_SAMPLES DIV_FLOOR(FS_HZ, FSK_LOWER_FREQUENCY)
-#define FSK_HIGHER_NUM_SAMPLES DIV_FLOOR(FS_HZ, FSK_HIGHER_FREQUENCY)
-
-#define FSK_LOWER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_LOWER_NUM_SAMPLES)
-#define FSK_HIGHER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_HIGHER_NUM_SAMPLES)
-
 #define OUTPUT_SEGMENT 1000
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
@@ -116,6 +105,8 @@ SPI_HandleTypeDef hspi1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
+PCD_HandleTypeDef hpcd_USB_FS;
+
 /* USER CODE BEGIN PV */
 
 char input_string[MAX_NUM_CHARS] = {0};
@@ -128,9 +119,9 @@ rtc_time_t now = {0};
 
 int temp_int = 25;
 
-uint32_t sine_val_low[FSK_LOWER_NUM_SAMPLES];
-uint32_t sine_val_high[FSK_HIGHER_NUM_SAMPLES];
-uint32_t dc_mid[FSK_LOWER_NUM_SAMPLES]; // constant mid-level DC value
+static uint32_t *sine_val_low = NULL;
+static uint32_t *sine_val_high = NULL;
+static uint32_t *dc_mid = NULL;
 
 // Pulse Calculation Variables
 uint32_t fs = 0;
@@ -157,12 +148,12 @@ volatile size_t current_sine_index = 0;
 volatile bool moved_to_next_bit = false;
 FillResult result;
 
-static ism_handle_t radio;
-
 bool RX = true; // set to false for TX mode, true for RX mode
 
 uint8_t transmission[256] = {0};
 int dBm_value = 0;
+
+freq_pair_t freq_pair = {0};
 
 /* USER CODE END PV */
 
@@ -175,6 +166,7 @@ static void MX_DAC1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_USB_PCD_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
@@ -201,6 +193,8 @@ void process_transmission(const uint8_t *transmission, int *dBm_value);
 void create_string_from_received_data(const uint8_t *transmission,
                                       int dBm_value, char *output_str,
                                       size_t output_str_size);
+
+static int init_luts_from_freqpair(void);
 
 /* USER CODE END PFP */
 
@@ -244,6 +238,7 @@ int main(void) {
   MX_TIM2_Init();
   MX_I2C2_Init();
   MX_SPI1_Init();
+  MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
 
   //---------------------------------------------------------------------------//
@@ -276,8 +271,26 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
 
   //-----------------------------------------------------------------------------//
+  // Find and set FSK frequencies based on user config and sample count
+  // requirements
+  //-----------------------------------------------------------------------------//
+
+  printf("--------------------------\r\n");
+
+  freq_pair = find_frequency_pair(FSK_LOWER_FREQUENCY, FSK_HIGHER_FREQUENCY);
+
+  printf("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
+         (unsigned int)freq_pair.lower_freq,
+         (unsigned int)freq_pair.higher_freq);
+
+  //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
   //-----------------------------------------------------------------------------//
+
+  if (init_luts_from_freqpair() != 0) {
+    printf("LUT alloc failed\r\n");
+    Error_Handler();
+  }
 
   get_sineval_low();
   get_sineval_high();
@@ -305,8 +318,6 @@ int main(void) {
 
   printf("-------------------------\r\n");
 
-  printf("-------------------------\r\n");
-
   init_radio(RX);
 
   printf("--------------------------\r\n");
@@ -315,14 +326,14 @@ int main(void) {
 
   while (1) {
 
-    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOA Pin 1)
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
     printf("Entering STOP mode...\r\n");
     EnterStopMode();
 
     // 2) Debounce button
-    while (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET) {
+    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
     }
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
     printf("Woke up!\r\n");
 
@@ -409,9 +420,11 @@ void SystemClock_Config(void) {
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
    */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType =
+      RCC_OSCILLATORTYPE_HSI | RCC_OSCILLATORTYPE_HSI48;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -638,6 +651,36 @@ static void MX_TIM6_Init(void) {
 }
 
 /**
+ * @brief USB Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USB_PCD_Init(void) {
+
+  /* USER CODE BEGIN USB_Init 0 */
+
+  /* USER CODE END USB_Init 0 */
+
+  /* USER CODE BEGIN USB_Init 1 */
+
+  /* USER CODE END USB_Init 1 */
+  hpcd_USB_FS.Instance = USB;
+  hpcd_USB_FS.Init.dev_endpoints = 8;
+  hpcd_USB_FS.Init.speed = PCD_SPEED_FULL;
+  hpcd_USB_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
+  hpcd_USB_FS.Init.Sof_enable = DISABLE;
+  hpcd_USB_FS.Init.low_power_enable = DISABLE;
+  hpcd_USB_FS.Init.lpm_enable = DISABLE;
+  hpcd_USB_FS.Init.battery_charging_enable = DISABLE;
+  if (HAL_PCD_Init(&hpcd_USB_FS) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USB_Init 2 */
+
+  /* USER CODE END USB_Init 2 */
+}
+
+/**
  * Enable DMA controller clock
  */
 static void MX_DMA_Init(void) {
@@ -670,14 +713,11 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_0, GPIO_PIN_SET);
-
-  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
                     GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PF0 PF1 */
   GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
@@ -691,41 +731,37 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  /*Configure GPIO pins : PA0 PA1 PA10 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA5 PA6 PA7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  /*Configure GPIO pins : PB0 PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA10 PA11 PA12 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PB6 PB7 PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+  /*Configure GPIO pin : PB8 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -736,8 +772,8 @@ static void MX_GPIO_Init(void) {
 
 void EnterStopMode(void) {
 
-  // Clear EXTI pending + NVIC pending for PA1
-  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  // Clear EXTI pending + NVIC pending for PB7 (wakeup source)
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
   HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
 
   // Clear PWR wake flags
@@ -749,7 +785,7 @@ void EnterStopMode(void) {
 
   HAL_SuspendTick();
 
-  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_1);
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
   HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
   PWR->SCR = PWR_SCR_CWUF;
   __DSB();
@@ -883,27 +919,39 @@ void update_input_string(void) {
 
 // Function to generate sine wave lookup table for low frequency
 void get_sineval_low(void) {
-  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
+  if (!sine_val_low || freq_pair.lower_freq_samples == 0) {
+    return; // eller Error_Handler()
+  }
+
+  for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
     sine_val_low[i] =
         (uint32_t)((4095.0 / 2.0) *
-                   (1.0 +
-                    sinf(2.0 * pi * i / FSK_LOWER_NUM_SAMPLES) * (1.5 / 1.65)));
+                   (1.0 + sinf(2.0 * pi * i / freq_pair.lower_freq_samples) *
+                              (1.5 / 1.65)));
   }
 }
 
 // Function to generate sine wave lookup table for the high frequency
 void get_sineval_high(void) {
-  for (int i = 0; i < FSK_HIGHER_NUM_SAMPLES; i++) {
+  if (!sine_val_high || freq_pair.higher_freq_samples == 0) {
+    return; // eller Error_Handler()
+  }
+
+  for (uint16_t i = 0; i < freq_pair.higher_freq_samples; i++) {
     sine_val_high[i] =
         (uint32_t)((4095.0 / 2.0) *
-                   (1.0 + sinf(2.0 * pi * i / FSK_HIGHER_NUM_SAMPLES) *
+                   (1.0 + sinf(2.0 * pi * i / freq_pair.higher_freq_samples) *
                               (1.5 / 1.65)));
   }
 }
 
 void get_dc_mid(void) {
+  if (!dc_mid || freq_pair.lower_freq_samples == 0) {
+    return; // eller Error_Handler()
+  }
+
   uint32_t mid_value = (uint32_t)(4095.0 / 2.0);
-  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
+  for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
     dc_mid[i] = mid_value;
   }
 }
@@ -919,21 +967,21 @@ uint32_t get_dac_sample_rate_hz(void) {
 void calculate_active_duration_ms(size_t bitstream_len) {
   fs = get_dac_sample_rate_hz();
 
-  float f_0 = (float)fs / (float)FSK_LOWER_NUM_SAMPLES;
-  float f_1 = (float)fs / (float)FSK_HIGHER_NUM_SAMPLES;
+  float f_0 = (float)fs / (float)freq_pair.lower_freq_samples;
+  float f_1 = (float)fs / (float)freq_pair.higher_freq_samples;
 
-  f_0_bit_duration = (float)FSK_LOWER_PERIODS / f_0;
-  f_1_bit_duration = (float)FSK_HIGHER_PERIODS / f_1;
+  f_0_bit_duration = (float)freq_pair.lower_freq_periods / f_0;
+  f_1_bit_duration = (float)freq_pair.higher_freq_periods / f_1;
 
   // Exact bitstream time
   total_time = 0.0f;
   for (int i = 0; i < bitstream_len; ++i) {
     if (bitstream[i] == 0) {
-      total_time += ((float)FSK_LOWER_PERIODS) / f_0;
+      total_time += ((float)freq_pair.lower_freq_periods) / f_0;
     } else if (bitstream[i] == 1) {
-      total_time += (float)FSK_HIGHER_PERIODS / f_1;
+      total_time += (float)freq_pair.higher_freq_periods / f_1;
     } else {
-      total_time += ((float)FSK_LOWER_PERIODS) / f_0; // silence
+      total_time += ((float)freq_pair.lower_freq_periods) / f_0; // silence
     }
   }
 
@@ -969,16 +1017,16 @@ fill_half_buffer(uint32_t *buffer, size_t generation_size,
 
     if (cur_bit == 0) {
       lut = sine_val_low;
-      lut_len = FSK_LOWER_NUM_SAMPLES;
-      target_periods = FSK_LOWER_PERIODS;
+      lut_len = freq_pair.lower_freq_samples;
+      target_periods = freq_pair.lower_freq_periods;
     } else if (cur_bit == 1) {
       lut = sine_val_high;
-      lut_len = FSK_HIGHER_NUM_SAMPLES;
-      target_periods = FSK_HIGHER_PERIODS;
+      lut_len = freq_pair.higher_freq_samples;
+      target_periods = freq_pair.higher_freq_periods;
     } else { // silence
       lut = dc_mid;
-      lut_len = FSK_LOWER_NUM_SAMPLES;
-      target_periods = FSK_LOWER_PERIODS;
+      lut_len = freq_pair.lower_freq_samples;
+      target_periods = freq_pair.lower_freq_periods;
     }
 
     /* Copy as much as we can from current LUT position */
@@ -1334,6 +1382,31 @@ void create_string_from_received_data(const uint8_t *transmission,
 
   // Hard guarantee null-termination
   output_str[output_str_size - 1] = '\0';
+}
+
+static int init_luts_from_freqpair(void) {
+  // frigjør hvis de finnes fra før
+  free(sine_val_low);
+  sine_val_low = NULL;
+  free(sine_val_high);
+  sine_val_high = NULL;
+  free(dc_mid);
+  dc_mid = NULL;
+
+  sine_val_low = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
+  sine_val_high = malloc(freq_pair.higher_freq_samples * sizeof(uint32_t));
+  dc_mid = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
+
+  if (!sine_val_low || !sine_val_high || !dc_mid) {
+    free(sine_val_low);
+    sine_val_low = NULL;
+    free(sine_val_high);
+    sine_val_high = NULL;
+    free(dc_mid);
+    dc_mid = NULL;
+    return -1;
+  }
+  return 0;
 }
 
 /* USER CODE END 4 */
