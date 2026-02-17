@@ -277,7 +277,7 @@ int main(void) {
 
   printf("--------------------------\r\n");
 
-  freq_pair = find_frequency_pair(FSK_LOWER_FREQUENCY, FSK_HIGHER_FREQUENCY);
+  freq_pair = find_frequency_pair();
 
   printf("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
          (unsigned int)freq_pair.lower_freq,

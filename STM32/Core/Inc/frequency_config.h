@@ -18,6 +18,6 @@ typedef struct {
   uint16_t higher_freq_periods;
 } freq_pair_t;
 
-freq_pair_t find_frequency_pair(uint16_t lower_freq, uint16_t higher_freq);
+freq_pair_t find_frequency_pair(void);
 
 #endif // DEBUG
