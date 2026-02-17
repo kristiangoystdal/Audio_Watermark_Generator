@@ -763,6 +763,10 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
@@ -774,7 +778,7 @@ void EnterStopMode(void) {
 
   // Clear EXTI pending + NVIC pending for PB7 (wakeup source)
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
-  HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
 
   // Clear PWR wake flags
   PWR->SCR = PWR_SCR_CWUF;
@@ -786,7 +790,7 @@ void EnterStopMode(void) {
   HAL_SuspendTick();
 
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
-  HAL_NVIC_ClearPendingIRQ(EXTI1_IRQn);
+  HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   PWR->SCR = PWR_SCR_CWUF;
   __DSB();
   __ISB();
