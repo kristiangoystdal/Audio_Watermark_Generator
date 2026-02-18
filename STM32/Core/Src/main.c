@@ -22,26 +22,26 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
-#include "cc1101.h"
-#include "ds3231.h"
-#include "ism.h"
-#include "ism_config_433.h"
-#include "radio.h"
-#include "spi.h"
+#include "error_codes.h"
+#include <cc1101.h>
+#include <ds3231.h>
 #include <frequency_config.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/_intsup.h>
+#include <ism.h>
+#include <ism_config_433.h>
+#include <led_feedback.h>
+#include <radio.h>
+#include <spi.h>
 #include <user_config.h>
 
 #include "cmsis_gcc.h"
+#include "stdlib.h"
 #include "stm32g431xx.h"
 #include "stm32g4xx.h"
 #include "stm32g4xx_hal.h"
 #include "stm32g4xx_hal_dac.h"
 #include "stm32g4xx_hal_def.h"
 #include "stm32g4xx_hal_gpio.h"
+#include "sys/_intsup.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -155,6 +155,8 @@ int dBm_value = 0;
 
 freq_pair_t freq_pair = {0};
 
+volatile status_code_t g_error_code = STATUS_CODE_OK;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -195,6 +197,8 @@ void create_string_from_received_data(const uint8_t *transmission,
                                       size_t output_str_size);
 
 static int init_luts_from_freqpair(void);
+
+void Error_Handler_Code(status_code_t code);
 
 /* USER CODE END PFP */
 
@@ -241,10 +245,6 @@ int main(void) {
   MX_USB_PCD_Init();
   /* USER CODE BEGIN 2 */
 
-  //---------------------------------------------------------------------------//
-  // Main loop
-  //---------------------------------------------------------------------------//
-
   /* USER CODE END 2 */
 
   /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
@@ -270,6 +270,9 @@ int main(void) {
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
+  // Turn on LED to indicate power on
+  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
+
   //-----------------------------------------------------------------------------//
   // Find and set FSK frequencies based on user config and sample count
   // requirements
@@ -289,7 +292,7 @@ int main(void) {
 
   if (init_luts_from_freqpair() != 0) {
     printf("LUT alloc failed\r\n");
-    Error_Handler();
+    Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
   }
 
   get_sineval_low();
@@ -318,7 +321,12 @@ int main(void) {
 
   printf("-------------------------\r\n");
 
-  init_radio(RX);
+  int8_t init_result = init_radio(RX);
+  if (init_result != 0) {
+    printf("Failed to initialize radio in RX mode, error code: %d\r\n",
+           init_result);
+    Error_Handler_Code(STATUS_CODE_RADIO_INIT_FAIL);
+  }
 
   printf("--------------------------\r\n");
 
@@ -377,6 +385,7 @@ int main(void) {
 
       // Send transmission over audio
       printf("Starting transmission of response over audio...\r\n");
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       TX_Start();
 
       // Wait for active window to complete (enters low-power sleep while
@@ -393,6 +402,7 @@ int main(void) {
     } else {
       // Send transmission over radio
       printf("Starting transmission over radio...\r\n");
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       start_TX();
     }
 
@@ -713,7 +723,7 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10,
                     GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
@@ -731,14 +741,14 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA0 PA1 PA10 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_10 | GPIO_PIN_15;
+  /*Configure GPIO pins : PA0 PA1 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
+  /*Configure GPIO pins : PA5 PA6 PA7 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -1138,6 +1148,7 @@ static void TX_Start(void) {
   st = HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
   if (st != HAL_OK) {
     printf("  HAL_DAC_Start error: %d\r\n", st);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     printf("  HAL_DAC_Start OK\r\n");
   }
@@ -1148,6 +1159,7 @@ static void TX_Start(void) {
 
   if (st != HAL_OK) {
     printf("  HAL_DAC_Start_DMA error: %d\r\n", st);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     printf("  HAL_DAC_Start_DMA OK\r\n");
   }
@@ -1161,6 +1173,7 @@ static void TX_Start(void) {
 
   if (st != HAL_OK) {
     printf("  HAL_TIM_Base_Start error: %d\r\n", st);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     printf("  HAL_TIM_Base_Start OK\r\n");
   }
@@ -1413,6 +1426,11 @@ static int init_luts_from_freqpair(void) {
   return 0;
 }
 
+void Error_Handler_Code(status_code_t code) {
+  g_error_code = code;
+  Error_Handler(); // call the CubeMX-compatible one
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header */
@@ -1448,7 +1466,11 @@ static int init_luts_from_freqpair(void) {
  */
 void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  printf("Error_Handler: code=%d\r\n", (int)g_error_code);
+
+  // If you want it to repeat forever:
+  LED_BlinkStatusCode((uint8_t)g_error_code);
+
   __disable_irq();
   while (1) {
   }
