@@ -9,6 +9,9 @@ typedef enum {
   STATUS_CODE_LUT_ALLOC_FAIL = 2,
   STATUS_CODE_RADIO_INIT_FAIL = 3,
   STATUS_CODE_TRANSMISSION_ERROR = 4,
+  STATUS_CODE_RADIO_MODE_ERROR = 5,
+  STATUS_CODE_RADIO_VERSION_ERROR = 6,
+  STATUS_CODE_UNKNOWN_ERROR = 15
 } status_code_t;
 
 extern volatile status_code_t g_error_code;
