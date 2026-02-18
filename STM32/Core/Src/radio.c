@@ -4,11 +4,12 @@
 #include "ism_config_433.h"
 #include "main.h"
 #include "stm32g4xx_hal.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/_intsup.h>
 
-void init_RX(void) {
+int8_t init_RX(void) {
   printf("Initializing radio in RX mode...\r\n");
   uint8_t status = 0;
 
@@ -21,20 +22,45 @@ void init_RX(void) {
   printf("Calibrate: 0x%02X\r\n", status);
 
   CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
+
+  // Wait for RX to be ready (check MARCSTATE)
+  while (1) {
+    uint8_t marcstate = 0;
+    CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
+    // marcstate &= 0x1F;
+    if (status == 0x0D) {
+      break; // RX
+    }
+
+    // Timeout or error handling could be added here if desired
+    if (status != 0) {
+      printf("Error during RX initialization, status: 0x%02X\r\n", status);
+      return -1;
+    }
+  }
+  printf("RX mode initialized.\r\n");
+  return 0;
 }
 
-void init_TX(void) {
+int8_t init_TX(void) {
   uint8_t status = 0;
 
   // Write configuration for TX
   for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
+    if (status != 0) {
+      printf("Error writing TX config at index %d, status: 0x%02X\r\n", i,
+             status);
+      return -1;
+    }
   }
 
   CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+  printf("Calibrate: 0x%02X\r\n", status);
+  return 0;
 }
 
-void init_radio(bool RX) {
+int8_t init_radio(bool RX) {
   printf("Initializing radio...\r\n");
 
   uint8_t status = 0;
@@ -49,14 +75,18 @@ void init_radio(bool RX) {
   CC1101_ReadReg(0x00, &ver, &status);
 
   printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
-
-  if (RX == true) {
-    init_RX();
-  } else {
-    init_TX();
+  if (part != 0x14 || ver != 0x29) {
+    printf("Unexpected CC1101 part/version, check wiring and power.\r\n");
+    return -1;
   }
 
-  printf("Radio test complete.\r\n");
+  if (RX == true) {
+    return init_RX();
+  } else {
+    return init_TX();
+  }
+
+  return 0;
 }
 
 void transmit_bytes(void) {

@@ -10,18 +10,18 @@ extern "C" {
 /**
  * @brief Initialize CC1101 into RX mode (apply RX config, calibrate, enter SRX)
  */
-void init_RX(void);
+int8_t init_RX(void);
 
 /**
  * @brief Initialize CC1101 into TX mode (apply TX config, calibrate)
  */
-void init_TX(void);
+int8_t init_TX(void);
 
 /**
  * @brief Reset CC1101, print PARTNUM/VERSION, then init either RX or TX mode.
  * @param RX true => RX mode, false => TX mode
  */
-void init_radio(bool RX);
+int8_t init_radio(bool RX);
 
 /**
  * @brief Build and transmit a test packet (currently "Einar suger" + 0xEB
