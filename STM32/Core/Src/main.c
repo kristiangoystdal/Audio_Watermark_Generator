@@ -325,7 +325,7 @@ int main(void) {
   if (init_result != 0) {
     printf("Failed to initialize radio in RX mode, error code: %d\r\n",
            init_result);
-    Error_Handler_Code(STATUS_CODE_RADIO_INIT_FAIL);
+    Error_Handler_Code(init_result);
   }
 
   printf("--------------------------\r\n");

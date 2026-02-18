@@ -1,5 +1,6 @@
 #include "cc1101.h"
 #include "ds3231.h"
+#include "error_codes.h"
 #include "ism.h"
 #include "ism_config_433.h"
 #include "main.h"
@@ -16,10 +17,14 @@ int8_t init_RX(void) {
   // Write configuration for RX
   for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
+    if (status != 0x0F) {
+      printf("Error writing RX config at index %d, status: 0x%02X\r\n", i,
+             status);
+      return STATUS_CODE_RADIO_INIT_FAIL;
+    }
   }
 
   CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
-  printf("Calibrate: 0x%02X\r\n", status);
 
   CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
 
@@ -27,15 +32,17 @@ int8_t init_RX(void) {
   while (1) {
     uint8_t marcstate = 0;
     CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
-    // marcstate &= 0x1F;
-    if (status == 0x0D) {
+    if (marcstate == 0x0D) {
       break; // RX
     }
 
-    // Timeout or error handling could be added here if desired
-    if (status != 0) {
-      printf("Error during RX initialization, status: 0x%02X\r\n", status);
-      return -1;
+    // Timeout after some time to avoid infinite loop (optional)
+    static uint32_t start_time = 0;
+    if (start_time == 0) {
+      start_time = HAL_GetTick();
+    } else if (HAL_GetTick() - start_time > 1000) { // 1 second timeout
+      printf("Timeout waiting for RX state, status: 0x%02X\r\n", status);
+      return STATUS_CODE_RADIO_MODE_ERROR;
     }
   }
   printf("RX mode initialized.\r\n");
@@ -48,15 +55,15 @@ int8_t init_TX(void) {
   // Write configuration for TX
   for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
-    if (status != 0) {
+    if (status != 0x0F) {
       printf("Error writing TX config at index %d, status: 0x%02X\r\n", i,
              status);
-      return -1;
+      return STATUS_CODE_RADIO_INIT_FAIL;
     }
   }
 
   CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
-  printf("Calibrate: 0x%02X\r\n", status);
+
   return 0;
 }
 
@@ -77,7 +84,7 @@ int8_t init_radio(bool RX) {
   printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
   if (part != 0x14 || ver != 0x29) {
     printf("Unexpected CC1101 part/version, check wiring and power.\r\n");
-    return -1;
+    return STATUS_CODE_RADIO_VERSION_ERROR;
   }
 
   if (RX == true) {
@@ -111,9 +118,12 @@ void transmit_bytes(void) {
   CC1101_Strobe(0x3B, &status); // SFTX :contentReference[oaicite:1]{index=1}
 
   // Burst write into TX FIFO
-  CC1101_WriteBurstReg(
-      0x3F, pkt, sizeof(pkt),
-      &status); // 0x3F = TXFIFO :contentReference[oaicite:2]{index=2}
+  CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
+  if (status != 0) {
+    printf("Error writing to TX FIFO, status: 0x%02X\r\n", status);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    return;
+  }
 
   // Start TX
   CC1101_Strobe(0x35, &status); // STX :contentReference[oaicite:3]{index=3}
