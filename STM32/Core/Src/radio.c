@@ -68,32 +68,48 @@ int8_t init_TX(void) {
 }
 
 int8_t init_radio(bool RX) {
+  const uint32_t delays_ms[] = {5, 20, 50};
+
   printf("Initializing radio...\r\n");
 
   uint8_t status = 0;
   uint8_t part = 0, ver = 0;
 
-  // Reset (strobe)
-  CC1101_Strobe(0x30, &status);
-  HAL_Delay(1);
+  for (int attempt = 0; attempt < 3; attempt++) {
+    printf("Radio init attempt %d...\r\n", attempt + 1);
 
-  // Read PARTNUM + VERSION
-  CC1101_ReadReg(0xF1, &part, &status);
-  CC1101_ReadReg(0x00, &ver, &status);
+    // Power-up reset sequence (per TI recommendation) with retries
+    HAL_Delay(delays_ms[attempt]);
+    if (!CC1101_PowerUpReset()) {
+      printf("CC1101 power-up reset failed on attempt %d\r\n", attempt + 1);
+      continue; // retry
+      // return STATUS_CODE_RADIO_INIT_FAIL;
+    }
 
-  printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
-  if (part != 0x14 || ver != 0x29) {
-    printf("Unexpected CC1101 part/version, check wiring and power.\r\n");
-    return STATUS_CODE_RADIO_VERSION_ERROR;
+    // Read PARTNUM + VERSION
+    CC1101_ReadReg(0xF1, &part, &status);
+    CC1101_ReadReg(0x00, &ver, &status);
+
+    printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
+    if (part != 0x14 || ver != 0x29) {
+      printf("Unexpected CC1101 part/version, check wiring and power.\r\n");
+      // return STATUS_CODE_RADIO_VERSION_ERROR;
+      continue; // retry
+    }
+
+    if (RX == true) {
+      return init_RX();
+    } else {
+      return init_TX();
+    }
+
+    uint8_t st = 0;
+    CC1101_Strobe(0x36, &st); // SIDLE
+    CC1101_Strobe(0x3A, &st); // SFRX
+    CC1101_Strobe(0x3B, &st); // SFTX
   }
 
-  if (RX == true) {
-    return init_RX();
-  } else {
-    return init_TX();
-  }
-
-  return 0;
+  return STATUS_CODE_RADIO_INIT_FAIL;
 }
 
 void transmit_bytes(void) {
