@@ -1,4 +1,5 @@
 #include "spi.h"
+#include "cc1101.h"
 
 // If you have Error_Handler in main.c / main.h, include main.h.
 // If not, remove it and handle errors your own way.
@@ -10,17 +11,6 @@
 // ---------------------------
 // Transactions (CS toggled)
 // ---------------------------
-
-static inline void CC1101_WaitReady(void) {
-  // SO == MISO. Wait until it goes low.
-  // Add timeout so you don’t hang forever.
-  uint32_t t0 = HAL_GetTick();
-  while (HAL_GPIO_ReadPin(CC1101_MISO_GPIO_Port, CC1101_MISO_Pin) ==
-         GPIO_PIN_SET) {
-    if ((HAL_GetTick() - t0) > 5)
-      break; // ~5ms timeout (tweak)
-  }
-}
 
 HAL_StatusTypeDef SPI1_Write(const uint8_t *tx, uint16_t len) {
   if (!tx || len == 0) {
@@ -36,7 +26,11 @@ HAL_StatusTypeDef SPI1_Write(const uint8_t *tx, uint16_t len) {
   printf("\r\n");
 
   SPI1_CS_Low();
-  CC1101_WaitReady();
+  if (!CC1101_WaitReadyMs(5)) {
+    printf("SPI1_Write: CC1101 not ready\r\n");
+    SPI1_CS_High();
+    return HAL_ERROR;
+  }
   HAL_StatusTypeDef st =
       HAL_SPI_Transmit(&hspi1, (uint8_t *)tx, len, SPI1_TIMEOUT_MS);
   if (st != HAL_OK)
@@ -59,7 +53,11 @@ HAL_StatusTypeDef SPI1_Read(uint8_t *rx, uint16_t len) {
 
   SPI1_CS_Low();
 
-  CC1101_WaitReady();
+  if (!CC1101_WaitReadyMs(5)) {
+    printf("SPI1_Read: CC1101 not ready\r\n");
+    SPI1_CS_High();
+    return HAL_ERROR;
+  }
 
   HAL_StatusTypeDef st = HAL_SPI_Receive(&hspi1, rx, len, SPI1_TIMEOUT_MS);
 
@@ -88,7 +86,11 @@ HAL_StatusTypeDef SPI1_WriteRead(const uint8_t *tx, uint8_t *rx, uint16_t len) {
 
   SPI1_CS_Low();
 
-  CC1101_WaitReady();
+  if (!CC1101_WaitReadyMs(5)) {
+    printf("SPI1_WriteRead: CC1101 not ready\r\n");
+    SPI1_CS_High();
+    return HAL_ERROR;
+  }
 
   HAL_StatusTypeDef st;
   if (tx) {

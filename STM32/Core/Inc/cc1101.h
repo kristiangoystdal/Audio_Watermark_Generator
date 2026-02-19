@@ -6,8 +6,19 @@ extern "C" {
 #endif
 
 #include "stm32g4xx_hal.h" // HAL_StatusTypeDef
+#include <stdbool.h>       // bool
 #include <stddef.h>        // size_t
 #include <stdint.h>        // uint8_t
+
+/**
+ * @breif Wait for CC1101 to be ready by monitoring MISO pin. Returns true if
+ * ready within timeout, false if timeout occurs.
+ *
+ * @param timeout_ms Maximum time to wait in milliseconds
+ * @return true if CC1101 is ready (MISO goes low) within timeout, false if
+ * timeout occurs
+ */
+bool CC1101_WaitReadyMs(uint32_t timeout_ms);
 
 /**
  * @brief Send a CC1101 command strobe and optionally return the status byte.
@@ -62,6 +73,15 @@ HAL_StatusTypeDef CC1101_WriteBurstReg(uint8_t addr, uint8_t *vals, size_t len,
  */
 HAL_StatusTypeDef CC1101_ReadBurstReg(uint8_t addr, uint8_t *vals, size_t len,
                                       uint8_t *status);
+
+/**
+ * @brief Perform a power-up reset of the CC1101. This is more robust than just
+ * sending the SRES strobe, especially on cold boot.
+ *
+ * @return true if reset was successful (PARTNUM and VERSION read correctly),
+ * false otherwise
+ */
+bool CC1101_PowerUpReset(void);
 
 #ifdef __cplusplus
 }

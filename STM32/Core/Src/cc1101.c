@@ -5,6 +5,20 @@
 #include <stdio.h>
 #include <string.h>
 
+#define CC1101_MISO_GPIO_Port GPIOB
+#define CC1101_MISO_Pin GPIO_PIN_4
+
+bool CC1101_WaitReadyMs(uint32_t timeout_ms) {
+  uint32_t t0 = HAL_GetTick();
+  while (HAL_GPIO_ReadPin(CC1101_MISO_GPIO_Port, CC1101_MISO_Pin) ==
+         GPIO_PIN_SET) {
+    if ((HAL_GetTick() - t0) >= timeout_ms) {
+      return false;
+    }
+  }
+  return true;
+}
+
 HAL_StatusTypeDef CC1101_Strobe(uint8_t strobe, uint8_t *status) {
   uint8_t tx[1] = {strobe};
   uint8_t rx[1] = {0};
@@ -75,4 +89,49 @@ HAL_StatusTypeDef CC1101_ReadBurstReg(uint8_t addr, uint8_t *vals, size_t len,
       memcpy(vals, &rx[1], len);
   }
   return st;
+}
+
+bool CC1101_PowerUpReset(void) {
+  // Make sure CS starts high
+  SPI1_CS_High();
+  HAL_Delay(1);
+
+  // CS low -> high toggle (per TI recommended sequence)
+  SPI1_CS_Low();
+  HAL_Delay(1);
+  SPI1_CS_High();
+  HAL_Delay(1);
+
+  // Wait for SO/MISO to go low (chip ready)
+  if (!CC1101_WaitReadyMs(50)) {
+    printf("CC1101 not ready (MISO stuck high) after CS toggle\r\n");
+    return false;
+  }
+
+  // Now issue SRES with CS low
+  uint8_t sres = 0x30;
+
+  SPI1_CS_Low();
+  if (!CC1101_WaitReadyMs(50)) {
+    printf("CC1101 not ready before SRES\r\n");
+    SPI1_CS_High();
+    return false;
+  }
+
+  if (HAL_SPI_Transmit(&hspi1, &sres, 1, SPI1_TIMEOUT_MS) != HAL_OK) {
+    printf("SPI transmit SRES failed\r\n");
+    SPI1_CS_High();
+    return false;
+  }
+
+  // Wait again for reset completion
+  if (!CC1101_WaitReadyMs(50)) {
+    printf("CC1101 not ready after SRES\r\n");
+    SPI1_CS_High();
+    return false;
+  }
+
+  SPI1_CS_High();
+  HAL_Delay(1);
+  return true;
 }
