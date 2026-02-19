@@ -264,6 +264,7 @@ int main(void) {
   printf("\033[2J\033[H");
   printf("-------------------------\r\n");
   printf("Hello from VCP!\r\n");
+  printf("--------------------------\r\n");
 
   /* USER CODE END BSP */
 
@@ -278,13 +279,12 @@ int main(void) {
   // requirements
   //-----------------------------------------------------------------------------//
 
-  printf("--------------------------\r\n");
-
   freq_pair = find_frequency_pair();
 
   printf("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
          (unsigned int)freq_pair.lower_freq,
          (unsigned int)freq_pair.higher_freq);
+  printf("--------------------------\r\n");
 
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
@@ -292,6 +292,7 @@ int main(void) {
 
   if (init_luts_from_freqpair() != 0) {
     printf("LUT alloc failed\r\n");
+    printf("--------------------------\r\n");
     Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
   }
 
@@ -319,16 +320,14 @@ int main(void) {
   // Get_Time(&now);
   // printf("-------------------------\r\n");
 
-  printf("-------------------------\r\n");
-
+  HAL_Delay(20);
   int8_t init_result = init_radio(RX);
   if (init_result != 0) {
     printf("Failed to initialize radio in RX mode, error code: %d\r\n",
            init_result);
+    printf("--------------------------\r\n");
     Error_Handler_Code(init_result);
   }
-
-  printf("--------------------------\r\n");
 
   printf("Entering main loop...\r\n");
 
