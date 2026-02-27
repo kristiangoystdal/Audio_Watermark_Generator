@@ -111,7 +111,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
         user_string = root.user_string_field.get().strip()
         device_id = root.device_id_field.get().strip()
         location = root.location_field.get().strip()
-        frequency_pair = root.frequency_pair_var.get().strip()
         delay_minutes = root.delay_field.get().strip()
         interval_minutes = root.interval_field.get().strip()
 
@@ -124,8 +123,11 @@ def change_user_config(root, set_initial_time, safe_log=None):
         enable_delayed_start = root.default_delay_var.get()
         use_default_interval = root.default_interval_var.get()
 
-        use_cable_transmission = root.use_cable_transmission.get()
-        use_speaker_transmission = root.use_speaker_transmission.get()
+        use_cable_transmission = root.transmission_var.get() == "cable"
+        use_speaker_transmission = root.transmission_var.get() == "speaker"
+
+        frequency_lower = root.frequency_low_var.get()
+        frequency_higher = root.frequency_high_var.get()
     except Exception as e:
         safe_log(f"[ERROR] Failed to read GUI fields: {str(e)}")
         return False
@@ -167,7 +169,8 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INITIAL_HOUR": current_time[4],
         "INITIAL_MIN": current_time[5],
         "INITIAL_SEC": current_time[6],
-        "FSK_FREQUENCY_PAIR": frequency_pair,
+        "FSK_LOWER_FREQUENCY": frequency_lower,
+        "FSK_HIGHER_FREQUENCY": frequency_higher,
         "ENABLE_DELAYED_START": enable_delayed_start,
         "STARTING_MINUTE": delay_minutes,
         "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": use_default_interval,
