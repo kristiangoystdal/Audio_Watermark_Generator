@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 import threading
+import math
 
 # Import scripts
 from scripts.paths import *
@@ -84,10 +85,10 @@ tk.Checkbutton(include_frame, text="Timestamp", variable=root.include_time_var).
 # ------------------------------
 # Interval controls
 # ------------------------------
-root.default_interval_var = tk.IntVar(value=1)
-
 interval_frame = tk.Frame(frame)
 interval_frame.grid(row=7, column=0, columnspan=2, pady=(10, 5), sticky="w")
+
+root.default_interval_var = tk.IntVar(value=1)
 
 tk.Label(interval_frame, text="Interval (minutes):", font=("Arial", 15, "bold")).grid(
     row=0, column=0, columnspan=2, sticky="w", pady=(10, 0)
@@ -146,10 +147,9 @@ root.delay_field.grid(row=1, column=1, padx=(10, 0))
 
 
 # ------------------------------
-# Transmission Settings Frame
+# Transmission Settings Frame (Radiobuttons)
 # ------------------------------
-root.use_cable_transmission = tk.IntVar(value=1)
-root.use_speaker_transmission = tk.IntVar(value=0)
+root.transmission_var = tk.StringVar(value="cable")  # "cable" or "speaker"
 
 transmission_frame = tk.Frame(frame)
 transmission_frame.grid(row=9, column=0, columnspan=2, pady=(10, 5), sticky="w")
@@ -158,103 +158,176 @@ tk.Label(
     transmission_frame, text="Transmission Settings", font=("Arial", 15, "bold")
 ).grid(row=0, column=0, sticky="w", pady=(0, 5))
 
-
-def toggle_transmission(selected_var):
-    if selected_var == root.use_cable_transmission:
-        root.use_speaker_transmission.set(0)
-    else:
-        root.use_cable_transmission.set(0)
-
-
-tk.Checkbutton(
+tk.Radiobutton(
     transmission_frame,
     text="Use Cable Transmission",
-    variable=root.use_cable_transmission,
-    command=lambda: toggle_transmission(root.use_cable_transmission),
+    variable=root.transmission_var,
+    value="cable",
 ).grid(row=1, column=0, sticky="w")
-tk.Checkbutton(
+
+tk.Radiobutton(
     transmission_frame,
     text="Use Speaker Transmission",
-    variable=root.use_speaker_transmission,
-    command=lambda: toggle_transmission(root.use_speaker_transmission),
+    variable=root.transmission_var,
+    value="speaker",
 ).grid(row=2, column=0, sticky="w")
 
+# ------------------------------
+# Transmission Settings Frame (Radiobuttons)
+# ------------------------------
+root.transmission_var = tk.StringVar(value="cable")  # "cable" or "speaker"
+
+transmission_frame = tk.Frame(frame)
+transmission_frame.grid(row=9, column=0, columnspan=2, pady=(10, 5), sticky="w")
+
+tk.Label(
+    transmission_frame, text="Transmission Settings", font=("Arial", 15, "bold")
+).grid(row=0, column=0, sticky="w", pady=(0, 5))
+
+tk.Radiobutton(
+    transmission_frame,
+    text="Use Cable Transmission",
+    variable=root.transmission_var,
+    value="cable",
+).grid(row=1, column=0, sticky="w")
+
+tk.Radiobutton(
+    transmission_frame,
+    text="Use Speaker Transmission",
+    variable=root.transmission_var,
+    value="speaker",
+).grid(row=2, column=0, sticky="w")
 
 # ------------------------------
-# Frequency Settings Frame
+# Frequency Settings Frame (Compact)
 # ------------------------------
 frequency_frame = tk.Frame(frame)
 frequency_frame.grid(row=10, column=0, columnspan=2, pady=(10, 5), sticky="w")
 
 tk.Label(frequency_frame, text="FSK Parameters", font=("Arial", 15, "bold")).grid(
-    row=0, column=0, sticky="w", pady=(0, 5)
+    row=0, column=0, columnspan=4, sticky="w", pady=(0, 5)
 )
 
-# Load frequency pairs
-frequency_pairs = read_frequency_pairs()
-if not frequency_pairs:
-    frequency_pairs = [
-        (20833.33, 22222.22),
-        (11111.11, 12500.00),
-        (6944.44, 8333.33),
-        (1388.88, 2777.77),
-    ]
-
-# ------------------------------
-# Preset model
-# ------------------------------
-root.presets = {}
-for i, (f0, f1) in enumerate(frequency_pairs, start=1):
-    root.presets[f"Frequency Pair {i}"] = {"f0": f0, "f1": f1, "pair_id": str(i)}
-
-root.selected_preset = tk.StringVar(value=list(root.presets.keys())[0])
-root.frequency_pair_var = tk.StringVar(
-    value=root.presets[root.selected_preset.get()]["pair_id"]
-)
-
-# ------------------------------
-# UI
-# ------------------------------
-
-preset_menu = tk.OptionMenu(
+tk.Label(
     frequency_frame,
-    root.selected_preset,
-    *root.presets.keys(),
-)
-preset_menu.config(width=25)  # 👈 adjust as needed
-preset_menu.grid(row=1, column=0, sticky="w")
-
-
-root.preset_label = tk.Label(
-    frequency_frame,
-    text="",
+    text="Select a pair of frequencies to use for FSK modulation:",
     fg="gray",
+    wraplength=340,
+    justify="left",
+).grid(row=1, column=0, columnspan=4, sticky="w", pady=(0, 6))
+
+# Vars
+root.frequency_low_var = tk.IntVar(
+    value=int(read_user_config_value("FSK_LOWER_FREQUENCY"))
 )
-root.preset_label.grid(row=3, column=0, sticky="w", pady=(2, 6))
+root.frequency_high_var = tk.IntVar(
+    value=int(read_user_config_value("FSK_HIGHER_FREQUENCY"))
+)
 
+# Row: Low [spin] High [spin]
+tk.Label(frequency_frame, text="Low (Hz):").grid(row=2, column=0, sticky="w")
+root.frequency_low_field = tk.Spinbox(
+    frequency_frame, from_=1000, to=24000, width=8, textvariable=root.frequency_low_var
+)
+root.frequency_low_field.grid(row=2, column=1, sticky="w", padx=(6, 18))
+
+tk.Label(frequency_frame, text="High (Hz):").grid(row=2, column=2, sticky="w")
+root.frequency_high_field = tk.Spinbox(
+    frequency_frame, from_=1000, to=24000, width=8, textvariable=root.frequency_high_var
+)
+root.frequency_high_field.grid(row=2, column=3, sticky="w", padx=(6, 0))
+
+# Bind focus out and Enter/Tab to trigger frequency adjustment logic
+root.frequency_low_field.bind(
+    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
+)
+
+root.frequency_high_field.bind(
+    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
+)
+
+root.frequency_low_field.bind(
+    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
+)
+root.frequency_low_field.bind(
+    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
+)
+
+root.frequency_high_field.bind(
+    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
+)
+root.frequency_high_field.bind(
+    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
+)
 
 # ------------------------------
-# Update logic
+# Find the closest valid frequency based on the user's input and update it with a tooltip showing the actual frequency being used
 # ------------------------------
-def update_preset_label(*_):
-    preset = root.presets[root.selected_preset.get()]
-    root.preset_label.config(
-        text=f"f0 = {preset['f0']:.2f} Hz,  f1 = {preset['f1']:.2f} Hz"
-    )
-    # Keep old variable in sync for build logic
-    root.frequency_pair_var.set(preset["pair_id"])
+FS_HZ = 95952
+MIN_BIT_US = 3000
+
+MIN_BIT_SAMPLES = int(((FS_HZ * MIN_BIT_US) + 500000) // 1000000)
+
+NUM_SAMPLES_MIN = 280
+NUM_SAMPLES_MAX = 295
+
+FREQ_MIN = 1000
+FREQ_MAX = 24000
 
 
-# Initial update + trace
-update_preset_label()
-root.selected_preset.trace_add("write", update_preset_label)
+def update_frequency_on_focus_out(var: tk.IntVar):
+    try:
+        user_val = int(var.get())
+    except Exception:
+        user_val = FREQ_MIN
+
+    new_freq, freq_samples, periods, total_samples = adjust_frequency_to_valid(user_val)
+    var.set(new_freq)
+
+    # (optional) debug print like firmware
+    # print(f"Using {new_freq} Hz -> samples={freq_samples}, periods={periods}, total={total_samples}")
+
+
+def adjust_frequency_to_valid(user_freq: int) -> tuple[int, int, int, int]:
+    """
+    Port of your firmware loop for ONE frequency.
+    Returns: (freq_hz, freq_samples, periods, total_samples)
+    """
+    # clamp to GUI allowed range first
+    freq = max(FREQ_MIN, min(FREQ_MAX, int(user_freq)))
+
+    # safety: avoid infinite loop if config becomes impossible
+    for _ in range(FREQ_MAX - FREQ_MIN + 1):
+        freq_samples = int(math.floor(FS_HZ / freq))
+        if freq_samples <= 0:
+            freq_samples = 1
+
+        periods = int(round(MIN_BIT_SAMPLES / freq_samples))
+        if periods <= 0:
+            periods = 1
+
+        total_samples = freq_samples * periods
+
+        if NUM_SAMPLES_MIN <= total_samples <= NUM_SAMPLES_MAX:
+            return freq, freq_samples, periods, total_samples
+
+        freq += 1
+        if freq > FREQ_MAX:
+            # wrap or clamp behavior; firmware just keeps increasing,
+            # but GUI shouldn't run away.
+            freq = FREQ_MAX
+            break
+
+    # fallback if nothing found (should be rare)
+    freq_samples = int(math.floor(FS_HZ / freq))
+    periods = max(1, int(round(MIN_BIT_SAMPLES / max(1, freq_samples))))
+    total_samples = freq_samples * periods
+    return freq, freq_samples, periods, total_samples
 
 
 # ------------------------------
 # Field enabling/disabling logic
 # ------------------------------
-
-
 def toggle_interval_field():
     root.interval_field.config(
         state="disabled" if root.default_interval_var.get() else "normal"
@@ -286,6 +359,19 @@ show_log_var = tk.IntVar(value=0)
 tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).grid(
     row=1, column=0, sticky="w"
 )
+
+
+# ------------------------------
+# Global click to defocus entries (so that focusout events trigger and update frequencies)
+# ------------------------------
+def defocus_all(event):
+    w = event.widget
+    if isinstance(w, (tk.Entry, tk.Spinbox, ttk.Entry)):
+        return
+    root.focus_set()
+
+
+root.bind_all("<Button-1>", defocus_all, add="+")
 
 
 # ------------------------------
@@ -337,8 +423,21 @@ def validate_all_fields():
         invalid_fields.append(
             "Initial Delay must be an integer between 0 and 59 minutes"
         )
-    if not (root.use_cable_transmission.get() or root.use_speaker_transmission.get()):
-        invalid_fields.append("At least one transmission method must be selected")
+    if not is_field_valid(root.frequency_low_field, int, 1000, 24000):
+        invalid_fields.append(
+            "Lower Frequency must be an integer between 1000 and 24000 Hz"
+        )
+    if not is_field_valid(root.frequency_high_field, int, 1000, 24000):
+        invalid_fields.append(
+            "Higher Frequency must be an integer between 1000 and 24000 Hz"
+        )
+    if is_field_valid(root.frequency_low_field, int, 1000, 24000) and is_field_valid(
+        root.frequency_high_field, int, 1000, 24000
+    ):
+        low = int(root.frequency_low_field.get().strip())
+        high = int(root.frequency_high_field.get().strip())
+        if low >= high:
+            invalid_fields.append("Lower Frequency must be less than Higher Frequency")
 
     if invalid_fields:
         formatted = "\n".join(f"• {msg}" for msg in invalid_fields)
@@ -396,9 +495,13 @@ def start_dual_flash_thread():
 
 def dual_build_flash_call():
     try:
-        dual_build_flash(
+        if not dual_build_flash(
             root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET
-        )
+        ):
+            progress_bar.stop()
+            root.after(0, lambda: status_label.config(text="❌ Build failed"))
+            return
+
         root.after(
             0,
             lambda: [
@@ -413,6 +516,7 @@ def dual_build_flash_call():
         root.after(
             0,
             lambda: [
+                progress_bar.stop(),
                 status_label.config(text="❌ Build failed"),
                 messagebox.showerror("Error", f"❌ {e}"),
             ],

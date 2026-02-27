@@ -38,13 +38,7 @@ extern int __io_getchar(void) __attribute__((weak));
 char *__env[1] = {0};
 char **environ = __env;
 
-extern UART_HandleTypeDef huart2;
-
-int __io_putchar(int ch) {
-  uint8_t c = (uint8_t)ch;
-  HAL_UART_Transmit(&huart2, &c, 1, HAL_MAX_DELAY);
-  return ch;
-}
+int __io_putchar(int ch) { return ch; }
 
 /* Functions */
 void initialise_monitor_handles() {}
