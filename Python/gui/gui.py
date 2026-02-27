@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 import threading
+import math
 
 # Import scripts
 from scripts.paths import *
@@ -236,49 +237,97 @@ root.frequency_high_field = tk.Spinbox(
 )
 root.frequency_high_field.grid(row=2, column=3, sticky="w", padx=(6, 0))
 
+# Bind focus out and Enter/Tab to trigger frequency adjustment logic
+root.frequency_low_field.bind(
+    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
+)
+
+root.frequency_high_field.bind(
+    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
+)
+
+root.frequency_low_field.bind(
+    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
+)
+root.frequency_low_field.bind(
+    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
+)
+
+root.frequency_high_field.bind(
+    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
+)
+root.frequency_high_field.bind(
+    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
+)
+
 # ------------------------------
-# UI
+# Find the closest valid frequency based on the user's input and update it with a tooltip showing the actual frequency being used
 # ------------------------------
+FS_HZ = 95952
+MIN_BIT_US = 3000
 
-# preset_menu = tk.OptionMenu(
-#     frequency_frame,
-#     root.selected_preset,
-#     *root.presets.keys(),
-# )
-# preset_menu.config(width=25)  # 👈 adjust as needed
-# preset_menu.grid(row=1, column=0, sticky="w")
+MIN_BIT_SAMPLES = int(((FS_HZ * MIN_BIT_US) + 500000) // 1000000)
 
+NUM_SAMPLES_MIN = 280
+NUM_SAMPLES_MAX = 295
 
-# root.preset_label = tk.Label(
-#     frequency_frame,
-#     text="",
-#     fg="gray",
-# )
-# root.preset_label.grid(row=3, column=0, sticky="w", pady=(2, 6))
+FREQ_MIN = 1000
+FREQ_MAX = 24000
 
 
-# ------------------------------
-# Update logic
-# ------------------------------
-# def update_preset_label(*_):
-#     preset = root.presets[root.selected_preset.get()]
-#     root.preset_label.config(
-#         text=f"f0 = {preset['f0']:.2f} Hz,  f1 = {preset['f1']:.2f} Hz"
-#     )
-#     # Keep old variable in sync for build logic
-#     root.frequency_pair_var.set(preset["pair_id"])
+def update_frequency_on_focus_out(var: tk.IntVar):
+    try:
+        user_val = int(var.get())
+    except Exception:
+        user_val = FREQ_MIN
+
+    new_freq, freq_samples, periods, total_samples = adjust_frequency_to_valid(user_val)
+    var.set(new_freq)
+
+    # (optional) debug print like firmware
+    # print(f"Using {new_freq} Hz -> samples={freq_samples}, periods={periods}, total={total_samples}")
 
 
-# Initial update + trace
-# update_preset_label()
-# root.selected_preset.trace_add("write", update_preset_label)
+def adjust_frequency_to_valid(user_freq: int) -> tuple[int, int, int, int]:
+    """
+    Port of your firmware loop for ONE frequency.
+    Returns: (freq_hz, freq_samples, periods, total_samples)
+    """
+    # clamp to GUI allowed range first
+    freq = max(FREQ_MIN, min(FREQ_MAX, int(user_freq)))
+
+    # safety: avoid infinite loop if config becomes impossible
+    for _ in range(FREQ_MAX - FREQ_MIN + 1):
+        freq_samples = int(math.floor(FS_HZ / freq))
+        if freq_samples <= 0:
+            freq_samples = 1
+
+        periods = int(round(MIN_BIT_SAMPLES / freq_samples))
+        if periods <= 0:
+            periods = 1
+
+        total_samples = freq_samples * periods
+
+        if NUM_SAMPLES_MIN <= total_samples <= NUM_SAMPLES_MAX:
+            return freq, freq_samples, periods, total_samples
+
+        freq += 1
+        if freq > FREQ_MAX:
+            # wrap or clamp behavior; firmware just keeps increasing,
+            # but GUI shouldn't run away.
+            freq = FREQ_MAX
+            break
+
+    # fallback if nothing found (should be rare)
+    freq_samples = int(math.floor(FS_HZ / freq))
+    periods = max(1, int(round(MIN_BIT_SAMPLES / max(1, freq_samples))))
+    total_samples = freq_samples * periods
+    return freq, freq_samples, periods, total_samples
 
 
 # ------------------------------
 # Field enabling/disabling logic
 # ------------------------------
-
-
 def toggle_interval_field():
     root.interval_field.config(
         state="disabled" if root.default_interval_var.get() else "normal"
@@ -310,6 +359,19 @@ show_log_var = tk.IntVar(value=0)
 tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).grid(
     row=1, column=0, sticky="w"
 )
+
+
+# ------------------------------
+# Global click to defocus entries (so that focusout events trigger and update frequencies)
+# ------------------------------
+def defocus_all(event):
+    w = event.widget
+    if isinstance(w, (tk.Entry, tk.Spinbox, ttk.Entry)):
+        return
+    root.focus_set()
+
+
+root.bind_all("<Button-1>", defocus_all, add="+")
 
 
 # ------------------------------
