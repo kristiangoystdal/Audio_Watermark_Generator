@@ -95,16 +95,7 @@ def read_frequency_pairs():
 
 
 def change_user_config(root, set_initial_time, safe_log=None):
-
     config_path = ensure_user_config(False, safe_log)
-
-    if not os.path.exists(config_path):
-        if safe_log:
-            safe_log(f"[ERROR] Config file not found: {config_path}")
-        sys.exit(1)
-    else:
-        if safe_log:
-            safe_log(f"[DEBUG] Using config file: {config_path}")
 
     try:
         # Read values from GUI fields
@@ -129,13 +120,65 @@ def change_user_config(root, set_initial_time, safe_log=None):
         frequency_lower = root.frequency_low_var.get()
         frequency_higher = root.frequency_high_var.get()
     except Exception as e:
-        safe_log(f"[ERROR] Failed to read GUI fields: {str(e)}")
+        if safe_log:
+            safe_log(f"[ERROR] Failed to read GUI fields: {str(e)}")
         return False
 
-    # Get the current time
+    if not user_string:
+        if safe_log:
+            safe_log("[ERROR] User string is empty.")
+        messagebox.showerror("Error", "Please enter a valid string.")
+        return False
+
+    # Helper converters
+    def to_int(name: str, v, min_v=None, max_v=None):
+        try:
+            iv = int(str(v).strip())
+        except Exception:
+            raise ValueError(f"{name} must be an integer (got {v!r})")
+        if min_v is not None and iv < min_v:
+            iv = min_v
+        if max_v is not None and iv > max_v:
+            iv = max_v
+        return iv
+
+    def to_str(v):
+        # remove any quotes user might have typed
+        return str(v).strip().replace('"', "")
+
+    # Get current time
     current_time = read_current_time()
 
-    # Variables that are integer-style (no quotes)
+    # Normalize numeric inputs (IMPORTANT)
+    try:
+        device_id_i = to_int("DEVICE_ID", device_id, 0, 65535)
+        delay_minutes_i = to_int("STARTING_MINUTE", delay_minutes, 0, 59)
+        interval_minutes_i = to_int(
+            "INTERVAL_BETWEEN_REPEATS_MINUTES", interval_minutes, 1, 1440
+        )
+
+        fsk_low_i = to_int("FSK_LOWER_FREQUENCY", frequency_lower, 1, 50000)
+        fsk_high_i = to_int("FSK_HIGHER_FREQUENCY", frequency_higher, 1, 50000)
+    except ValueError as e:
+        if safe_log:
+            safe_log(f"[ERROR] {e}")
+        messagebox.showerror("Error", str(e))
+        return False
+
+    # Define types
+    bool_vars = {
+        "INCLUDE_USER_STRING",
+        "INCLUDE_DEVICE_ID",
+        "INCLUDE_LOCATION",
+        "INCLUDE_TEMPERATURE",
+        "INCLUDE_TIME",
+        "SET_INITIAL_TIME",
+        "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS",
+        "ENABLE_DELAYED_START",
+        "USE_CABLE_TRANSMISSION",
+        "USE_SPEAKER_TRANSMISSION",
+    }
+
     int_vars = {
         "DEVICE_ID",
         "TEMPERATURE",
@@ -146,22 +189,25 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INITIAL_HOUR",
         "INITIAL_MIN",
         "INITIAL_SEC",
-        "FSK_FREQUENCY_PAIR",
         "STARTING_MINUTE",
         "INTERVAL_BETWEEN_REPEATS_MINUTES",
+        "FSK_LOWER_FREQUENCY",
+        "FSK_HIGHER_FREQUENCY",
+        # (FSK_FREQUENCY_PAIR if you have it as an int define)
+        "FSK_FREQUENCY_PAIR",
     }
 
-    # Values to apply
+    # Values to apply (use normalized ints)
     variables = {
-        "USER_STRING": user_string,
-        "DEVICE_ID": device_id,
-        "LOCATION": location,
-        "INCLUDE_USER_STRING": include_user_string,
-        "INCLUDE_DEVICE_ID": include_device_id,
-        "INCLUDE_LOCATION": include_location,
-        "INCLUDE_TEMPERATURE": include_temperature,
-        "INCLUDE_TIME": include_time,
-        "SET_INITIAL_TIME": set_initial_time,
+        "USER_STRING": to_str(user_string),
+        "DEVICE_ID": device_id_i,
+        "LOCATION": to_str(location),
+        "INCLUDE_USER_STRING": bool(include_user_string),
+        "INCLUDE_DEVICE_ID": bool(include_device_id),
+        "INCLUDE_LOCATION": bool(include_location),
+        "INCLUDE_TEMPERATURE": bool(include_temperature),
+        "INCLUDE_TIME": bool(include_time),
+        "SET_INITIAL_TIME": bool(set_initial_time),
         "INITIAL_YEAR": current_time[0],
         "INITIAL_MONTH": current_time[1],
         "INITIAL_DOM": current_time[2],
@@ -169,62 +215,46 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INITIAL_HOUR": current_time[4],
         "INITIAL_MIN": current_time[5],
         "INITIAL_SEC": current_time[6],
-        "FSK_LOWER_FREQUENCY": frequency_lower,
-        "FSK_HIGHER_FREQUENCY": frequency_higher,
-        "ENABLE_DELAYED_START": enable_delayed_start,
-        "STARTING_MINUTE": delay_minutes,
-        "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": use_default_interval,
-        "INTERVAL_BETWEEN_REPEATS_MINUTES": interval_minutes,
-        "USE_CABLE_TRANSMISSION": use_cable_transmission,
-        "USE_SPEAKER_TRANSMISSION": use_speaker_transmission,
+        "FSK_LOWER_FREQUENCY": fsk_low_i,
+        "FSK_HIGHER_FREQUENCY": fsk_high_i,
+        "ENABLE_DELAYED_START": bool(enable_delayed_start),
+        "STARTING_MINUTE": delay_minutes_i,
+        "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": bool(use_default_interval),
+        "INTERVAL_BETWEEN_REPEATS_MINUTES": interval_minutes_i,
+        "USE_CABLE_TRANSMISSION": bool(use_cable_transmission),
+        "USE_SPEAKER_TRANSMISSION": bool(use_speaker_transmission),
     }
 
-    if not user_string:
-        safe_log("[ERROR] User string is empty.")
-        messagebox.showerror("Error", "Please enter a valid string.")
-        return False
+    def format_define(var: str, val):
+        if var in bool_vars:
+            return f"#define {var} {'true' if val else 'false'}\n"
+        if var in int_vars:
+            return f"#define {var} {int(val)}\n"
+        # default: string
+        return f'#define {var} "{to_str(val)}"\n'
 
     try:
         with open(config_path, "r") as file:
             lines = file.readlines()
 
+        # Replace existing defines
         for i, line in enumerate(lines):
+            stripped = line.lstrip()
+            if not stripped.startswith("#define "):
+                continue
+
             for var, val in variables.items():
-                # Strip leading spaces before comparing
-                if f"#define {var}" in line:
-                    if (
-                        "INCLUDE" in var
-                        or var == "SET_INITIAL_TIME"
-                        or var == "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS"
-                        or var == "ENABLE_DELAYED_START"
-                        or var == "USE_CABLE_TRANSMISSION"
-                        or var == "USE_SPEAKER_TRANSMISSION"
-                    ):
-                        val_str = "true" if val else "false"
-                        lines[i] = f"#define {var} {val_str}\n"
-                    elif var in int_vars:
-                        lines[i] = f"#define {var} {val}\n"
-                    else:
-                        val_clean = str(val).replace('"', "")
-                        lines[i] = f'#define {var} "{val_clean}"\n'
+                if stripped.startswith(f"#define {var}"):
+                    lines[i] = format_define(var, val)
+                    break
 
-        # Append any missing defines at the end
+        # Append missing defines
         for var, val in variables.items():
-            if not any(f"#define {var}" in line for line in lines):
-                if (
-                    "INCLUDE" in var
-                    or var == "SET_INITIAL_TIME"
-                    or var == "FSK_FREQUENCY_PAIR"
-                ):
-                    val_str = "true" if val else "false"
-                    lines.append(f"#define {var} {val_str}\n")
-                elif var in int_vars:
-                    lines.append(f"#define {var} {val}\n")
-                else:
-                    val_clean = str(val).replace('"', "")
-                    lines.append(f'#define {var} "{val_clean}"\n')
+            if not any(l.lstrip().startswith(f"#define {var}") for l in lines):
+                lines.append(format_define(var, val))
 
-        if not any("#endif" in l for l in lines):
+        # Ensure endif exists
+        if not any(l.strip().startswith("#endif") for l in lines):
             lines.append("\n#endif // USER_CONFIG_H\n")
 
         with open(config_path, "w") as file:
@@ -233,6 +263,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
         return True
 
     except Exception as e:
-        safe_log(f"[ERROR] Failed to update config file: {str(e)}")
+        if safe_log:
+            safe_log(f"[ERROR] Failed to update config file: {str(e)}")
         messagebox.showerror("Error", f"Failed to update config: {str(e)}")
         return False
