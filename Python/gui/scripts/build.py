@@ -221,6 +221,7 @@ def build_and_flash(
                     safe_log(line.strip())
         except Exception as e:
             safe_log(f"[WARN] Could not preview user_config.h: {e}")
+            return False
         safe_log("[DEBUG] --- end preview ---\n")
 
         # --- Run CMake configure ---
@@ -258,7 +259,7 @@ def build_and_flash(
         elf_file = find_elf()
         if not elf_file:
             messagebox.showerror("Flash", "❌ No ELF file found after build.")
-            return
+            return False
         safe_log(f"\n[DEBUG] Built ELF: {elf_file}")
 
         # --- Flash device ---
@@ -293,6 +294,9 @@ def build_and_flash(
         )
         safe_log("[ERROR] Build/flash process terminated.")
         messagebox.showerror("Error", f"❌ Failed during build/flash: {e}")
+        return False
+
+    return True
 
 
 def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET):
@@ -302,27 +306,34 @@ def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_T
 
     set_initial_time = 1
 
-    build_and_flash(
+    if not build_and_flash(
         root,
         show_log_var,
         OPENOCD_INTERFACE,
         OPENOCD_TARGET,
         set_initial_time,
         build_btn,
-    )
+    ):
+        build_btn.config(state="normal")
+        return False
+
     root.update_idletasks()
 
     set_initial_time = 0
 
-    build_and_flash(
+    if not build_and_flash(
         root,
         show_log_var,
         OPENOCD_INTERFACE,
         OPENOCD_TARGET,
         set_initial_time,
         build_btn,
-    )
+    ):
+        build_btn.config(state="normal")
+        return False
 
     root.update_idletasks()
 
     build_btn.config(state="normal")
+    
+    return True
