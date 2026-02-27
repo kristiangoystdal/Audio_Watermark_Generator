@@ -29,6 +29,7 @@
 #include <ism.h>
 #include <ism_config_433.h>
 #include <led_feedback.h>
+#include <log.h>
 #include <radio.h>
 #include <spi.h>
 #include <user_config.h>
@@ -261,10 +262,10 @@ int main(void) {
   /* USER CODE BEGIN BSP */
 
   /* -- Sample board code to send message over COM1 port ---- */
-  printf("\033[2J\033[H");
-  printf("-------------------------\r\n");
-  printf("Hello from VCP!\r\n");
-  printf("--------------------------\r\n");
+  LOGF("\033[2J\033[H");
+  LOGF("-------------------------\r\n");
+  LOGF("Hello from VCP!\r\n");
+  LOGF("--------------------------\r\n");
 
   /* USER CODE END BSP */
 
@@ -281,18 +282,17 @@ int main(void) {
 
   freq_pair = find_frequency_pair();
 
-  printf("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
-         (unsigned int)freq_pair.lower_freq,
-         (unsigned int)freq_pair.higher_freq);
-  printf("--------------------------\r\n");
+  LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
+       (unsigned int)freq_pair.lower_freq, (unsigned int)freq_pair.higher_freq);
+  LOGF("--------------------------\r\n");
 
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
   //-----------------------------------------------------------------------------//
 
   if (init_luts_from_freqpair() != 0) {
-    printf("LUT alloc failed\r\n");
-    printf("--------------------------\r\n");
+    LOGF("LUT alloc failed\r\n");
+    LOGF("--------------------------\r\n");
     Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
   }
 
@@ -318,23 +318,23 @@ int main(void) {
   //            INITIAL_MONTH, INITIAL_YEAR);
   // }
   // Get_Time(&now);
-  // printf("-------------------------\r\n");
+  // LOGF("-------------------------\r\n");
 
   HAL_Delay(20);
   int8_t init_result = init_radio(RX);
   if (init_result != 0) {
-    printf("Failed to initialize radio in RX mode, error code: %d\r\n",
-           init_result);
-    printf("--------------------------\r\n");
+    LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
+         init_result);
+    LOGF("--------------------------\r\n");
     Error_Handler_Code(init_result);
   }
 
-  printf("Entering main loop...\r\n");
+  LOGF("Entering main loop...\r\n");
 
   while (1) {
 
     // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
-    printf("Entering STOP mode...\r\n");
+    LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
 
     // 2) Debounce button
@@ -342,24 +342,24 @@ int main(void) {
     }
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
-    printf("Woke up!\r\n");
+    LOGF("Woke up!\r\n");
 
     // 3) Check state and either start RX or TX
     if (RX) {
       // RX mode: read from radio and store in string
       read_RX(transmission, sizeof(transmission));
-      printf("Received transmission: ");
+      LOGF("Received transmission: ");
       for (size_t i = 0; i < sizeof(transmission); i++) {
-        printf("%02X ", transmission[i]);
+        LOGF("%02X ", transmission[i]);
       }
-      printf("\r\n");
+      LOGF("\r\n");
 
       // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
       // etc.)
       process_transmission(transmission, &dBm_value);
 
-      printf("Processed transmission into %s\r\n", transmission);
-      printf("dBm value: %d\r\n", dBm_value);
+      LOGF("Processed transmission into %s\r\n", transmission);
+      LOGF("dBm value: %d\r\n", dBm_value);
 
       // Create output string based on received data and dBm value (e.g.
       // "/STR.../DID.../LOC.../TMP.../TIM...")
@@ -367,23 +367,22 @@ int main(void) {
       create_string_from_received_data(transmission, dBm_value, output_str,
                                        sizeof(output_str));
 
-      printf("Final output string: %s\r\n", output_str);
+      LOGF("Final output string: %s\r\n", output_str);
 
       // Make bitstream from output string
       make_bitstream_from_string(output_str);
-      printf("Prepared bitstream from output string.\r\n");
-      printf("Output string length: %d characters\r\n",
-             (int)strlen(output_str));
+      LOGF("Prepared bitstream from output string.\r\n");
+      LOGF("Output string length: %d characters\r\n", (int)strlen(output_str));
 
       // Calculate active duration based on bitstream length and bit durations
       size_t bitstream_len = strlen(output_str) * 8u;
       calculate_active_duration_ms(bitstream_len);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
-      printf("Calculated active duration for response: %lu ms\r\n",
-             (unsigned long)total_ms);
+      LOGF("Calculated active duration for response: %lu ms\r\n",
+           (unsigned long)total_ms);
 
       // Send transmission over audio
-      printf("Starting transmission of response over audio...\r\n");
+      LOGF("Starting transmission of response over audio...\r\n");
       LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       TX_Start();
 
@@ -400,12 +399,12 @@ int main(void) {
 
     } else {
       // Send transmission over radio
-      printf("Starting transmission over radio...\r\n");
+      LOGF("Starting transmission over radio...\r\n");
       LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       start_TX();
     }
 
-    printf("Going back to sleep...\r\n");
+    LOGF("Going back to sleep...\r\n");
 
     /* USER CODE END WHILE */
 
@@ -1104,7 +1103,7 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
 }
 
 static void TX_Start(void) {
-  printf("\r\nTX_Start()\r\n");
+  LOGF("\r\nTX_Start()\r\n");
 
   current_bitstream_index = 0;
   current_sine_period = 0;
@@ -1129,7 +1128,7 @@ static void TX_Start(void) {
   current_sine_period = r2.current_period;
   current_sine_index = r2.current_index;
 
-  printf("  Buffer filled\r\n");
+  LOGF("  Buffer filled\r\n");
 
   // Clean start
   HAL_TIM_Base_Stop(&htim2);
@@ -1140,16 +1139,16 @@ static void TX_Start(void) {
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
 
-  printf("  Peripherals stopped & DMA flags cleared\r\n");
+  LOGF("  Peripherals stopped & DMA flags cleared\r\n");
 
   // Start DAC
   HAL_StatusTypeDef st;
   st = HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
   if (st != HAL_OK) {
-    printf("  HAL_DAC_Start error: %d\r\n", st);
+    LOGF("  HAL_DAC_Start error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
-    printf("  HAL_DAC_Start OK\r\n");
+    LOGF("  HAL_DAC_Start OK\r\n");
   }
 
   // Start DMA
@@ -1157,10 +1156,10 @@ static void TX_Start(void) {
                          BUFFER_SIZE, DAC_ALIGN_12B_R);
 
   if (st != HAL_OK) {
-    printf("  HAL_DAC_Start_DMA error: %d\r\n", st);
+    LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
-    printf("  HAL_DAC_Start_DMA OK\r\n");
+    LOGF("  HAL_DAC_Start_DMA OK\r\n");
   }
 
   // Ensure trigger enabled
@@ -1171,15 +1170,15 @@ static void TX_Start(void) {
   st = HAL_TIM_Base_Start(&htim2);
 
   if (st != HAL_OK) {
-    printf("  HAL_TIM_Base_Start error: %d\r\n", st);
+    LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
-    printf("  HAL_TIM_Base_Start OK\r\n");
+    LOGF("  HAL_TIM_Base_Start OK\r\n");
   }
 }
 
 static void TX_Stop(void) {
-  printf("TX_Stop()\r\n");
+  LOGF("TX_Stop()\r\n");
 
   tx_active = false;
 
@@ -1197,7 +1196,7 @@ static void TX_Stop(void) {
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
 
-  printf("  TX stopped cleanly (DAC set to mid)\r\n");
+  LOGF("  TX stopped cleanly (DAC set to mid)\r\n");
 }
 
 void Set_DAC_Output_To_Midlevel(void) {
@@ -1223,26 +1222,26 @@ void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
 void process_transmission(const uint8_t *transmission, int *dBm_value) {
   size_t len = strlen((const char *)transmission);
   if (len <= 4) {
-    printf("Transmission too short to process.\r\n");
+    LOGF("Transmission too short to process.\r\n");
     return;
   }
 
   for (size_t i = 0; i < len; i++) {
-    printf("%02X ", transmission[i]);
+    LOGF("%02X ", transmission[i]);
   }
-  printf("\r\n");
+  LOGF("\r\n");
 
   uint8_t rssi_hex = transmission[len - 2]; // 2nd from end
 
-  // printf("Extracted RSSI hex: %02X\r\n", rssi_hex);
+  // LOGF("Extracted RSSI hex: %02X\r\n", rssi_hex);
 
   int8_t rssi_signed = (int8_t)rssi_hex; // 2's complement
 
-  // printf("RSSI signed value: %d\r\n", rssi_signed);
+  // LOGF("RSSI signed value: %d\r\n", rssi_signed);
 
   int rssi_dbm = (rssi_signed / 2) - 74; // integer dBm
 
-  // printf("RSSI: %d dBm\r\n", rssi_dbm);
+  // LOGF("RSSI: %d dBm\r\n", rssi_dbm);
 
   dBm_value[0] = (int)rssi_dbm;
 
@@ -1465,7 +1464,7 @@ void Error_Handler_Code(status_code_t code) {
  */
 void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
-  printf("Error_Handler: code=%d\r\n", (int)g_error_code);
+  LOGF("Error_Handler: code=%d\r\n", (int)g_error_code);
 
   // If you want it to repeat forever:
   LED_BlinkStatusCode((uint8_t)g_error_code);
