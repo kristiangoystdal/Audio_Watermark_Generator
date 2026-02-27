@@ -1,8 +1,6 @@
 #pragma once
 
-#ifndef ENABLE_LOG
-#define ENABLE_LOG 0
-#endif
+#define ENABLE_LOG 1
 
 #if ENABLE_LOG
 #include <stdio.h>
