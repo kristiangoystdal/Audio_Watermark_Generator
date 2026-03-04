@@ -1,4 +1,5 @@
 #include "frequency_config.h"
+
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -6,17 +7,16 @@
 #include <stdio.h>
 #include <sys/types.h>
 
-#define FS_HZ 95952u
 #define MIN_BIT_US 3000u
 
-#define MIN_BIT_SAMPLES                                                        \
-  ((size_t)((((uint64_t)FS_HZ * (uint64_t)MIN_BIT_US) + 500000ull) /           \
-            1000000ull))
+#define NUM_SAMPLES_MIN 1120
+#define NUM_SAMPLES_MAX 1180
 
-#define NUM_SAMPLES_MIN 280
-#define NUM_SAMPLES_MAX 295
+freq_pair_t find_frequency_pair(uint32_t fs) {
 
-freq_pair_t find_frequency_pair(void) {
+  size_t min_bit_samples =
+      ((size_t)((((uint64_t)fs * (uint64_t)MIN_BIT_US) + 500000ull) /
+                1000000ull));
 
   // Initial guess based on user config, but will be adjusted if it doesn't meet
   freq_pair_t result = {0};
@@ -39,12 +39,12 @@ freq_pair_t find_frequency_pair(void) {
     bool lower_in_range = true;
     bool higher_in_range = true;
 
-    lower_freq_samples = (uint16_t)floor((double)FS_HZ / (double)lower_freq);
-    higher_freq_samples = (uint16_t)floor((double)FS_HZ / (double)higher_freq);
+    lower_freq_samples = (uint16_t)floor((double)fs / (double)lower_freq);
+    higher_freq_samples = (uint16_t)floor((double)fs / (double)higher_freq);
 
     lower_freq_periods =
-        (uint16_t)llround((double)MIN_BIT_SAMPLES / (double)lower_freq_samples);
-    higher_freq_periods = (uint16_t)llround((double)MIN_BIT_SAMPLES /
+        (uint16_t)llround((double)min_bit_samples / (double)lower_freq_samples);
+    higher_freq_periods = (uint16_t)llround((double)min_bit_samples /
                                             (double)higher_freq_samples);
 
     lower_freq_total_samples = lower_freq_samples * lower_freq_periods;
