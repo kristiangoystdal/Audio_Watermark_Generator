@@ -32,6 +32,7 @@
 #include <log.h>
 #include <radio.h>
 #include <spi.h>
+#include <sys/types.h>
 #include <user_config.h>
 
 #include "cmsis_gcc.h"
@@ -49,6 +50,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 /* USER CODE END Includes */
 
@@ -93,11 +95,9 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
-COM_InitTypeDef BspCOMInit;
+ADC_HandleTypeDef hadc1;
 
 DAC_HandleTypeDef hdac1;
-DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c2;
 
@@ -105,6 +105,8 @@ SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
+
+UART_HandleTypeDef huart2;
 
 PCD_HandleTypeDef hpcd_USB_FS;
 
@@ -163,13 +165,14 @@ volatile status_code_t g_error_code = STATUS_CODE_OK;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_TIM6_Init(void);
+static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
-static void MX_TIM2_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_SPI1_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_TIM6_Init(void);
 static void MX_USB_PCD_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
@@ -200,6 +203,8 @@ void create_string_from_received_data(const uint8_t *transmission,
 static int init_luts_from_freqpair(void);
 
 void Error_Handler_Code(status_code_t code);
+
+uint16_t Read_Battery_Voltage_mV(void);
 
 /* USER CODE END PFP */
 
@@ -237,40 +242,30 @@ int main(void) {
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_TIM6_Init();
+  MX_ADC1_Init();
   MX_DAC1_Init();
-  MX_TIM2_Init();
   MX_I2C2_Init();
   MX_SPI1_Init();
+  MX_TIM2_Init();
+  MX_TIM6_Init();
   MX_USB_PCD_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+
+  LOGF("UART boot OK\r\n");
+  HAL_Delay(200);
 
   /* USER CODE END 2 */
 
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity
-   */
-  BspCOMInit.BaudRate = 115200;
-  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits = COM_STOPBITS_1;
-  BspCOMInit.Parity = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
-    Error_Handler();
-  }
-
-  /* USER CODE BEGIN BSP */
-
-  /* -- Sample board code to send message over COM1 port ---- */
-  LOGF("\033[2J\033[H");
-  LOGF("-------------------------\r\n");
-  LOGF("Hello from VCP!\r\n");
-  LOGF("--------------------------\r\n");
-
-  /* USER CODE END BSP */
-
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+
+  // Read battery voltage
+  uint16_t battery_mv = Read_Battery_Voltage_mV();
+  LOGF("Battery voltage: %u mV\r\n", battery_mv);
+
+  uint32_t dac_sample_rate = get_dac_sample_rate_hz();
+  LOGF("DAC sample rate: %lu Hz\r\n", (unsigned long)dac_sample_rate);
 
   // Turn on LED to indicate power on
   LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
@@ -280,7 +275,7 @@ int main(void) {
   // requirements
   //-----------------------------------------------------------------------------//
 
-  freq_pair = find_frequency_pair();
+  freq_pair = find_frequency_pair(dac_sample_rate);
 
   LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
        (unsigned int)freq_pair.lower_freq, (unsigned int)freq_pair.higher_freq);
@@ -428,17 +423,15 @@ void SystemClock_Config(void) {
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
    */
-  RCC_OscInitStruct.OscillatorType =
-      RCC_OSCILLATORTYPE_HSI | RCC_OSCILLATORTYPE_HSI48;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 8;
+  RCC_OscInitStruct.PLL.PLLN = 12;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
     Error_Handler();
@@ -449,13 +442,76 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                 RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
+}
+
+/**
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_ADC1_Init(void) {
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+   */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.GainCompensation = 0;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+   */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+   */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
 }
 
 /**
@@ -516,7 +572,7 @@ static void MX_I2C2_Init(void) {
 
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x10B17DB5;
+  hi2c2.Init.Timing = 0x10805D88;
   hi2c2.Init.OwnAddress1 = 0;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -601,7 +657,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 666;
+  htim2.Init.Period = 124;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -645,9 +701,6 @@ static void MX_TIM6_Init(void) {
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK) {
     Error_Handler();
   }
-  if (HAL_TIM_OnePulse_Init(&htim6, TIM_OPMODE_SINGLE) != HAL_OK) {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK) {
@@ -656,6 +709,50 @@ static void MX_TIM6_Init(void) {
   /* USER CODE BEGIN TIM6_Init 2 */
 
   /* USER CODE END TIM6_Init 2 */
+}
+
+/**
+ * @brief USART2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USART2_UART_Init(void) {
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
 }
 
 /**
@@ -689,21 +786,6 @@ static void MX_USB_PCD_Init(void) {
 }
 
 /**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void) {
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMAMUX1_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel1_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-}
-
-/**
  * @brief GPIO Initialization Function
  * @param None
  * @retval None
@@ -716,7 +798,6 @@ static void MX_GPIO_Init(void) {
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -726,24 +807,6 @@ static void MX_GPIO_Init(void) {
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_6, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PF0 PF1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PG10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_10;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOG, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA0 PA1 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_15;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA5 PA6 PA7 PA10 */
   GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10;
@@ -764,16 +827,6 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB8 */
-  GPIO_InitStruct.Pin = GPIO_PIN_8;
-  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -1429,34 +1482,33 @@ void Error_Handler_Code(status_code_t code) {
   Error_Handler(); // call the CubeMX-compatible one
 }
 
+int _write(int file, char *ptr, int len) {
+  (void)file;
+  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
+  return len;
+}
+
+uint16_t Read_Battery_Voltage_mV(void) {
+  uint32_t adc_value = 0;
+  uint16_t voltage_mV = 0;
+
+  // Read ADC value
+  HAL_ADC_Start(&hadc1);
+  if (HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY) == HAL_OK) {
+    adc_value = HAL_ADC_GetValue(&hadc1);
+  }
+  HAL_ADC_Stop(&hadc1);
+
+  // Convert ADC value to millivolts (assuming 12-bit ADC and 3.3V reference)
+  // Input voltage is divided by 2 due to external voltage divider (1M and 1M),
+  // so we multiply by 2 to compensate
+  printf("Raw ADC value: %lu\r\n", adc_value);
+  voltage_mV = (uint16_t)((adc_value * 3300 * 2) / 4095);
+
+  return voltage_mV;
+}
+
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header */
-/**
- ******************************************************************************
- * @file           : main.c
- * @brief          : Main program body
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2026 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE file
- * in the root directory of this software component.
- * If no LICENSE file comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
-/* USER CODE END Header */
-
-/**
- * @}
- */
-
-/**
- * @}
- */
 
 /**
  * @brief  This function is executed in case of error occurrence.
