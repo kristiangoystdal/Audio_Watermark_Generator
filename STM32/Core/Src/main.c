@@ -22,35 +22,39 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+// Include headers for custom modules
+#include "cc1101.h"
+#include "ds3231.h"
 #include "error_codes.h"
-#include <cc1101.h>
-#include <ds3231.h>
-#include <frequency_config.h>
-#include <ism.h>
-#include <ism_config_433.h>
-#include <led_feedback.h>
-#include <log.h>
-#include <radio.h>
-#include <spi.h>
-#include <sys/types.h>
-#include <user_config.h>
+#include "frequency_config.h"
+#include "ism.h"
+#include "ism_config_433.h"
+#include "led_feedback.h"
+#include "log.h"
+#include "radio.h"
+#include "relay.h"
+#include "spi.h"
+#include "user_config.h"
 
-#include "cmsis_gcc.h"
-#include "stdlib.h"
-#include "stm32g431xx.h"
-#include "stm32g4xx.h"
-#include "stm32g4xx_hal.h"
-#include "stm32g4xx_hal_dac.h"
-#include "stm32g4xx_hal_def.h"
-#include "stm32g4xx_hal_gpio.h"
-#include "sys/_intsup.h"
+// Standard library includes
+#include <cmsis_gcc.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <stm32g431xx.h>
+#include <stm32g4xx.h>
+#include <stm32g4xx_hal.h>
+#include <stm32g4xx_hal_dac.h>
+#include <stm32g4xx_hal_def.h>
+#include <stm32g4xx_hal_gpio.h>
 #include <string.h>
+#include <sys/_intsup.h>
+#include <sys/types.h>
 #include <unistd.h>
+
 
 /* USER CODE END Includes */
 
@@ -315,6 +319,10 @@ int main(void) {
   // Get_Time(&now);
   // LOGF("-------------------------\r\n");
 
+  //-----------------------------------------------------------------------------//
+  // Initialize radio
+  //-----------------------------------------------------------------------------//
+
   HAL_Delay(20);
   int8_t init_result = init_radio(RX);
   if (init_result != 0) {
@@ -323,6 +331,18 @@ int main(void) {
     LOGF("--------------------------\r\n");
     Error_Handler_Code(init_result);
   }
+
+  //-----------------------------------------------------------------------------//
+  // If RX, set relay to mixing mode
+  //-----------------------------------------------------------------------------//
+
+  if (RX) {
+    turn_on_relay();
+  }
+
+  //-----------------------------------------------------------------------------//
+  // Main loop
+  //-----------------------------------------------------------------------------//
 
   LOGF("Entering main loop...\r\n");
 
