@@ -55,7 +55,6 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
