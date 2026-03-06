@@ -5,6 +5,7 @@
 #define FREQUENCY_CONFIG_H
 
 #include "user_config.h"
+
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,4 +21,4 @@ typedef struct {
 
 freq_pair_t find_frequency_pair(uint32_t fs);
 
-#endif // DEBUG
+#endif // FREQUENCY_CONFIG_H
