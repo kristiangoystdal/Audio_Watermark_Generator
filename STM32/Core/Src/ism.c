@@ -16,8 +16,10 @@
  */
 
 #include "ism.h"
-#include "stm32g4xx_hal.h"
+#include "log.h"
+
 #include <stdio.h>
+#include <stm32g4xx_hal.h>
 #include <string.h>
 
 /* =========================
@@ -70,18 +72,18 @@ static inline int ism_pin_read(GPIO_TypeDef *port, uint16_t pin) {
 static void ism_dump_hex(const char *tag, const uint8_t *buf, uint16_t len) {
 #if ISM_DEBUG_DUMP_BYTES
   if (!buf) {
-    printf("%s: (null)\r\n", tag);
+    LOGF("%s: (null)\r\n", tag);
     return;
   }
   uint16_t n = len;
   if (n > ISM_DEBUG_MAX_DUMP)
     n = ISM_DEBUG_MAX_DUMP;
-  printf("%s[%u]: ", tag, (unsigned)len);
+  LOGF("%s[%u]: ", tag, (unsigned)len);
   for (uint16_t i = 0; i < n; i++)
-    printf("%02X ", buf[i]);
+    LOGF("%02X ", buf[i]);
   if (n < len)
-    printf("...");
-  printf("\r\n");
+    LOGF("...");
+  LOGF("\r\n");
 #else
   (void)tag;
   (void)buf;
@@ -96,8 +98,8 @@ static void ism_dbg_pins(const char *where, ism_handle_t *h) {
     cs = ism_pin_read(h->cs_port, h->cs_pin);
     miso = ism_pin_read(h->miso_port, h->miso_pin);
   }
-  printf("[ISM] %s t=%lu CS=%d MISO=%d\r\n", where,
-         (unsigned long)HAL_GetTick(), cs, miso);
+  LOGF("[ISM] %s t=%lu CS=%d MISO=%d\r\n", where, (unsigned long)HAL_GetTick(),
+       cs, miso);
 #else
   (void)where;
   (void)h;
@@ -109,7 +111,7 @@ static void ism_print_spi_error(SPI_HandleTypeDef *hspi, const char *where) {
     return;
   uint32_t e = HAL_SPI_GetError(hspi);
   if (e != HAL_SPI_ERROR_NONE) {
-    printf("[ISM] %s: HAL_SPI_GetError=0x%08lX\r\n", where, (unsigned long)e);
+    LOGF("[ISM] %s: HAL_SPI_GetError=0x%08lX\r\n", where, (unsigned long)e);
   }
 }
 #else
@@ -154,17 +156,16 @@ static ism_status_t ism_wait_miso_ready_once(ism_handle_t *h) {
 
   while (HAL_GPIO_ReadPin(h->miso_port, h->miso_pin) == GPIO_PIN_SET) {
     if ((HAL_GetTick() - t0) >= h->miso_ready_timeout_ms) {
-      printf("[ISM] MISO ready timeout after %lums (timeout=%ums)\r\n",
-             (unsigned long)(HAL_GetTick() - t0),
-             (unsigned)h->miso_ready_timeout_ms);
+      LOGF("[ISM] MISO ready timeout after %lums (timeout=%ums)\r\n",
+           (unsigned long)(HAL_GetTick() - t0),
+           (unsigned)h->miso_ready_timeout_ms);
       ism_dbg_pins("MISO_TIMEOUT", h);
       return ISM_ERR_TIMEOUT;
     }
   }
 
 #if ISM_DEBUG
-  printf("[ISM] MISO-ready OK (%lums)\r\n",
-         (unsigned long)(HAL_GetTick() - t0));
+  LOGF("[ISM] MISO-ready OK (%lums)\r\n", (unsigned long)(HAL_GetTick() - t0));
   ism_dbg_pins("MISO_WAIT_OK", h);
 #endif
   return ISM_OK;
@@ -174,7 +175,7 @@ static ism_status_t ism_wait_miso_ready(ism_handle_t *h) {
   ism_status_t s = ism_wait_miso_ready_once(h);
 #if ISM_DEBUG_RETRY_MISO_READY
   if (s == ISM_ERR_TIMEOUT) {
-    printf("[ISM] Retrying MISO-ready once...\r\n");
+    LOGF("[ISM] Retrying MISO-ready once...\r\n");
     ism_cs_high(h);
     HAL_Delay(ISM_DEBUG_RETRY_DELAY_MS);
     ism_cs_low(h);
@@ -194,9 +195,8 @@ static ism_status_t ism_spi_trx(ism_handle_t *h, const uint8_t *tx, uint8_t *rx,
     return ISM_ERR_PARAM;
 
 #if ISM_DEBUG
-  printf("[ISM] SPI %s len=%u t=%lu\r\n",
-         (tx && rx) ? "TRX" : (tx ? "TX" : "RX"), (unsigned)len,
-         (unsigned long)HAL_GetTick());
+  LOGF("[ISM] SPI %s len=%u t=%lu\r\n", (tx && rx) ? "TRX" : (tx ? "TX" : "RX"),
+       (unsigned)len, (unsigned long)HAL_GetTick());
   if (tx)
     ism_dump_hex("  TX", tx, len);
 #endif
@@ -222,8 +222,8 @@ static ism_status_t ism_spi_trx(ism_handle_t *h, const uint8_t *tx, uint8_t *rx,
   if (rx)
     ism_dump_hex("  RX", rx, len);
   if (st != HAL_OK) {
-    printf("[ISM] SPI HAL status=%d timeout=%ums\r\n", (int)st,
-           (unsigned)h->spi_timeout_ms);
+    LOGF("[ISM] SPI HAL status=%d timeout=%ums\r\n", (int)st,
+         (unsigned)h->spi_timeout_ms);
     ism_print_spi_error(h->hspi, "ism_spi_trx");
   }
 #endif
@@ -292,8 +292,8 @@ ism_status_t ism_init(ism_handle_t *h) {
   if (h->miso_ready_timeout_ms == 0)
     h->miso_ready_timeout_ms = 30; // slightly safer default
 
-  printf("[ISM] Initialized (SPI timeout: %ums, MISO ready timeout: %ums)\r\n",
-         (unsigned)h->spi_timeout_ms, (unsigned)h->miso_ready_timeout_ms);
+  LOGF("[ISM] Initialized (SPI timeout: %ums, MISO ready timeout: %ums)\r\n",
+       (unsigned)h->spi_timeout_ms, (unsigned)h->miso_ready_timeout_ms);
 
   ism_cs_high(h);
   HAL_Delay(2);
@@ -305,7 +305,7 @@ ism_status_t ism_strobe(ism_handle_t *h, uint8_t cmd, uint8_t *status_out) {
     return ISM_ERR_PARAM;
 
 #if ISM_DEBUG
-  printf("[ISM] STROBE cmd=0x%02X\r\n", cmd);
+  LOGF("[ISM] STROBE cmd=0x%02X\r\n", cmd);
 #endif
 
   uint8_t tx[1] = {cmd};
@@ -313,7 +313,7 @@ ism_status_t ism_strobe(ism_handle_t *h, uint8_t cmd, uint8_t *status_out) {
 
   ism_status_t s = cc1101_xfer(h, tx, rx, 1);
   if (s == ISM_OK) {
-    printf("[ISM] Strobe cmd=0x%02X status=0x%02X\r\n", cmd, rx[0]);
+    LOGF("[ISM] Strobe cmd=0x%02X status=0x%02X\r\n", cmd, rx[0]);
     if (status_out)
       *status_out = rx[0];
   }
@@ -325,22 +325,21 @@ ism_status_t ism_write_reg(ism_handle_t *h, uint8_t addr, uint8_t value) {
     return ISM_ERR_PARAM;
   if (cc1101_is_status_addr(addr)) {
     // CC1101 status regs aren't writable
-    printf("[ISM] WRITE_REG attempted on status addr=0x%02X (ignored)\r\n",
-           addr);
+    LOGF("[ISM] WRITE_REG attempted on status addr=0x%02X (ignored)\r\n", addr);
     return ISM_ERR_PARAM;
   }
 
   uint8_t tx[2] = {cc1101_cmd_write_reg(addr), value};
 
 #if ISM_DEBUG
-  printf("[ISM] WRITE_REG addr=0x%02X value=0x%02X\r\n", addr, value);
+  LOGF("[ISM] WRITE_REG addr=0x%02X value=0x%02X\r\n", addr, value);
 #endif
 
   // capture status byte
   uint8_t rx[2] = {0};
   ism_status_t s = cc1101_xfer(h, tx, rx, 2);
   if (s == ISM_OK) {
-    printf("[ISM] Write reg OK addr=0x%02X status=0x%02X\r\n", addr, rx[0]);
+    LOGF("[ISM] Write reg OK addr=0x%02X status=0x%02X\r\n", addr, rx[0]);
   }
   return s;
 }
@@ -357,15 +356,15 @@ ism_status_t ism_read_reg(ism_handle_t *h, uint8_t addr, uint8_t *value_out) {
   uint8_t rx[2] = {0};
 
 #if ISM_DEBUG
-  printf("[ISM] READ_REG addr=0x%02X hdr=0x%02X\r\n", addr, hdr);
+  LOGF("[ISM] READ_REG addr=0x%02X hdr=0x%02X\r\n", addr, hdr);
 #endif
 
   ism_status_t s = cc1101_xfer(h, tx, rx, 2);
   if (s == ISM_OK) {
     // rx[0] = status byte, rx[1] = register value
     *value_out = rx[1];
-    printf("[ISM] Read reg addr=0x%02X value=0x%02X status=0x%02X\r\n", addr,
-           rx[1], rx[0]);
+    LOGF("[ISM] Read reg addr=0x%02X value=0x%02X status=0x%02X\r\n", addr,
+         rx[1], rx[0]);
   }
   return s;
 }
@@ -379,8 +378,8 @@ ism_status_t ism_write_burst(ism_handle_t *h, uint8_t addr, const uint8_t *data,
   uint8_t header = cc1101_cmd_write_burst(addr);
 
 #if ISM_DEBUG
-  printf("[ISM] WRITE_BURST addr=0x%02X hdr=0x%02X len=%u\r\n", addr, header,
-         (unsigned)len);
+  LOGF("[ISM] WRITE_BURST addr=0x%02X hdr=0x%02X len=%u\r\n", addr, header,
+       (unsigned)len);
   ism_dump_hex("  DATA", data, len);
 #endif
 
@@ -400,7 +399,7 @@ ism_status_t ism_write_burst(ism_handle_t *h, uint8_t addr, const uint8_t *data,
   ism_cs_high(h);
 
   if (s == ISM_OK)
-    printf("[ISM] Write burst OK addr=0x%02X status=0x%02X\r\n", addr, rxh);
+    LOGF("[ISM] Write burst OK addr=0x%02X status=0x%02X\r\n", addr, rxh);
   return s;
 }
 
@@ -413,8 +412,8 @@ ism_status_t ism_read_burst(ism_handle_t *h, uint8_t addr, uint8_t *data,
   uint8_t header = cc1101_cmd_read_burst(addr);
 
 #if ISM_DEBUG
-  printf("[ISM] READ_BURST addr=0x%02X hdr=0x%02X len=%u\r\n", addr, header,
-         (unsigned)len);
+  LOGF("[ISM] READ_BURST addr=0x%02X hdr=0x%02X len=%u\r\n", addr, header,
+       (unsigned)len);
 #endif
 
   ism_cs_low(h);
@@ -432,7 +431,7 @@ ism_status_t ism_read_burst(ism_handle_t *h, uint8_t addr, uint8_t *data,
   ism_cs_high(h);
 
   if (s == ISM_OK) {
-    printf("[ISM] Read burst OK addr=0x%02X status=0x%02X\r\n", addr, rxh);
+    LOGF("[ISM] Read burst OK addr=0x%02X status=0x%02X\r\n", addr, rxh);
 #if ISM_DEBUG
     ism_dump_hex("  DATA", data, len);
 #endif
@@ -445,12 +444,12 @@ ism_status_t ism_apply_config(ism_handle_t *h, const ism_reg_t *regs,
   if (!h || (!regs && count))
     return ISM_ERR_PARAM;
 
-  printf("[ISM] Applying %zu register configs\r\n", count);
+  LOGF("[ISM] Applying %zu register configs\r\n", count);
   for (size_t i = 0; i < count; i++) {
     ism_status_t s = ism_write_reg(h, regs[i].addr, regs[i].value);
     if (s != ISM_OK) {
-      printf("[ISM] Apply config failed at index %u (addr=0x%02X)\r\n",
-             (unsigned)i, regs[i].addr);
+      LOGF("[ISM] Apply config failed at index %u (addr=0x%02X)\r\n",
+           (unsigned)i, regs[i].addr);
       return s;
     }
   }
@@ -466,33 +465,33 @@ ism_status_t ism_reset(ism_handle_t *h) {
   if (!h)
     return ISM_ERR_PARAM;
 
-  printf("[ISM] Resetting (CC1101 sequence)...\r\n");
+  LOGF("[ISM] Resetting (CC1101 sequence)...\r\n");
 
   ism_cs_high(h);
   HAL_Delay(2);
 
-  printf("[ISM] Phase 1: sync\r\n");
+  LOGF("[ISM] Phase 1: sync\r\n");
   // Phase 1: sync
   ism_cs_low(h);
   ism_status_t s = ism_wait_miso_ready(h);
   ism_cs_high(h);
   if (s != ISM_OK) {
-    printf("[ISM] Reset sync failed (no CHIP_RDYn)\r\n");
+    LOGF("[ISM] Reset sync failed (no CHIP_RDYn)\r\n");
     return s;
   }
   HAL_Delay(2);
 
-  printf("[ISM] Phase 2: strobe SRES\r\n");
+  LOGF("[ISM] Phase 2: strobe SRES\r\n");
   // Phase 2: strobe SRES
   uint8_t st = 0;
   s = ism_strobe(h, ISM_CMD_SRES, &st);
   if (s != ISM_OK) {
-    printf("[ISM] Reset failed\r\n");
+    LOGF("[ISM] Reset failed\r\n");
     return s;
   }
 
   HAL_Delay(2);
-  printf("[ISM] Reset OK status=0x%02X\r\n", st);
+  LOGF("[ISM] Reset OK status=0x%02X\r\n", st);
   return ISM_OK;
 }
 
@@ -512,8 +511,8 @@ ism_status_t ism_read_part_version(ism_handle_t *h, uint8_t *partnum,
       return s;
   }
 
-  printf("[ISM] Part: 0x%02X Version: 0x%02X\r\n", partnum ? *partnum : 0,
-         version ? *version : 0);
+  LOGF("[ISM] Part: 0x%02X Version: 0x%02X\r\n", partnum ? *partnum : 0,
+       version ? *version : 0);
   return ISM_OK;
 }
 
@@ -531,15 +530,15 @@ static ism_status_t ism_read_status(ism_handle_t *h, uint8_t status_addr,
   uint8_t rx[2] = {0};
 
 #if ISM_DEBUG
-  printf("[ISM] READ_STATUS addr=0x%02X hdr=0x%02X\r\n", status_addr, hdr);
+  LOGF("[ISM] READ_STATUS addr=0x%02X hdr=0x%02X\r\n", status_addr, hdr);
 #endif
 
   ism_status_t s = cc1101_xfer(h, tx, rx, 2);
   if (s == ISM_OK) {
     *value_out = rx[1];
 #if ISM_DEBUG
-    printf("[ISM] STATUS[0x%02X]=0x%02X statusbyte=0x%02X\r\n", status_addr,
-           rx[1], rx[0]);
+    LOGF("[ISM] STATUS[0x%02X]=0x%02X statusbyte=0x%02X\r\n", status_addr,
+         rx[1], rx[0]);
 #endif
   }
   return s;
@@ -550,11 +549,11 @@ ism_status_t ism_send_packet(ism_handle_t *h, const uint8_t *payload,
   if (!h || (!payload && len))
     return ISM_ERR_PARAM;
   if (len > 61) {
-    printf("[ISM] Payload too large: %d\r\n", len);
+    LOGF("[ISM] Payload too large: %d\r\n", len);
     return ISM_ERR_PARAM;
   }
 
-  printf("[ISM] Sending packet len=%d wait_done=%d\r\n", len, wait_done);
+  LOGF("[ISM] Sending packet len=%d wait_done=%d\r\n", len, wait_done);
 #if ISM_DEBUG
   ism_dump_hex("  PAYLOAD", payload, len);
 #endif
@@ -586,7 +585,7 @@ ism_status_t ism_send_packet(ism_handle_t *h, const uint8_t *payload,
     return s;
 
   if (!wait_done) {
-    printf("[ISM] Packet queued (not waiting)\r\n");
+    LOGF("[ISM] Packet queued (not waiting)\r\n");
     return ISM_OK;
   }
 
@@ -600,7 +599,7 @@ ism_status_t ism_send_packet(ism_handle_t *h, const uint8_t *payload,
 
     // Bit7 indicates underflow/overflow
     if (txbytes & 0x80) {
-      printf("[ISM] TX under/overflow flagged (TXBYTES=0x%02X)\r\n", txbytes);
+      LOGF("[ISM] TX under/overflow flagged (TXBYTES=0x%02X)\r\n", txbytes);
       (void)ism_strobe(h, ISM_CMD_SFTX, &st);
       return ISM_ERR_HAL;
     }
@@ -609,13 +608,13 @@ ism_status_t ism_send_packet(ism_handle_t *h, const uint8_t *payload,
       break;
 
     if ((HAL_GetTick() - t0) > 500) {
-      printf("[ISM] TX timeout (TXBYTES=0x%02X)\r\n", txbytes);
+      LOGF("[ISM] TX timeout (TXBYTES=0x%02X)\r\n", txbytes);
       return ISM_ERR_TIMEOUT;
     }
     HAL_Delay(2);
   }
 
-  printf("[ISM] Packet sent successfully\r\n");
+  LOGF("[ISM] Packet sent successfully\r\n");
   (void)ism_strobe(h, ISM_CMD_SIDLE, &st);
   return ISM_OK;
 }

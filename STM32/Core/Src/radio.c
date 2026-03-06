@@ -3,23 +3,25 @@
 #include "error_codes.h"
 #include "ism.h"
 #include "ism_config_433.h"
+#include "log.h"
 #include "main.h"
-#include "stm32g4xx_hal.h"
+
 #include <stdint.h>
 #include <stdio.h>
+#include <stm32g4xx_hal.h>
 #include <string.h>
 #include <sys/_intsup.h>
 
 int8_t init_RX(void) {
-  printf("Initializing radio in RX mode...\r\n");
+  LOGF("Initializing radio in RX mode...\r\n");
   uint8_t status = 0;
 
   // Write configuration for RX
   for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
     if (status != 0x0F) {
-      printf("Error writing RX config at index %d, status: 0x%02X\r\n", i,
-             status);
+      LOGF("Error writing RX config at index %d, status: 0x%02X\r\n", i,
+           status);
       return STATUS_CODE_RADIO_INIT_FAIL;
     }
   }
@@ -41,11 +43,11 @@ int8_t init_RX(void) {
     if (start_time == 0) {
       start_time = HAL_GetTick();
     } else if (HAL_GetTick() - start_time > 1000) { // 1 second timeout
-      printf("Timeout waiting for RX state, status: 0x%02X\r\n", status);
+      LOGF("Timeout waiting for RX state, status: 0x%02X\r\n", status);
       return STATUS_CODE_RADIO_MODE_ERROR;
     }
   }
-  printf("RX mode initialized.\r\n");
+  LOGF("RX mode initialized.\r\n");
   return 0;
 }
 
@@ -56,8 +58,8 @@ int8_t init_TX(void) {
   for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
     if (status != 0x0F) {
-      printf("Error writing TX config at index %d, status: 0x%02X\r\n", i,
-             status);
+      LOGF("Error writing TX config at index %d, status: 0x%02X\r\n", i,
+           status);
       return STATUS_CODE_RADIO_INIT_FAIL;
     }
   }
@@ -70,18 +72,18 @@ int8_t init_TX(void) {
 int8_t init_radio(bool RX) {
   const uint32_t delays_ms[] = {5, 20, 50};
 
-  printf("Initializing radio...\r\n");
+  LOGF("Initializing radio...\r\n");
 
   uint8_t status = 0;
   uint8_t part = 0, ver = 0;
 
   for (int attempt = 0; attempt < 3; attempt++) {
-    printf("Radio init attempt %d...\r\n", attempt + 1);
+    LOGF("Radio init attempt %d...\r\n", attempt + 1);
 
     // Power-up reset sequence (per TI recommendation) with retries
     HAL_Delay(delays_ms[attempt]);
     if (!CC1101_PowerUpReset()) {
-      printf("CC1101 power-up reset failed on attempt %d\r\n", attempt + 1);
+      LOGF("CC1101 power-up reset failed on attempt %d\r\n", attempt + 1);
       continue; // retry
       // return STATUS_CODE_RADIO_INIT_FAIL;
     }
@@ -90,9 +92,9 @@ int8_t init_radio(bool RX) {
     CC1101_ReadReg(0xF1, &part, &status);
     CC1101_ReadReg(0x00, &ver, &status);
 
-    printf("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
+    LOGF("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
     if (part != 0x14 || ver != 0x29) {
-      printf("Unexpected CC1101 part/version, check wiring and power.\r\n");
+      LOGF("Unexpected CC1101 part/version, check wiring and power.\r\n");
       // return STATUS_CODE_RADIO_VERSION_ERROR;
       continue; // retry
     }
@@ -119,12 +121,12 @@ void transmit_bytes(void) {
   const uint8_t *payload = (const uint8_t *)payload_str;
   uint8_t payload_len = (uint8_t)strlen(payload_str); // 11
 
-  printf("Transmitting payload: %s\r\n", payload_str);
-  printf("Payload in hex: ");
+  LOGF("Transmitting payload: %s\r\n", payload_str);
+  LOGF("Payload in hex: ");
   for (size_t i = 0; i < payload_len; i++) {
-    printf("%02X ", payload[i]);
+    LOGF("%02X ", payload[i]);
   }
-  printf("\r\n");
+  LOGF("\r\n");
   uint8_t pkt[2 + payload_len]; // length byte + payload
   pkt[0] = payload_len + 1;     // length
   pkt[1] = 0xEB;
@@ -136,7 +138,7 @@ void transmit_bytes(void) {
   // Burst write into TX FIFO
   CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
   if (status != 0) {
-    printf("Error writing to TX FIFO, status: 0x%02X\r\n", status);
+    LOGF("Error writing to TX FIFO, status: 0x%02X\r\n", status);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
     return;
   }
@@ -156,7 +158,7 @@ void transmit_bytes(void) {
 }
 
 void start_TX(void) {
-  printf("Starting TX...\r\n");
+  LOGF("Starting TX...\r\n");
   // Transmit bytes for 2 minutes
   while (1) {
 
@@ -176,7 +178,7 @@ void start_TX(void) {
 
     break; // for quick test
   }
-  printf("TX started.\r\n");
+  LOGF("TX started.\r\n");
 }
 
 int read_RX(uint8_t *out, size_t out_max_len) {
@@ -209,11 +211,11 @@ int read_RX(uint8_t *out, size_t out_max_len) {
   CC1101_ReadBurstReg(0xFF, out, n, &status); // RX FIFO burst read
 
   // Print received bytes in hex
-  // printf("Received %d bytes: ", n);
+  // LOGF("Received %d bytes: ", n);
   // for (size_t i = 0; i < n; i++) {
-  //   printf("%02X ", out[i]);
+  //   LOGF("%02X ", out[i]);
   // }
-  // printf("\r\n");
+  // LOGF("\r\n");
 
   // Re-enter RX (and flush to be safe)
   CC1101_Strobe(0x36, &status); // SIDLE
