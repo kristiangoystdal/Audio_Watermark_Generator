@@ -1,5 +1,6 @@
 #include "ism.h"
 #include "ism_config_433.h"
+#include "log.h"
 #include "main.h"
 #include "spi.h"
 #include <stdio.h>
@@ -104,7 +105,7 @@ bool CC1101_PowerUpReset(void) {
 
   // Wait for SO/MISO to go low (chip ready)
   if (!CC1101_WaitReadyMs(50)) {
-    printf("CC1101 not ready (MISO stuck high) after CS toggle\r\n");
+    LOGF("CC1101 not ready (MISO stuck high) after CS toggle\r\n");
     return false;
   }
 
@@ -113,20 +114,20 @@ bool CC1101_PowerUpReset(void) {
 
   SPI1_CS_Low();
   if (!CC1101_WaitReadyMs(50)) {
-    printf("CC1101 not ready before SRES\r\n");
+    LOGF("CC1101 not ready before SRES\r\n");
     SPI1_CS_High();
     return false;
   }
 
   if (HAL_SPI_Transmit(&hspi1, &sres, 1, SPI1_TIMEOUT_MS) != HAL_OK) {
-    printf("SPI transmit SRES failed\r\n");
+    LOGF("SPI transmit SRES failed\r\n");
     SPI1_CS_High();
     return false;
   }
 
   // Wait again for reset completion
   if (!CC1101_WaitReadyMs(50)) {
-    printf("CC1101 not ready after SRES\r\n");
+    LOGF("CC1101 not ready after SRES\r\n");
     SPI1_CS_High();
     return false;
   }

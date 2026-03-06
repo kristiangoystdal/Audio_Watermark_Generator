@@ -1,5 +1,6 @@
 #include "spi.h"
 #include "cc1101.h"
+#include "log.h"
 
 // If you have Error_Handler in main.c / main.h, include main.h.
 // If not, remove it and handle errors your own way.
@@ -14,47 +15,47 @@
 
 HAL_StatusTypeDef SPI1_Write(const uint8_t *tx, uint16_t len) {
   if (!tx || len == 0) {
-    printf("SPI1_Write called with NULL tx or zero length\r\n");
+    LOGF("SPI1_Write called with NULL tx or zero length\r\n");
     return HAL_OK;
   }
 
-  printf("SPI1_Write: Writing %u bytes\r\n", len);
-  printf("Data: ");
+  LOGF("SPI1_Write: Writing %u bytes\r\n", len);
+  LOGF("Data: ");
   for (uint16_t i = 0; i < len; i++) {
-    printf("%02X ", tx[i]);
+    LOGF("%02X ", tx[i]);
   }
-  printf("\r\n");
+  LOGF("\r\n");
 
   SPI1_CS_Low();
   if (!CC1101_WaitReadyMs(5)) {
-    printf("SPI1_Write: CC1101 not ready\r\n");
+    LOGF("SPI1_Write: CC1101 not ready\r\n");
     SPI1_CS_High();
     return HAL_ERROR;
   }
   HAL_StatusTypeDef st =
       HAL_SPI_Transmit(&hspi1, (uint8_t *)tx, len, SPI1_TIMEOUT_MS);
   if (st != HAL_OK)
-    printf("SPI1_Write error: %d\r\n", st);
+    LOGF("SPI1_Write error: %d\r\n", st);
 
   SPI1_CS_High();
 
-  printf("SPI1_Write success: %d\r\n", st);
+  LOGF("SPI1_Write success: %d\r\n", st);
 
   return st;
 }
 
 HAL_StatusTypeDef SPI1_Read(uint8_t *rx, uint16_t len) {
   if (!rx || len == 0) {
-    printf("SPI1_Read called with NULL rx or zero length\r\n");
+    LOGF("SPI1_Read called with NULL rx or zero length\r\n");
     return HAL_OK;
   }
 
-  printf("SPI1_Read: Reading %u bytes\r\n", len);
+  LOGF("SPI1_Read: Reading %u bytes\r\n", len);
 
   SPI1_CS_Low();
 
   if (!CC1101_WaitReadyMs(5)) {
-    printf("SPI1_Read: CC1101 not ready\r\n");
+    LOGF("SPI1_Read: CC1101 not ready\r\n");
     SPI1_CS_High();
     return HAL_ERROR;
   }
@@ -62,18 +63,18 @@ HAL_StatusTypeDef SPI1_Read(uint8_t *rx, uint16_t len) {
   HAL_StatusTypeDef st = HAL_SPI_Receive(&hspi1, rx, len, SPI1_TIMEOUT_MS);
 
   if (st != HAL_OK)
-    printf("SPI1_Read error: %d\r\n", st);
+    LOGF("SPI1_Read error: %d\r\n", st);
   else {
-    printf("Data: ");
+    LOGF("Data: ");
     for (uint16_t i = 0; i < len; i++) {
-      printf("%02X ", rx[i]);
+      LOGF("%02X ", rx[i]);
     }
-    printf("\r\n");
+    LOGF("\r\n");
   }
 
   SPI1_CS_High();
 
-  printf("SPI1_Read success: %d\r\n", st);
+  LOGF("SPI1_Read success: %d\r\n", st);
   return st;
 }
 
@@ -87,7 +88,7 @@ HAL_StatusTypeDef SPI1_WriteRead(const uint8_t *tx, uint8_t *rx, uint16_t len) {
   SPI1_CS_Low();
 
   if (!CC1101_WaitReadyMs(5)) {
-    printf("SPI1_WriteRead: CC1101 not ready\r\n");
+    LOGF("SPI1_WriteRead: CC1101 not ready\r\n");
     SPI1_CS_High();
     return HAL_ERROR;
   }

@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 
 // Include headers for custom modules
+#include "battery.h"
 #include "cc1101.h"
 #include "ds3231.h"
 #include "error_codes.h"
@@ -207,8 +208,6 @@ static int init_luts_from_freqpair(void);
 
 void Error_Handler_Code(status_code_t code);
 
-uint16_t Read_Battery_Voltage_mV(void);
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -264,8 +263,7 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
 
   // Read battery voltage
-  uint16_t battery_mv = Read_Battery_Voltage_mV();
-  LOGF("Battery voltage: %u mV\r\n", battery_mv);
+  is_battery_low(&hadc1);
 
   uint32_t dac_sample_rate = get_dac_sample_rate_hz();
   LOGF("DAC sample rate: %lu Hz\r\n", (unsigned long)dac_sample_rate);
@@ -417,6 +415,9 @@ int main(void) {
       LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       start_TX();
     }
+
+    // 4) Check battery voltage and go back to sleep if low
+    is_battery_low(&hadc1);
 
     LOGF("Going back to sleep...\r\n");
 
@@ -1505,26 +1506,6 @@ int _write(int file, char *ptr, int len) {
   (void)file;
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
   return len;
-}
-
-uint16_t Read_Battery_Voltage_mV(void) {
-  uint32_t adc_value = 0;
-  uint16_t voltage_mV = 0;
-
-  // Read ADC value
-  HAL_ADC_Start(&hadc1);
-  if (HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY) == HAL_OK) {
-    adc_value = HAL_ADC_GetValue(&hadc1);
-  }
-  HAL_ADC_Stop(&hadc1);
-
-  // Convert ADC value to millivolts (assuming 12-bit ADC and 3.3V reference)
-  // Input voltage is divided by 2 due to external voltage divider (1M and 1M),
-  // so we multiply by 2 to compensate
-  printf("Raw ADC value: %lu\r\n", adc_value);
-  voltage_mV = (uint16_t)((adc_value * 3300 * 2) / 4095);
-
-  return voltage_mV;
 }
 
 /* USER CODE END 4 */

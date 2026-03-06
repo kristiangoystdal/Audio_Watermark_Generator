@@ -1,4 +1,5 @@
 #include "frequency_config.h"
+#include "log.h"
 
 #include <math.h>
 #include <stdbool.h>
@@ -30,8 +31,8 @@ freq_pair_t find_frequency_pair(uint32_t fs) {
   uint16_t lower_freq_total_samples = 0;
   uint16_t higher_freq_total_samples = 0;
 
-  printf("Finding frequency pair for lower=%u Hz, higher=%u Hz\r\n",
-         (unsigned int)lower_freq, (unsigned int)higher_freq);
+  LOGF("Finding frequency pair for lower=%u Hz, higher=%u Hz\r\n",
+       (unsigned int)lower_freq, (unsigned int)higher_freq);
 
   // Loop until we find a valid pair of frequencies that meet the sample count
   // requirements
@@ -65,8 +66,8 @@ freq_pair_t find_frequency_pair(uint32_t fs) {
 
     // If both frequencies are in range, we found our pair
     if (lower_in_range && higher_in_range) {
-      printf("Found frequency pair: lower=%u Hz, higher=%u Hz\r\n",
-             (unsigned int)lower_freq, (unsigned int)higher_freq);
+      LOGF("Found frequency pair: lower=%u Hz, higher=%u Hz\r\n",
+           (unsigned int)lower_freq, (unsigned int)higher_freq);
       break;
     }
   }
