@@ -9,6 +9,8 @@ file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/radio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/frequency_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/led_feedback.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/relay.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/battery.c
 )
 
 # Collect all user include directories
