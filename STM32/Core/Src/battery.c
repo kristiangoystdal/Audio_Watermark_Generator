@@ -21,7 +21,7 @@ uint16_t Read_Battery_Voltage_mV(ADC_HandleTypeDef *hadc1) {
   // Convert ADC value to millivolts (assuming 12-bit ADC and 3.3V reference)
   // Input voltage is divided by 2 due to external voltage divider (1M and 1M),
   // so we multiply by 2 to compensate
-  printf("Raw ADC value: %lu\r\n", adc_value);
+  printf("Raw ADC value: %lu\r\n", (unsigned long)adc_value);
   voltage_mV = (uint16_t)((adc_value * 3300 * 2) / 4095);
 
   return voltage_mV;
