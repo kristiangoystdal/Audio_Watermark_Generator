@@ -198,7 +198,7 @@ void app_radio_test(void);
 
 void read_buffer(void);
 
-void process_transmission(const uint8_t *transmission, int *dBm_value);
+void process_transmission(uint8_t *transmission, int *dBm_value);
 
 void create_string_from_received_data(const uint8_t *transmission,
                                       int dBm_value, char *output_str,
@@ -443,11 +443,10 @@ void SystemClock_Config(void) {
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
    */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
   RCC_OscInitStruct.PLL.PLLN = 12;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
@@ -714,7 +713,7 @@ static void MX_TIM6_Init(void) {
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 63999;
+  htim6.Init.Prescaler = 47999;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -886,6 +885,10 @@ void EnterStopMode(void) {
 void StartActiveWindowMs(uint32_t ms) {
   active_done = 0;
 
+  if (ms == 0) {
+    ms = 1;
+  }
+
   HAL_TIM_Base_Stop_IT(&htim6); // <- important, resets state
   __HAL_TIM_SET_COUNTER(&htim6, 0);
   __HAL_TIM_SET_AUTORELOAD(&htim6, ms - 1);
@@ -905,7 +908,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 int make_preamble(int start_idx) {
   int k = start_idx;
-  uint16_t id = 0; // 0x2DD4
+  uint16_t id = 0x2DD4;
   for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
   }
@@ -1008,11 +1011,15 @@ void get_sineval_low(void) {
     return; // eller Error_Handler()
   }
 
+  const float dac_max = 4095.0f;
+  const float dac_mid = dac_max / 2.0f;
+  const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
+
   for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
     sine_val_low[i] =
-        (uint32_t)((4095.0 / 2.0) *
+        (uint32_t)(dac_mid *
                    (1.0 + sinf(2.0 * pi * i / freq_pair.lower_freq_samples) *
-                              (1.5 / 1.65)));
+                              amplitude));
   }
 }
 
@@ -1022,11 +1029,15 @@ void get_sineval_high(void) {
     return; // eller Error_Handler()
   }
 
+  const float dac_max = 4095.0f;
+  const float dac_mid = dac_max / 2.0f;
+  const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
+
   for (uint16_t i = 0; i < freq_pair.higher_freq_samples; i++) {
     sine_val_high[i] =
-        (uint32_t)((4095.0 / 2.0) *
+        (uint32_t)(dac_mid *
                    (1.0 + sinf(2.0 * pi * i / freq_pair.higher_freq_samples) *
-                              (1.5 / 1.65)));
+                              amplitude));
   }
 }
 
@@ -1292,7 +1303,7 @@ void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
   }
 }
 
-void process_transmission(const uint8_t *transmission, int *dBm_value) {
+void process_transmission(uint8_t *transmission, int *dBm_value) {
   size_t len = strlen((const char *)transmission);
   if (len <= 4) {
     LOGF("Transmission too short to process.\r\n");
