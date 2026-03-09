@@ -48,4 +48,8 @@
 #define FSK_LOWER_FREQUENCY 1500
 #define FSK_HIGHER_FREQUENCY 16000
 
+// Configuration for attenuation of the signal in percent (0-100), where 100 is
+// no attenuation and 0 is maximum attenuation (silence)
+#define SIGNAL_ATTENUATION 100
+
 #endif // USER_CONFIG_H

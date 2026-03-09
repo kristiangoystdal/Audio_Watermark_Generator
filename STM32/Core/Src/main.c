@@ -102,6 +102,7 @@
 ADC_HandleTypeDef hadc1;
 
 DAC_HandleTypeDef hdac1;
+DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c2;
 
@@ -111,8 +112,6 @@ TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart2;
-
-PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
 
@@ -169,13 +168,13 @@ volatile status_code_t g_error_code = STATUS_CODE_OK;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(void);
-static void MX_USB_PCD_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
@@ -198,7 +197,7 @@ void app_radio_test(void);
 
 void read_buffer(void);
 
-void process_transmission(const uint8_t *transmission, int *dBm_value);
+void process_transmission(uint8_t *transmission, int *dBm_value);
 
 void create_string_from_received_data(const uint8_t *transmission,
                                       int dBm_value, char *output_str,
@@ -244,16 +243,17 @@ int main(void) {
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_ADC1_Init();
   MX_DAC1_Init();
   MX_I2C2_Init();
   MX_SPI1_Init();
   MX_TIM2_Init();
   MX_TIM6_Init();
-  MX_USB_PCD_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  LOGF("\r\n");
   LOGF("UART boot OK\r\n");
   HAL_Delay(200);
 
@@ -714,7 +714,7 @@ static void MX_TIM6_Init(void) {
 
   /* USER CODE END TIM6_Init 1 */
   htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 63999;
+  htim6.Init.Prescaler = 47999;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -776,33 +776,21 @@ static void MX_USART2_UART_Init(void) {
 }
 
 /**
- * @brief USB Initialization Function
- * @param None
- * @retval None
+ * Enable DMA controller clock
  */
-static void MX_USB_PCD_Init(void) {
+static void MX_DMA_Init(void) {
 
-  /* USER CODE BEGIN USB_Init 0 */
+  /* DMA controller clock enable */
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
 
-  /* USER CODE END USB_Init 0 */
-
-  /* USER CODE BEGIN USB_Init 1 */
-
-  /* USER CODE END USB_Init 1 */
-  hpcd_USB_FS.Instance = USB;
-  hpcd_USB_FS.Init.dev_endpoints = 8;
-  hpcd_USB_FS.Init.speed = PCD_SPEED_FULL;
-  hpcd_USB_FS.Init.phy_itface = PCD_PHY_EMBEDDED;
-  hpcd_USB_FS.Init.Sof_enable = DISABLE;
-  hpcd_USB_FS.Init.low_power_enable = DISABLE;
-  hpcd_USB_FS.Init.lpm_enable = DISABLE;
-  hpcd_USB_FS.Init.battery_charging_enable = DISABLE;
-  if (HAL_PCD_Init(&hpcd_USB_FS) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USB_Init 2 */
-
-  /* USER CODE END USB_Init 2 */
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMAMUX_OVR_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMAMUX_OVR_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMAMUX_OVR_IRQn);
 }
 
 /**
@@ -886,6 +874,10 @@ void EnterStopMode(void) {
 void StartActiveWindowMs(uint32_t ms) {
   active_done = 0;
 
+  if (ms == 0) {
+    ms = 1;
+  }
+
   HAL_TIM_Base_Stop_IT(&htim6); // <- important, resets state
   __HAL_TIM_SET_COUNTER(&htim6, 0);
   __HAL_TIM_SET_AUTORELOAD(&htim6, ms - 1);
@@ -905,7 +897,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 int make_preamble(int start_idx) {
   int k = start_idx;
-  uint16_t id = 0; // 0x2DD4
+  uint16_t id = 0x2DD4;
   for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
   }
@@ -1008,11 +1000,15 @@ void get_sineval_low(void) {
     return; // eller Error_Handler()
   }
 
+  const float dac_max = 4095.0f;
+  const float dac_mid = dac_max / 2.0f;
+  const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
+
   for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
     sine_val_low[i] =
-        (uint32_t)((4095.0 / 2.0) *
+        (uint32_t)(dac_mid *
                    (1.0 + sinf(2.0 * pi * i / freq_pair.lower_freq_samples) *
-                              (1.5 / 1.65)));
+                              amplitude));
   }
 }
 
@@ -1022,11 +1018,15 @@ void get_sineval_high(void) {
     return; // eller Error_Handler()
   }
 
+  const float dac_max = 4095.0f;
+  const float dac_mid = dac_max / 2.0f;
+  const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
+
   for (uint16_t i = 0; i < freq_pair.higher_freq_samples; i++) {
     sine_val_high[i] =
-        (uint32_t)((4095.0 / 2.0) *
+        (uint32_t)(dac_mid *
                    (1.0 + sinf(2.0 * pi * i / freq_pair.higher_freq_samples) *
-                              (1.5 / 1.65)));
+                              amplitude));
   }
 }
 
@@ -1216,13 +1216,6 @@ static void TX_Start(void) {
 
   // Start DAC
   HAL_StatusTypeDef st;
-  st = HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-  if (st != HAL_OK) {
-    LOGF("  HAL_DAC_Start error: %d\r\n", st);
-    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
-  } else {
-    LOGF("  HAL_DAC_Start OK\r\n");
-  }
 
   // Start DMA
   st = HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
@@ -1292,7 +1285,7 @@ void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
   }
 }
 
-void process_transmission(const uint8_t *transmission, int *dBm_value) {
+void process_transmission(uint8_t *transmission, int *dBm_value) {
   size_t len = strlen((const char *)transmission);
   if (len <= 4) {
     LOGF("Transmission too short to process.\r\n");

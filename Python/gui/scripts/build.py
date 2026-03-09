@@ -14,6 +14,7 @@ from scripts.paths import *
 from scripts.user_config import *
 
 active_src = PROJECT_SRC  # default path
+active_build_dir = BUILD_DIR
 
 os.environ["PATH"] = (
     f"{os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'tools', 'ninja'))}:"
@@ -27,7 +28,7 @@ def prepare_build(log_text, safe_log):
     safe_log("[DEBUG] Ensuring writable copy of source...")
     ensure_writable_copy(safe_log)
 
-    os.makedirs(BUILD_DIR, exist_ok=True)
+    os.makedirs(active_build_dir, exist_ok=True)
 
     safe_log("[STEP] Running CMake configure (only if needed)...")
 
@@ -40,7 +41,7 @@ def prepare_build(log_text, safe_log):
                 "-S",
                 active_src,
                 "-B",
-                BUILD_DIR,
+                active_build_dir,
                 "-G",
                 "Ninja",
                 f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
@@ -59,7 +60,7 @@ def build_only(log_text, safe_log):
 
     if (
         run_with_log(
-            [CMAKE, "--build", BUILD_DIR, "--parallel"],
+            [CMAKE, "--build", active_build_dir, "--parallel"],
             log_text,
         )
         != 0
@@ -146,10 +147,10 @@ def find_elf():
     global active_src
 
     search_paths = [
-        BUILD_DIR,
-        os.path.join(BUILD_DIR, "build"),
-        os.path.join(BUILD_DIR, "build", "Debug"),
-        os.path.join(BUILD_DIR, "build", "Release"),
+        active_build_dir,
+        os.path.join(active_build_dir, "build"),
+        os.path.join(active_build_dir, "build", "Debug"),
+        os.path.join(active_build_dir, "build", "Release"),
         active_src,
         os.path.join(active_src, "build"),
         os.path.join(active_src, "build", "Debug"),
@@ -166,10 +167,12 @@ def find_elf():
 
 
 def ensure_writable_copy(safe_log):
-    global active_src
+    global active_src, active_build_dir
 
     if getattr(sys, "frozen", False) and sys.platform == "darwin":
-        temp_copy_dir = os.path.join(tempfile.gettempdir(), "stm32_src")
+        temp_root = tempfile.gettempdir()
+        temp_copy_dir = os.path.join(temp_root, "stm32_src")
+        temp_build_dir = os.path.join(temp_root, "stm32_build")
 
         app_resources = os.path.abspath(
             os.path.join(os.path.dirname(sys.executable), "..", "Resources", "STM32")
@@ -177,9 +180,12 @@ def ensure_writable_copy(safe_log):
 
         safe_log(f"[DEBUG] Copying from bundle resources: {app_resources}")
         safe_log(f"[DEBUG] Copy destination: {temp_copy_dir}")
+        safe_log(f"[DEBUG] Build directory: {temp_build_dir}")
 
         if os.path.exists(temp_copy_dir):
             shutil.rmtree(temp_copy_dir, ignore_errors=True)
+        if os.path.exists(temp_build_dir):
+            shutil.rmtree(temp_build_dir, ignore_errors=True)
 
         shutil.copytree(app_resources, temp_copy_dir, dirs_exist_ok=True)
 
@@ -187,8 +193,10 @@ def ensure_writable_copy(safe_log):
             safe_log("[ERROR] Temp STM32 copy appears empty — copy failed!")
 
         active_src = temp_copy_dir
+        active_build_dir = temp_build_dir
     else:
         active_src = PROJECT_SRC
+        active_build_dir = BUILD_DIR
 
 
 def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET):
