@@ -171,10 +171,12 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
         lo = max(0.0, f_center - search_width_percent / 100.0 * f_center)
         hi = min(nyq, f_center + search_width_percent / 100.0 * f_center)
 
+        print(f"Searching for peak in band [{lo:.2f}, {hi:.2f}] Hz around {f_center:.2f} Hz")
+
         band = (freqs >= lo) & (freqs <= hi)
         if not np.any(band):
             raise ValueError(f"No FFT bins in band [{lo}, {hi}] Hz")
-
+        print(f"FFT bins in band: {np.sum(band)}, frequency resolution: {freqs[1] - freqs[0]:.2f} Hz")
         idx_band = np.where(band)[0]
         k = idx_band[np.argmax(mag[idx_band])]
 
@@ -191,7 +193,6 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
                 f_est = freqs[k] + delta * df
                 # Clamp back into the band, just in case
                 return float(min(max(f_est, lo), hi))
-
         return float(freqs[k])
 
     f0_new = peak_in_band(f0)
@@ -261,6 +262,11 @@ def decode_fsk(input_filename: str,
             print("Finding the best offset for segment...")
             best_offset, _ = find_best_offset(audio, fs, f0, f1, N, N_err)
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
+
+            import matplotlib.pyplot as plt
+            plt.stem(scores)
+            plt.show()
+
             if len(bits) == 0:
                 print("No bits found in this segment")
                 segmentindex += 1
