@@ -145,7 +145,14 @@ def split_messages_by_gap(bits, times, symbol_time):
 
 import numpy as np
 
-def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percent: int = 2,):
+def refine_fsk_tones_fft(
+    x,
+    fs: float,
+    f0: float,
+    f1: float,
+    search_width_percent: int = 2,
+    avg_bin_width: int = 500,
+):
     """
     FFT the full signal and find the most prominent peak within:
       [f0 - search_width_hz, f0 + search_width_hz]
@@ -167,6 +174,17 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
     mag = np.abs(X)
     freqs = np.fft.rfftfreq(len(xw), d=1.0 / fs)
 
+    # Smooth magnitudes by averaging neighboring bins (same number of bins).
+    if avg_bin_width < 1:
+        raise ValueError("avg_bin_width must be >= 1")
+    if avg_bin_width % 2 == 0:
+        avg_bin_width += 1
+    if avg_bin_width > 1:
+        kernel = np.ones(avg_bin_width, dtype=float) / avg_bin_width
+        mag_smooth = np.convolve(mag, kernel, mode="same")
+    else:
+        mag_smooth = mag
+
     def peak_in_band(f_center: float) -> float:
         lo = max(0.0, f_center - search_width_percent / 100.0 * f_center)
         hi = min(nyq, f_center + search_width_percent / 100.0 * f_center)
@@ -177,8 +195,9 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
         if not np.any(band):
             raise ValueError(f"No FFT bins in band [{lo}, {hi}] Hz")
         print(f"FFT bins in band: {np.sum(band)}, frequency resolution: {freqs[1] - freqs[0]:.2f} Hz")
+        print(f"Using moving-average smoothing over {avg_bin_width} bins")
         idx_band = np.where(band)[0]
-        k = idx_band[np.argmax(mag[idx_band])]
+        k = idx_band[np.argmax(mag_smooth[idx_band])]
 
         # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
         # Use log-magnitude to behave better for sharp peaks.
@@ -202,7 +221,7 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
 
 import numpy as np
 
-def compute_p0(f0, fs=95950):
+def compute_p0(f0, fs=960000):
     m = fs * (3000 / 1_000_000)
     n0 = np.floor(fs / f0)
     return int(np.round(m / n0))
