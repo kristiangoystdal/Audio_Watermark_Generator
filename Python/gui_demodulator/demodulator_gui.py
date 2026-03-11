@@ -6,10 +6,8 @@ from tkinter import filedialog, messagebox
 from tkinter import ttk
 from pathlib import Path
 
-# Import your decoder with the NEW signature:
-# def decode_fsk(input_filename: str, f0: float, f1: float, p0: int,
-#                generate_debug: bool = False, minutes_per_segment: int = 1)
 from demodulator import decode_fsk
+from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 
 
 def derive_txt_path(wav_path: str) -> str:
@@ -21,7 +19,7 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("FSK Audio Demodulator")
-        self.geometry("520x500")
+        self.geometry("520x560")
         self.resizable(False, False)
 
         self.frame = tk.Frame(self, padx=20, pady=20)
@@ -54,6 +52,8 @@ class App(tk.Tk):
         self.generate_debug = tk.BooleanVar(value=False)
         self.use_segmentation = tk.BooleanVar(value=True)
         self.minutes_per_segment = tk.IntVar(value=1)
+        self.use_ecc = tk.BooleanVar(value=True)
+        self.ecc_parity_bytes = tk.IntVar(value=DEFAULT_ECC_NSYM)
 
         pad = {"padx": 12, "pady": 4}
 
@@ -113,6 +113,28 @@ class App(tk.Tk):
             opt, text="Generate debug output", variable=self.generate_debug
         ).pack(side="left")
 
+        # ECC options
+        tk.Label(
+            self.frame, text="Error Correction", font=("Arial", 15, "bold")
+        ).pack(anchor="w", padx=12, pady=(8, 2))
+        ecc = tk.Frame(self.frame)
+        ecc.pack(fill="x", **pad)
+        tk.Checkbutton(
+            ecc,
+            text="Enable ECC",
+            variable=self.use_ecc,
+            command=self._toggle_ecc_controls,
+        ).pack(side="left")
+        tk.Label(ecc, text="Added bytes:").pack(side="left", padx=(12, 4))
+        self.ecc_entry = tk.Spinbox(
+            ecc,
+            from_=1,
+            to=254,
+            width=6,
+            textvariable=self.ecc_parity_bytes,
+        )
+        self.ecc_entry.pack(side="left")
+
         # Add spacing
         tk.Label(self.frame, text="").pack(pady=(4, 0))
 
@@ -135,6 +157,7 @@ class App(tk.Tk):
 
         # Initial toggle state
         self._toggle_seg_controls()
+        self._toggle_ecc_controls()
 
         # Center window
         self.update_idletasks()
@@ -165,6 +188,11 @@ class App(tk.Tk):
         state = "normal" if enabled else "disabled"
         self.mins_entry.config(state=state)
 
+    def _toggle_ecc_controls(self):
+        enabled = self.use_ecc.get()
+        state = "normal" if enabled else "disabled"
+        self.ecc_entry.config(state=state)
+
     def pick_wavs(self):
         paths = filedialog.askopenfilenames(
             title="Select WAV file(s)", filetypes=[("WAV files", "*.wav *.WAV")]
@@ -189,6 +217,11 @@ class App(tk.Tk):
         seg_minutes = (
             self.minutes_per_segment.get() if self.use_segmentation.get() else -1
         )
+        use_ecc = self.use_ecc.get()
+        parity_bytes = self.ecc_parity_bytes.get()
+        if use_ecc and not (1 <= parity_bytes <= 254):
+            messagebox.showerror("Error", "Parity bytes must be between 1 and 254")
+            return
 
         self.run_btn.config(state="disabled")
         self.progress.start(12)
@@ -209,6 +242,8 @@ class App(tk.Tk):
                             p0=p0,
                             generate_debug=gen_debug,
                             minutes_per_segment=seg_minutes,
+                            use_ecc=use_ecc,
+                            ecc_nsym=parity_bytes,
                         )
 
                     except Exception as e:
