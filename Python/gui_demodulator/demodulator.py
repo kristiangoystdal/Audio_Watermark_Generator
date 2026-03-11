@@ -143,10 +143,72 @@ def split_messages_by_gap(bits, times, symbol_time):
     time_segments = np.split(times, split_idx)
     return [(b, t) for b, t in zip(bit_segments, time_segments) if len(b) > 0]
 
+import numpy as np
+
+def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percent: int = 2,):
+    """
+    FFT the full signal and find the most prominent peak within:
+      [f0 - search_width_hz, f0 + search_width_hz]
+      [f1 - search_width_hz, f1 + search_width_hz]
+
+    Returns
+    -------
+    f0_new, f1_new : float
+        Peak frequencies (Hz) inside each band.
+    """
+    nyq = fs / 2.0
+
+    # Window to reduce spectral leakage
+    w = np.hanning(len(x))
+    xw = x * w
+
+    # FFT (one-sided)
+    X = np.fft.rfft(xw)
+    mag = np.abs(X)
+    freqs = np.fft.rfftfreq(len(xw), d=1.0 / fs)
+
+    def peak_in_band(f_center: float) -> float:
+        lo = max(0.0, f_center - search_width_percent / 100.0 * f_center)
+        hi = min(nyq, f_center + search_width_percent / 100.0 * f_center)
+
+        band = (freqs >= lo) & (freqs <= hi)
+        if not np.any(band):
+            raise ValueError(f"No FFT bins in band [{lo}, {hi}] Hz")
+
+        idx_band = np.where(band)[0]
+        k = idx_band[np.argmax(mag[idx_band])]
+
+        # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
+        # Use log-magnitude to behave better for sharp peaks.
+        if 1 <= k < len(mag) - 1:
+            y0 = np.log(mag[k - 1] + 1e-30)
+            y1 = np.log(mag[k] + 1e-30)
+            y2 = np.log(mag[k + 1] + 1e-30)
+            denom = (y0 - 2.0 * y1 + y2)
+            if denom != 0.0:
+                delta = 0.5 * (y0 - y2) / denom  # in bins, typically [-0.5, 0.5]
+                df = freqs[1] - freqs[0]
+                f_est = freqs[k] + delta * df
+                # Clamp back into the band, just in case
+                return float(min(max(f_est, lo), hi))
+
+        return float(freqs[k])
+
+    f0_new = peak_in_band(f0)
+    f1_new = peak_in_band(f1)
+
+    return f0_new, f1_new
+
+import numpy as np
+
+def compute_p0(f0, fs=95950):
+    m = fs * (3000 / 1_000_000)
+    n0 = np.floor(fs / f0)
+    return int(np.round(m / n0))
+
 def decode_fsk(input_filename: str, 
                f0: float = 20833.33, 
-               f1: float = 22222.22, 
-               p0: int = 60,
+               f1: float = 22222.22,
                generate_debug: bool = False,
                minutes_per_segment: int = -1):
     """
@@ -158,13 +220,14 @@ def decode_fsk(input_filename: str,
         Path to the input WAV file.
     f0, f1 : float
         Carrier frequencies representing bits 0 and 1.
-    p0 : int
-        Number of cycles for a '0' bit (defines symbol length via p0/f0).
     generate_debug : bool
         Whether to write debug metrics to a companion text file.
     minutes_per_segment : int
         Length in minutes of each processed segment (-1 processes the whole file).
     """
+
+    p0 = compute_p0(f0)
+    print(f"\nFor f0={f0:.2f} Hz :   p0={p0}")
         
     base, _ = os.path.splitext(input_filename)
     if generate_debug:
@@ -176,6 +239,9 @@ def decode_fsk(input_filename: str,
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
+        audio = (audio - np.mean(audio))
+        f0, f1 = refine_fsk_tones_fft(audio, fs, f0, f1)
+        print(f"Refined tones: f0={f0:.2f} Hz, f1={f1:.2f} Hz")
         Ts = 1 / fs
         symbol_time = p0 / f0
         N = int(round(fs * symbol_time))
@@ -183,7 +249,6 @@ def decode_fsk(input_filename: str,
         if N < N_true:
             N += 1 
         N_err = N - N_true
-        audio = (audio - np.mean(audio))
         audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
         if minutes_per_segment <= 0:
             minutes_per_segment = len(audio) / fs / 60          
@@ -233,7 +298,6 @@ def decode_fsk(input_filename: str,
 
 
 
-
 if __name__ == "__main__":
     import argparse
 
@@ -241,7 +305,6 @@ if __name__ == "__main__":
     parser.add_argument("-i", "--input", required=True, help="Input WAV file")
     parser.add_argument("--f0", type=float, default=20833.33, help="Frequency for bit 0 [Hz]")
     parser.add_argument("--f1", type=float, default=22222.22, help="Frequency for bit 1 [Hz]")
-    parser.add_argument("--p0", type=int, default=60, help="Cycles per '0' bit (defines symbol length via p0/f0)")
     parser.add_argument("--generate-debug", action="store_true",
                         help="Generate debug file (.txt)")
     parser.add_argument("--minutes-per-segment", type=int, default=-1,
@@ -253,7 +316,6 @@ if __name__ == "__main__":
         input_filename=args.input,
         f0=args.f0,
         f1=args.f1,
-        p0=args.p0,
         generate_debug=args.generate_debug,
         minutes_per_segment=args.minutes_per_segment,
     )
