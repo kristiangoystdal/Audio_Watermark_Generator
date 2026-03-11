@@ -1,5 +1,8 @@
 """
 FSK demodulator utilities for extracting bitstreams and messages from audio files.
+
+Example command-line usage:
+python demodulator.py -i /path/to/recording.wav --f0 20833.33 --f1 22222.22 --p0 60 --use-ecc --ecc-parity-bytes 8 --generate-debug --minutes-per-segment -1
 """
 
 import math
