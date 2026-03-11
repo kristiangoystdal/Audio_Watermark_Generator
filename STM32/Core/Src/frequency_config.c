@@ -51,25 +51,18 @@ freq_pair_t find_frequency_pair(uint32_t fs) {
     lower_freq_total_samples = lower_freq_samples * lower_freq_periods;
     higher_freq_total_samples = higher_freq_samples * higher_freq_periods;
 
-    // Check if both frequencies are within the acceptable range of samples
-    if (lower_freq_total_samples < NUM_SAMPLES_MIN ||
-        lower_freq_total_samples > NUM_SAMPLES_MAX) {
-      lower_in_range = false;
-      lower_freq += 1;
-    }
+    lower_freq = (uint16_t)floor((double)fs / (double)lower_freq_samples);
+    higher_freq = (uint16_t)floor((double)fs / (double)higher_freq_samples);
 
-    if (higher_freq_total_samples < NUM_SAMPLES_MIN ||
-        higher_freq_total_samples > NUM_SAMPLES_MAX) {
-      higher_in_range = false;
-      higher_freq += 1;
-    }
-
-    // If both frequencies are in range, we found our pair
-    if (lower_in_range && higher_in_range) {
-      LOGF("Found frequency pair: lower=%u Hz, higher=%u Hz\r\n",
-           (unsigned int)lower_freq, (unsigned int)higher_freq);
-      break;
-    }
+    LOGF("Found frequency pair: lower=%u Hz, higher=%u Hz\r\n",
+          (unsigned int)lower_freq, (unsigned int)higher_freq);
+    LOGF("Lower freq samples: %u, periods: %u, total samples: %u\r\n",
+          (unsigned int)lower_freq_samples, (unsigned int)lower_freq_periods,
+          (unsigned int)lower_freq_total_samples);
+    LOGF("Higher freq samples: %u, periods: %u, total samples: %u\r\n",
+          (unsigned int)higher_freq_samples, (unsigned int)higher_freq_periods,
+          (unsigned int)higher_freq_total_samples);
+    break;
   }
 
   result.lower_freq = lower_freq;
