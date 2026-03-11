@@ -11,6 +11,7 @@ file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/led_feedback.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/relay.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/battery.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/reed_solomon.c
 )
 
 # Collect all user include directories
