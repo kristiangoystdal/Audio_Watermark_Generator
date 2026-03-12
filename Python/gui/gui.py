@@ -3,7 +3,6 @@ from tkinter import messagebox
 from tkinter import ttk
 import threading
 import math
-import numpy as np
 
 # Import scripts
 from scripts.paths import *
@@ -338,7 +337,6 @@ tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).gri
 # ------------------------------
 FS_HZ = 960000
 MIN_BIT_US = 3000
-
 FREQ_MIN = 1000
 FREQ_MAX = 24000
 
@@ -347,68 +345,122 @@ def rounded_min_bit_samples(fs: int) -> int:
     return ((fs * MIN_BIT_US) + 500000) // 1000000
 
 
-def quantized_params(freq: int, fs: int = FS_HZ):
-    samples_per_period = int(math.floor(fs / freq))
-    samples_per_period = max(1, samples_per_period)
+def quantized_freq_from_samples(fs: int, samples_per_period: int) -> int:
+    if samples_per_period <= 0:
+        return 0
+    return int(math.floor(fs / samples_per_period))
 
+
+def period_count_from_samples(min_bit_samples: int, samples_per_period: int) -> int:
+    return int(round(min_bit_samples / samples_per_period))
+
+
+def freq_diff_u16(a: int, b: int) -> int:
+    return abs(a - b)
+
+
+def min_required_diff_hz(lower_freq: int) -> int:
+    return 300 + (400000 // lower_freq)
+
+
+def quantized_params(freq: float, fs: int = FS_HZ):
+    samples_per_period = max(1, int(math.floor(fs / freq)))
     min_bit_samples = rounded_min_bit_samples(fs)
-    period_count = int(round(min_bit_samples / samples_per_period))
-    quantized_freq = int(math.floor(fs / samples_per_period))
+    period_count = period_count_from_samples(min_bit_samples, samples_per_period)
+    quantized_freq = quantized_freq_from_samples(fs, samples_per_period)
     total_samples = samples_per_period * period_count
-
     return quantized_freq, samples_per_period, period_count, total_samples
 
 
-def adjust_low_frequency_to_valid(low_freq: int, high_freq: int):
+def adjust_low_frequency_to_valid(low_freq: float, high_freq: float):
     """
     Keep high fixed.
-    If period counts are equal, lower the low frequency until they differ.
+    Adjust only low downward until:
+      - low/high period counts differ
+      - spacing satisfies min_required_diff_hz(lower_freq)
     """
     min_bit_samples = rounded_min_bit_samples(FS_HZ)
 
     low_n = max(1, int(math.floor(FS_HZ / low_freq)))
     high_n = max(1, int(math.floor(FS_HZ / high_freq)))
 
-    low_p = int(round(min_bit_samples / low_n))
-    high_p = int(round(min_bit_samples / high_n))
+    high_q = quantized_freq_from_samples(FS_HZ, high_n)
+    high_p = period_count_from_samples(min_bit_samples, high_n)
 
-    while low_p == high_p:
-        low_n += 1  # increase samples/period -> lower frequency
-        low_p = int(round(min_bit_samples / low_n))
+    while True:
+        low_q = quantized_freq_from_samples(FS_HZ, low_n)
+        low_p = period_count_from_samples(min_bit_samples, low_n)
 
-    new_low_freq = int(math.floor(FS_HZ / low_n))
+        same_periods = low_p == high_p
+        enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
+
+        if (not same_periods) and enough_diff and low_q < high_q:
+            break
+
+        # lower the low frequency
+        candidate_low_n = low_n + 1
+        candidate_low_q = quantized_freq_from_samples(FS_HZ, candidate_low_n)
+
+        if candidate_low_q < FREQ_MIN:
+            break
+
+        low_n = candidate_low_n
+
+    low_q = quantized_freq_from_samples(FS_HZ, low_n)
+    low_p = period_count_from_samples(min_bit_samples, low_n)
     total_samples = low_n * low_p
 
-    return new_low_freq, low_n, low_p, total_samples
+    return low_q, low_n, low_p, total_samples
 
 
-def adjust_high_frequency_to_valid(low_freq: int, high_freq: int):
+def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
     """
     Keep low fixed.
-    If period counts are equal, raise the high frequency until they differ.
+    Adjust only high upward until:
+      - low/high period counts differ
+      - spacing satisfies min_required_diff_hz(lower_freq)
     """
     min_bit_samples = rounded_min_bit_samples(FS_HZ)
 
     low_n = max(1, int(math.floor(FS_HZ / low_freq)))
     high_n = max(1, int(math.floor(FS_HZ / high_freq)))
 
-    low_p = int(round(min_bit_samples / low_n))
-    high_p = int(round(min_bit_samples / high_n))
+    low_q = quantized_freq_from_samples(FS_HZ, low_n)
+    low_p = period_count_from_samples(min_bit_samples, low_n)
 
-    while low_p == high_p and high_n > 1:
-        high_n -= 1  # decrease samples/period -> higher frequency
-        high_p = int(round(min_bit_samples / high_n))
+    while True:
+        high_q = quantized_freq_from_samples(FS_HZ, high_n)
+        high_p = period_count_from_samples(min_bit_samples, high_n)
 
-    new_high_freq = int(math.floor(FS_HZ / high_n))
+        same_periods = low_p == high_p
+        enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
+
+        if (not same_periods) and enough_diff and high_q > low_q:
+            break
+
+        # raise the high frequency
+        if high_n <= 1:
+            break
+
+        candidate_high_n = high_n - 1
+        candidate_high_q = quantized_freq_from_samples(FS_HZ, candidate_high_n)
+
+        if candidate_high_q > FREQ_MAX:
+            break
+
+        high_n = candidate_high_n
+
+    high_q = quantized_freq_from_samples(FS_HZ, high_n)
+    high_p = period_count_from_samples(min_bit_samples, high_n)
     total_samples = high_n * high_p
 
-    return new_high_freq, high_n, high_p, total_samples
+    return high_q, high_n, high_p, total_samples
 
 
-def update_low_frequency(*args):
+def update_low_frequency():
     try:
-        low = int(root.frequency_low_var.get())
-        high = int(root.frequency_high_var.get())
+        low = float(root.frequency_low_var.get())
+        high = float(root.frequency_high_var.get())
     except Exception:
         return
 
@@ -422,13 +474,13 @@ def update_low_frequency(*args):
         low = FREQ_MIN
 
     new_low, _, _, _ = adjust_low_frequency_to_valid(low, high)
-    root.frequency_low_var.set(new_low)
+    root.frequency_low_var.set(int(new_low))
 
 
-def update_high_frequency(*args):
+def update_high_frequency():
     try:
-        low = int(root.frequency_low_var.get())
-        high = int(root.frequency_high_var.get())
+        low = float(root.frequency_low_var.get())
+        high = float(root.frequency_high_var.get())
     except Exception:
         return
 
@@ -442,7 +494,7 @@ def update_high_frequency(*args):
         high = FREQ_MAX
 
     new_high, _, _, _ = adjust_high_frequency_to_valid(low, high)
-    root.frequency_high_var.set(new_high)
+    root.frequency_high_var.set(int(new_high))
 
 
 root.frequency_low_field.bind("<FocusOut>", lambda e: update_low_frequency())
@@ -566,6 +618,26 @@ def validate_all_fields():
         if low >= high:
             invalid_fields.append("Lower Frequency must be less than Higher Frequency")
 
+        q_low_from_low, _, low_p, _ = adjust_low_frequency_to_valid(low, high)
+        q_high_from_high, _, high_p, _ = adjust_high_frequency_to_valid(low, high)
+
+        min_diff_low = min_required_diff_hz(q_low_from_low)
+        actual_diff_low = freq_diff_u16(high, q_low_from_low)
+
+        min_diff_high = min_required_diff_hz(q_high_from_high)
+        actual_diff_high = freq_diff_u16(q_high_from_high, low)
+
+        if q_low_from_low >= high:
+            invalid_fields.append("Lower Frequency becomes invalid after adjustment")
+
+        if q_high_from_high <= low:
+            invalid_fields.append("Higher Frequency becomes invalid after adjustment")
+
+        if actual_diff_low < min_diff_low and actual_diff_high < min_diff_high:
+            invalid_fields.append(
+                "Frequency difference is too small after quantization/adjustment"
+            )
+
     if not is_field_valid(root.attenuation_field, int, 0, 100):
         invalid_fields.append("Attenuation must be an integer between 0 and 100")
 
@@ -658,7 +730,5 @@ def dual_build_flash_call():
         root.after(0, lambda: build_btn.config(state="normal"))
         root.after(4000, lambda: status_label.config(text="Idle"))
 
-
-root.bind("<Return>", lambda e: start_dual_flash_thread())
 
 root.mainloop()
