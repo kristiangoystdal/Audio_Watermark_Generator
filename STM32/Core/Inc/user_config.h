@@ -54,6 +54,6 @@
 
 // Configuration for whether to use Reed-Solomon error correction coding, which adds redundancy to the transmitted data to allow for error detection and correction at the receiver. This can improve reliability in noisy environments but reduces the effective data rate due to the added redundancy.
 #define USE_REED_SOLOMON_ERROR_CORRECTION true
-#define RS_ERROR_CORRECTION_SYMBOLS 100
+#define RS_ERROR_CORRECTION_SYMBOLS 20
 
 #endif // USER_CONFIG_H
