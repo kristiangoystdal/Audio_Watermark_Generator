@@ -63,7 +63,7 @@ freq_pair_t find_frequency_pair(uint32_t fs) {
   higher_freq = quantized_freq_from_samples(fs, higher_samples_per_period);
 
   while ((lower_period_count == higher_period_count) ||
-         (freq_diff_u16(higher_freq, lower_freq) < MIN_FREQ_DIFF_HZ)) {
+         (freq_diff_u16(higher_freq, lower_freq) < max(500, lower_freq / 4))) {
 
     LOGF("Adjusting pair: lower=%u Hz (p=%u), higher=%u Hz (p=%u), diff=%u "
          "Hz\r\n",
