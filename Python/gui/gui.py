@@ -3,6 +3,7 @@ from tkinter import messagebox
 from tkinter import ttk
 import threading
 import math
+import numpy as np
 
 # Import scripts
 from scripts.paths import *
@@ -335,77 +336,123 @@ tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).gri
 # ------------------------------
 # Frequency helpers
 # ------------------------------
-FS_HZ = 384000
+FS_HZ = 960000
 MIN_BIT_US = 3000
-
-MIN_BIT_SAMPLES = int(((FS_HZ * MIN_BIT_US) + 500000) // 1000000)
-
-NUM_SAMPLES_MIN = 1120
-NUM_SAMPLES_MAX = 1180
 
 FREQ_MIN = 1000
 FREQ_MAX = 24000
 
 
-def update_frequency_on_focus_out(var: tk.IntVar):
+def rounded_min_bit_samples(fs: int) -> int:
+    return ((fs * MIN_BIT_US) + 500000) // 1000000
+
+
+def quantized_params(freq: int, fs: int = FS_HZ):
+    samples_per_period = int(math.floor(fs / freq))
+    samples_per_period = max(1, samples_per_period)
+
+    min_bit_samples = rounded_min_bit_samples(fs)
+    period_count = int(round(min_bit_samples / samples_per_period))
+    quantized_freq = int(math.floor(fs / samples_per_period))
+    total_samples = samples_per_period * period_count
+
+    return quantized_freq, samples_per_period, period_count, total_samples
+
+
+def adjust_low_frequency_to_valid(low_freq: int, high_freq: int):
+    """
+    Keep high fixed.
+    If period counts are equal, lower the low frequency until they differ.
+    """
+    min_bit_samples = rounded_min_bit_samples(FS_HZ)
+
+    low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+    high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+    low_p = int(round(min_bit_samples / low_n))
+    high_p = int(round(min_bit_samples / high_n))
+
+    while low_p == high_p:
+        low_n += 1  # increase samples/period -> lower frequency
+        low_p = int(round(min_bit_samples / low_n))
+
+    new_low_freq = int(math.floor(FS_HZ / low_n))
+    total_samples = low_n * low_p
+
+    return new_low_freq, low_n, low_p, total_samples
+
+
+def adjust_high_frequency_to_valid(low_freq: int, high_freq: int):
+    """
+    Keep low fixed.
+    If period counts are equal, raise the high frequency until they differ.
+    """
+    min_bit_samples = rounded_min_bit_samples(FS_HZ)
+
+    low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+    high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+    low_p = int(round(min_bit_samples / low_n))
+    high_p = int(round(min_bit_samples / high_n))
+
+    while low_p == high_p and high_n > 1:
+        high_n -= 1  # decrease samples/period -> higher frequency
+        high_p = int(round(min_bit_samples / high_n))
+
+    new_high_freq = int(math.floor(FS_HZ / high_n))
+    total_samples = high_n * high_p
+
+    return new_high_freq, high_n, high_p, total_samples
+
+
+def update_low_frequency(*args):
     try:
-        user_val = int(var.get())
+        low = int(root.frequency_low_var.get())
+        high = int(root.frequency_high_var.get())
     except Exception:
-        user_val = FREQ_MIN
+        return
 
-    new_freq, freq_samples, periods, total_samples = adjust_frequency_to_valid(user_val)
-    var.set(new_freq)
+    low = max(FREQ_MIN, min(FREQ_MAX, low))
+    high = max(FREQ_MIN, min(FREQ_MAX, high))
 
+    if low >= high:
+        low = high - 1
 
-def adjust_frequency_to_valid(user_freq: int) -> tuple[int, int, int, int]:
-    freq = max(FREQ_MIN, min(FREQ_MAX, int(user_freq)))
+    if low < FREQ_MIN:
+        low = FREQ_MIN
 
-    for _ in range(FREQ_MAX - FREQ_MIN + 1):
-        freq_samples = int(math.floor(FS_HZ / freq))
-        if freq_samples <= 0:
-            freq_samples = 1
-
-        periods = int(round(MIN_BIT_SAMPLES / freq_samples))
-        if periods <= 0:
-            periods = 1
-
-        total_samples = freq_samples * periods
-
-        if NUM_SAMPLES_MIN <= total_samples <= NUM_SAMPLES_MAX:
-            return freq, freq_samples, periods, total_samples
-
-        freq += 1
-        if freq > FREQ_MAX:
-            freq = FREQ_MAX
-            break
-
-    freq_samples = int(math.floor(FS_HZ / freq))
-    periods = max(1, int(round(MIN_BIT_SAMPLES / max(1, freq_samples))))
-    total_samples = freq_samples * periods
-    return freq, freq_samples, periods, total_samples
+    new_low, _, _, _ = adjust_low_frequency_to_valid(low, high)
+    root.frequency_low_var.set(new_low)
 
 
-root.frequency_low_field.bind(
-    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
-)
-root.frequency_high_field.bind(
-    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
-)
-root.frequency_low_field.bind(
-    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
-)
-root.frequency_low_field.bind(
-    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
-)
-root.frequency_high_field.bind(
-    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
-)
-root.frequency_high_field.bind(
-    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
-)
+def update_high_frequency(*args):
+    try:
+        low = int(root.frequency_low_var.get())
+        high = int(root.frequency_high_var.get())
+    except Exception:
+        return
 
-update_frequency_on_focus_out(root.frequency_low_var)
-update_frequency_on_focus_out(root.frequency_high_var)
+    low = max(FREQ_MIN, min(FREQ_MAX, low))
+    high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+    if high <= low:
+        high = low + 1
+
+    if high > FREQ_MAX:
+        high = FREQ_MAX
+
+    new_high, _, _, _ = adjust_high_frequency_to_valid(low, high)
+    root.frequency_high_var.set(new_high)
+
+
+root.frequency_low_field.bind("<FocusOut>", lambda e: update_low_frequency())
+root.frequency_low_field.bind("<Return>", lambda e: update_low_frequency())
+
+root.frequency_high_field.bind("<FocusOut>", lambda e: update_high_frequency())
+root.frequency_high_field.bind("<Return>", lambda e: update_high_frequency())
+
+update_low_frequency()
+update_high_frequency()
 
 
 # ------------------------------
