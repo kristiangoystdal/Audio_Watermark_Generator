@@ -31,7 +31,7 @@ void is_battery_low(ADC_HandleTypeDef *hadc1) {
   uint16_t voltage_mV = Read_Battery_Voltage_mV(hadc1);
   if (voltage_mV < LOW_BATTERY_THRESHOLD_MV) {
     LOGF("Battery voltage is low: %u mV\r\n", voltage_mV);
-    Error_Handler_Code(STATUS_CODE_BATTERY_LOW);
+    // Error_Handler_Code(STATUS_CODE_BATTERY_LOW);
   }
   return;
 }
