@@ -1,5 +1,8 @@
 """
 FSK demodulator utilities for extracting bitstreams and messages from audio files.
+
+Example command-line usage:
+python demodulator.py -i /path/to/recording.wav --f0 20833.33 --f1 22222.22 --p0 60 --use-ecc --ecc-parity-bytes 8 --generate-debug --minutes-per-segment -1
 """
 
 import math
@@ -7,6 +10,7 @@ import os
 import numpy as np
 import soundfile as sf
 from scipy.signal import firwin, lfilter, windows
+from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 
 def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
     """Apply an FIR bandpass filter and return filtered signal and group delay."""
@@ -210,7 +214,9 @@ def decode_fsk(input_filename: str,
                f0: float = 20833.33, 
                f1: float = 22222.22,
                generate_debug: bool = False,
-               minutes_per_segment: int = -1):
+               minutes_per_segment: int = -1,
+               use_ecc: bool = True,
+               ecc_nsym: int = DEFAULT_ECC_NSYM):
     """
     Demodulate an FSK-modulated WAV file and create message labels/debug text files.
 
@@ -224,6 +230,10 @@ def decode_fsk(input_filename: str,
         Whether to write debug metrics to a companion text file.
     minutes_per_segment : int
         Length in minutes of each processed segment (-1 processes the whole file).
+    use_ecc : bool
+        Enable Reed-Solomon error correction on each decoded message segment.
+    ecc_nsym : int
+        Number of RS parity bytes to use when ECC is enabled.
     """
 
     p0 = compute_p0(f0)
@@ -236,6 +246,21 @@ def decode_fsk(input_filename: str,
         debug_filename = os.devnull
     labels_filename = base + ".txt"
     with open(labels_filename, "w") as labels, open(debug_filename, "w") as debug:
+        rsc = None
+        decode_codeword_fn = None
+        rs_error_type = Exception
+        if use_ecc:
+            try:
+                from reedsolo import ReedSolomonError
+                from reed_solomon import build_codec_with_nsym, decode_codeword
+            except ModuleNotFoundError as exc:
+                raise ModuleNotFoundError(
+                    "ECC is enabled but 'reedsolo' is not installed. "
+                    "Install reedsolo or disable ECC."
+                ) from exc
+            rsc = build_codec_with_nsym(ecc_nsym)
+            decode_codeword_fn = decode_codeword
+            rs_error_type = ReedSolomonError
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
@@ -261,6 +286,11 @@ def decode_fsk(input_filename: str,
             print("Finding the best offset for segment...")
             best_offset, _ = find_best_offset(audio, fs, f0, f1, N, N_err)
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
+
+            import matplotlib.pyplot as plt
+            plt.stem(scores)
+            plt.show()
+
             if len(bits) == 0:
                 print("No bits found in this segment")
                 segmentindex += 1
@@ -271,12 +301,13 @@ def decode_fsk(input_filename: str,
             th0, th1 = define_thresholds(scores)
             print(f"Thresholds: f0: {th0:.4f} f1: {th1:.4f}")
             mask = generate_mask(th0, th1, scores)
-            masked_bits = bits[mask]
-            masked_time = t[mask]
             DMA_reset_delay = 25  # samples
-            msg_segments = split_messages_by_gap(masked_bits, masked_time, symbol_time)
-            message = ""
-            for msg_bits, msg_times in msg_segments:
+            msg_ranges = find_message_ranges(mask)
+            for start_idx, end_idx in msg_ranges:
+                msg_bits = bits[start_idx : end_idx + 1]
+                msg_times = t[start_idx : end_idx + 1]
+                if len(msg_times) == 0:
+                    continue
                 first_bit_time = msg_times[0]
                 time_in_recording = (
                     segmentindex * 60 * minutes_per_segment
@@ -285,14 +316,25 @@ def decode_fsk(input_filename: str,
                 debug.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
                 start_time = time_in_recording
                 end_time = time_in_recording + symbol_time * len(msg_bits)
-                bitstring = ""
-                for i, bit in enumerate(msg_bits, start=1):
-                    bitstring += str(bit)
-                    if (i % 8) == 0:
-                        message += chr(int(bitstring, 2))
-                        bitstring = ""
+                if use_ecc:
+                    decoded_payload = decode_message_with_rs(
+                        msg_bits,
+                        rsc,
+                        ecc_nsym,
+                        decode_codeword_fn,
+                        rs_error_type,
+                    )
+                    if decoded_payload is None:
+                        debug.write("Warning: RS decode failed for this message segment\n")
+                        continue
+                else:
+                    decoded_payload = decode_message_without_ecc(msg_bits)
+                    if not decoded_payload:
+                        debug.write("Warning: Could not decode bytes for this message segment\n")
+                        continue
+
+                message = decoded_payload.decode("ascii", errors="replace")
                 print_message(message, start_time, end_time, debug, labels)
-                message = ""
 
             segmentindex += 1
 
@@ -309,6 +351,18 @@ if __name__ == "__main__":
                         help="Generate debug file (.txt)")
     parser.add_argument("--minutes-per-segment", type=int, default=-1,
                         help="Length of each segment in minutes (-1 = process full file)")
+    parser.add_argument(
+        "--use-ecc",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable Reed-Solomon error correction (default: enabled)",
+    )
+    parser.add_argument(
+        "--ecc-parity-bytes",
+        type=int,
+        default=DEFAULT_ECC_NSYM,
+        help=f"Reed-Solomon parity bytes (nsym) when ECC is enabled (default: {DEFAULT_ECC_NSYM})",
+    )
 
     args = parser.parse_args()
 
@@ -318,4 +372,6 @@ if __name__ == "__main__":
         f1=args.f1,
         generate_debug=args.generate_debug,
         minutes_per_segment=args.minutes_per_segment,
+        use_ecc=args.use_ecc,
+        ecc_nsym=args.ecc_parity_bytes,
     )
