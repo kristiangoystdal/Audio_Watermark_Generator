@@ -7,6 +7,7 @@ python demodulator.py -i /path/to/recording.wav --f0 20833.33 --f1 22222.22 --p0
 
 import math
 import os
+import sys
 import numpy as np
 import soundfile as sf
 from scipy.signal import firwin, lfilter, windows
@@ -17,6 +18,130 @@ def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
     bp = firwin(numtaps, [f_lower, f_upper], pass_zero=False, fs=fs)
     group_delay = (numtaps - 1) // 2
     return lfilter(bp, [1.0], signal), group_delay
+
+def find_likely_fsk_region(
+    x,
+    fs,
+    f0,
+    f1=None,
+    window_duration=0.25,
+    hop_duration=1,
+    band_width_hz=150.0,
+    threshold_sigma=3.0,
+):
+    """
+    Find the time region most likely to contain the FSK signal.
+
+    The signal is scanned in overlapping windows. Each window is scored by the
+    matched tone power at `f0` and optionally `f1`. Contiguous windows with
+    unusually high tone power are merged into candidate regions, and the region
+    with the highest average score is returned.
+
+    `band_width_hz` is kept for call-site compatibility but is not used by the
+    fast path, which evaluates only the exact tone frequencies.
+    """
+    if window_duration <= 0 or hop_duration <= 0:
+        raise ValueError("window_duration and hop_duration must be > 0")
+    x = np.asarray(x, dtype=float)
+    if x.ndim != 1:
+        raise ValueError("x must be a 1D audio signal")
+    _ = band_width_hz
+
+    window_size = max(8, int(round(window_duration * fs)))
+    hop_size = max(1, int(round(hop_duration * fs)))
+    if len(x) < window_size:
+        raise ValueError("Audio is shorter than one analysis window")
+
+    window = windows.hann(window_size, sym=False)
+    starts = np.arange(0, len(x) - window_size + 1, hop_size, dtype=int)
+    frames = np.lib.stride_tricks.sliding_window_view(x, window_size)[::hop_size]
+    n = np.arange(window_size, dtype=float)
+    window_energy = float(np.sum(window ** 2))
+
+    osc_f0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
+    osc_f1 = None
+    if f1 is not None:
+        osc_f1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
+
+    total_windows = len(starts)
+    batch_size = max(1, min(2048, total_windows))
+    window_scores = np.empty(total_windows, dtype=float)
+    progress_width = 24
+
+    def print_progress(done_windows: int):
+        fraction = done_windows / total_windows if total_windows else 1.0
+        filled = int(round(progress_width * fraction))
+        bar = "#" * filled + "-" * (progress_width - filled)
+        sys.stdout.write(
+            f"\rFinding active FSK region [{bar}] {fraction * 100:5.1f}%"
+        )
+        sys.stdout.flush()
+
+    print_progress(0)
+    for batch_start in range(0, total_windows, batch_size):
+        batch_end = min(batch_start + batch_size, total_windows)
+        batch_frames = frames[batch_start:batch_end] * window
+        tone0_power = np.abs(batch_frames @ np.conjugate(osc_f0)) ** 2 / window_energy
+        if osc_f1 is not None:
+            tone1_power = np.abs(batch_frames @ np.conjugate(osc_f1)) ** 2 / window_energy
+            window_scores[batch_start:batch_end] = np.maximum(tone0_power, tone1_power)
+        else:
+            window_scores[batch_start:batch_end] = tone0_power
+        print_progress(batch_end)
+    sys.stdout.write("\n")
+    window_times = (starts + 0.5 * window_size) / fs
+
+    baseline = float(np.median(window_scores))
+    mad = float(np.median(np.abs(window_scores - baseline)))
+    robust_sigma = 1.4826 * mad
+    if robust_sigma == 0.0:
+        threshold = baseline
+    else:
+        threshold = baseline + threshold_sigma * robust_sigma
+
+    active = window_scores >= threshold
+    if not np.any(active):
+        best_idx = int(np.argmax(window_scores))
+        start_time = max(0.0, window_times[best_idx] - 0.5 * window_duration)
+        end_time = min(len(x) / fs, window_times[best_idx] + 0.5 * window_duration)
+        result = {
+            "start_time": float(start_time),
+            "end_time": float(end_time),
+            "center_time": float(window_times[best_idx]),
+            "score": float(window_scores[best_idx]),
+            "threshold": float(threshold),
+            "window_times": window_times,
+            "window_scores": window_scores,
+        }
+    else:
+        active_idx = np.flatnonzero(active)
+        split_points = np.where(np.diff(active_idx) > 1)[0] + 1
+        groups = np.split(active_idx, split_points)
+
+        best_region = None
+        for group in groups:
+            region_score = float(np.mean(window_scores[group]))
+            region_start = max(0.0, window_times[group[0]] - 0.5 * window_duration)
+            region_end = min(len(x) / fs, window_times[group[-1]] + 0.5 * window_duration)
+            if best_region is None or region_score > best_region["score"]:
+                best_region = {
+                    "start_time": float(region_start),
+                    "end_time": float(region_end),
+                    "center_time": float(np.mean(window_times[group])),
+                    "score": region_score,
+                    "threshold": float(threshold),
+                    "window_times": window_times,
+                    "window_scores": window_scores,
+                }
+        result = best_region
+
+    print(
+        "Active FSK region found: "
+        f"{result['start_time']:.3f}s to {result['end_time']:.3f}s "
+        f"(center {result['center_time']:.3f}s, score {result['score']:.6f})"
+    )
+
+    return result
 
 def fsk_symbol_metrics(x, fs, f0, f1, N_samples, N_err, start):
     """
@@ -66,6 +191,18 @@ def fsk_decode_aligned(x, fs, f0, f1, N, N_err, offset):
     bits = (E1 > E0).astype(int)
     scores = E1 - E0
     return bits, scores
+
+def compute_symbol_start_samples(num_symbols, start, N_samples, N_err):
+    """Return symbol start samples using the same accumulated drift correction as demodulation."""
+    starts = np.empty(num_symbols, dtype=int)
+    acc_err = 0.0
+    seg_start = int(start)
+    for idx in range(num_symbols):
+        acc_err += N_err
+        corrected_start = seg_start - int(math.floor(acc_err))
+        starts[idx] = corrected_start
+        seg_start += N_samples
+    return starts
 
 def define_thresholds(scores):
     """Derive loose thresholds from symbol score distribution to mask noise."""
@@ -155,7 +292,7 @@ def refine_fsk_tones_fft(
     f0: float,
     f1: float,
     search_width_percent: int = 2,
-    avg_bin_width: int = 500,
+    avg_bin_width: int = 200,
 ):
     """
     FFT the full signal and find the most prominent peak within:
@@ -167,6 +304,7 @@ def refine_fsk_tones_fft(
     f0_new, f1_new : float
         Peak frequencies (Hz) inside each band.
     """
+    x = np.asarray(x, dtype=float)
     nyq = fs / 2.0
 
     # Window to reduce spectral leakage
@@ -175,48 +313,56 @@ def refine_fsk_tones_fft(
 
     # FFT (one-sided)
     X = np.fft.rfft(xw)
-    mag = np.abs(X)
-    freqs = np.fft.rfftfreq(len(xw), d=1.0 / fs)
+    power = X.real * X.real + X.imag * X.imag
+    df = fs / len(xw)
 
-    # Smooth magnitudes by averaging neighboring bins (same number of bins).
+    # Smooth magnitudes by averaging neighboring bins only in the search bands.
     if avg_bin_width < 1:
         raise ValueError("avg_bin_width must be >= 1")
     if avg_bin_width % 2 == 0:
         avg_bin_width += 1
+    kernel = None
+    half_width = avg_bin_width // 2
     if avg_bin_width > 1:
         kernel = np.ones(avg_bin_width, dtype=float) / avg_bin_width
-        mag_smooth = np.convolve(mag, kernel, mode="same")
-    else:
-        mag_smooth = mag
+
+    def hz_to_bin(freq_hz: float) -> int:
+        return int(np.clip(np.round(freq_hz / df), 0, len(power) - 1))
+
+    def smooth_band_slice(k_lo: int, k_hi: int):
+        if kernel is None:
+            return power[k_lo : k_hi + 1]
+
+        ext_lo = max(0, k_lo - half_width)
+        ext_hi = min(len(power) - 1, k_hi + half_width)
+        smoothed_ext = np.convolve(power[ext_lo : ext_hi + 1], kernel, mode="same")
+        rel_lo = k_lo - ext_lo
+        rel_hi = rel_lo + (k_hi - k_lo + 1)
+        return smoothed_ext[rel_lo:rel_hi]
 
     def peak_in_band(f_center: float) -> float:
         lo = max(0.0, f_center - search_width_percent / 100.0 * f_center)
         hi = min(nyq, f_center + search_width_percent / 100.0 * f_center)
-
-        print(f"Searching for peak in band [{lo:.2f}, {hi:.2f}] Hz around {f_center:.2f} Hz")
-
-        band = (freqs >= lo) & (freqs <= hi)
-        if not np.any(band):
+        k_lo = hz_to_bin(lo)
+        k_hi = hz_to_bin(hi)
+        if k_hi < k_lo:
             raise ValueError(f"No FFT bins in band [{lo}, {hi}] Hz")
-        print(f"FFT bins in band: {np.sum(band)}, frequency resolution: {freqs[1] - freqs[0]:.2f} Hz")
-        print(f"Using moving-average smoothing over {avg_bin_width} bins")
-        idx_band = np.where(band)[0]
-        k = idx_band[np.argmax(mag_smooth[idx_band])]
+        band_smooth = smooth_band_slice(k_lo, k_hi)
+        k = k_lo + int(np.argmax(band_smooth))
 
         # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
         # Use log-magnitude to behave better for sharp peaks.
-        if 1 <= k < len(mag) - 1:
-            y0 = np.log(mag[k - 1] + 1e-30)
-            y1 = np.log(mag[k] + 1e-30)
-            y2 = np.log(mag[k + 1] + 1e-30)
+        if 1 <= k < len(power) - 1:
+            y0 = np.log(power[k - 1] + 1e-30)
+            y1 = np.log(power[k] + 1e-30)
+            y2 = np.log(power[k + 1] + 1e-30)
             denom = (y0 - 2.0 * y1 + y2)
             if denom != 0.0:
                 delta = 0.5 * (y0 - y2) / denom  # in bins, typically [-0.5, 0.5]
-                df = freqs[1] - freqs[0]
-                f_est = freqs[k] + delta * df
+                f_est = k * df + delta * df
                 # Clamp back into the band, just in case
                 return float(min(max(f_est, lo), hi))
-        return float(freqs[k])
+        return float(k * df)
 
     f0_new = peak_in_band(f0)
     f1_new = peak_in_band(f1)
@@ -225,9 +371,9 @@ def refine_fsk_tones_fft(
 
 import numpy as np
 
-def compute_p0(f0, fs=960000):
-    m = fs * (3000 / 1_000_000)
-    n0 = np.floor(fs / f0)
+def compute_p0(f0, DAC_fs=960000):
+    m = DAC_fs * (3000 / 1_000_000)
+    n0 = np.floor(DAC_fs / f0)
     return int(np.round(m / n0))
 
 
@@ -296,6 +442,65 @@ def decode_message_without_ecc(msg_bits):
             return payload
     return bits_to_bytes(msg_bits, bit_offset=0)
 
+def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=100.0, step_hz=1.0, region_info=None):
+    """Sweep f0 around the refined tone using a fixed p0 and absolute Hz step spacing."""
+    if step_hz <= 0:
+        raise ValueError("step_hz must be > 0")
+
+    candidate_f0s = np.arange(
+        refined_f0 - search_span_hz,
+        refined_f0 + search_span_hz + 0.5 * step_hz,
+        step_hz,
+        dtype=float,
+    )
+    candidate_f0s = candidate_f0s[candidate_f0s > 0]
+    if region_info is None:
+        print("Locating likely FSK-active region for f0 sweep...")
+        region_info = find_likely_fsk_region(x, fs, refined_f0, f1=f1)
+    region_start = max(0, int(round(region_info["start_time"] * fs)))
+    region_end = min(len(x), int(round(region_info["end_time"] * fs)))
+    region_x = x[region_start:region_end]
+    if len(region_x) == 0:
+        region_x = x
+
+    print(
+        f"Testing {len(candidate_f0s)} f0 candidates over "
+        f"{search_span_hz:.1f} Hz around refined f0={refined_f0:.2f} Hz..."
+    )
+
+    best_setup = None
+    for candidate_f0 in candidate_f0s:
+        symbol_time = p0 / candidate_f0
+        N = int(round(fs * symbol_time))
+        N_true = fs * symbol_time
+        if N < N_true:
+            N += 1
+        N_err = N - N_true
+        if N <= 0:
+            continue
+
+        best_offset, _ = find_best_offset(region_x, fs, candidate_f0, f1, N, N_err)
+        _, scores = fsk_decode_aligned(region_x, fs, candidate_f0, f1, N, N_err, best_offset)
+        avg_abs_score = float(np.mean(np.abs(scores))) if len(scores) else float("-inf")
+
+        if best_setup is None or avg_abs_score > best_setup["avg_abs_score"]:
+            best_setup = {
+                "f0": float(candidate_f0),
+                "p0": int(p0),
+                "symbol_time": float(symbol_time),
+                "N": int(N),
+                "N_err": float(N_err),
+                "best_offset": int(best_offset),
+                "avg_abs_score": float(avg_abs_score),
+                "region_start_time": float(region_info["start_time"]),
+                "region_end_time": float(region_info["end_time"]),
+            }
+
+    if best_setup is None:
+        raise ValueError("No valid f0 candidate produced demodulation scores")
+
+    return best_setup
+
 def decode_fsk(input_filename: str, 
                f0: float = 20833.33, 
                f1: float = 22222.22,
@@ -322,10 +527,10 @@ def decode_fsk(input_filename: str,
         Number of RS parity bytes to use when ECC is enabled.
     """
 
-    p0 = compute_p0(f0)
-    print(f"\nFor f0={f0:.2f} Hz :   p0={p0}")
     if use_ecc and (ecc_nsym <= 0 or ecc_nsym >= 255):
         raise ValueError("ecc_nsym must be in range [1, 254] when ECC is enabled")
+    user_f0 = f0
+    p0 = compute_p0(user_f0)
 
     base, _ = os.path.splitext(input_filename)
     if generate_debug:
@@ -349,61 +554,76 @@ def decode_fsk(input_filename: str,
             rsc = build_codec_with_nsym(ecc_nsym)
             decode_codeword_fn = decode_codeword
             rs_error_type = ReedSolomonError
+        print(f"Reading audio from {input_filename}...")
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         audio = (audio - np.mean(audio))
-        f0, f1 = refine_fsk_tones_fft(audio, fs, f0, f1)
-        print(f"Refined tones: f0={f0:.2f} Hz, f1={f1:.2f} Hz")
+        print("Locating likely FSK-active region...")
+        region_info = find_likely_fsk_region(audio, fs, f0, f1=f1)
+        region_start = max(0, int(round(region_info["start_time"] * fs)))
+        region_end = min(len(audio), int(round(region_info["end_time"] * fs)))
+        active_audio = audio[region_start:region_end]
+        if len(active_audio) == 0:
+            active_audio = audio
+
+        print("Refining FSK tones from detected active region...")
+        f0, f1 = refine_fsk_tones_fft(active_audio, fs, f0, f1)
+        print("Bandlimiting audio around the refined FSK tones...")
+        audio, filter_delay = bandlimit(audio, f0 - 1100, f1 + 1000, fs)
+        print("Selecting best f0 for demodulation...")
+        best_f0_setup = select_best_f0_setup(audio, fs, f0, f1, p0, region_info=region_info)
+        f0 = best_f0_setup["f0"]
+        p0 = best_f0_setup["p0"]
         Ts = 1 / fs
-        symbol_time = p0 / f0
-        N = int(round(fs * symbol_time))
-        N_true = fs * symbol_time
-        if N < N_true:
-            N += 1 
-        N_err = N - N_true
-        audio, filter_delay = bandlimit(audio, f0 - 1000, f1 + 1000, fs)
+        symbol_time = best_f0_setup["symbol_time"]
+        N = best_f0_setup["N"]
+        N_err = best_f0_setup["N_err"]
+        print(
+            f"Demodulation parameters: f0={f0:.2f} Hz, f1={f1:.2f} Hz, p0={p0}, "
+            f"search-region={best_f0_setup['region_start_time']:.3f}s-"
+            f"{best_f0_setup['region_end_time']:.3f}s"
+        )
         if minutes_per_segment <= 0:
             minutes_per_segment = len(audio) / fs / 60          
         seg_len = int(round(minutes_per_segment * 60 * fs))
         n = audio.shape[0]
-        segments = [audio[i : i + seg_len] for i in range(0, n, seg_len)]
+        segments = [(i, audio[i : i + seg_len]) for i in range(0, n, seg_len)]
+        print(f"Processing {len(segments)} audio segment(s) for demodulation...")
         segmentindex = 0
-        for audio in segments:
-            print(f"\nSegment {segmentindex}: ")
-            print("Finding the best offset for segment...")
+        for segment_start_sample, audio in segments:
+            print(f"Demodulating segment {segmentindex + 1}/{len(segments)}...")
             best_offset, _ = find_best_offset(audio, fs, f0, f1, N, N_err)
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
 
-            import matplotlib.pyplot as plt
-            plt.stem(scores)
-            plt.show()
-
             if len(bits) == 0:
-                print("No bits found in this segment")
                 segmentindex += 1
                 continue
-            idx = np.arange(len(bits))
-            start_samples = best_offset + idx * N
-            t = start_samples / fs
+            start_samples = compute_symbol_start_samples(len(bits), best_offset, N, N_err)
+            if len(start_samples) > 1:
+                next_start_samples = np.empty_like(start_samples)
+                next_start_samples[:-1] = start_samples[1:]
+                next_start_samples[-1] = start_samples[-1] + N - int(math.floor((len(bits) + 1) * N_err)) + int(math.floor(len(bits) * N_err))
+            else:
+                next_start_samples = np.array([start_samples[0] + N], dtype=int)
             th0, th1 = define_thresholds(scores)
-            print(f"Thresholds: f0: {th0:.4f} f1: {th1:.4f}")
             mask = generate_mask(th0, th1, scores)
             DMA_reset_delay = 25  # samples
             msg_ranges = find_message_ranges(mask)
             for start_idx, end_idx in msg_ranges:
                 msg_bits = bits[start_idx : end_idx + 1]
-                msg_times = t[start_idx : end_idx + 1]
-                if len(msg_times) == 0:
+                if len(msg_bits) == 0:
                     continue
-                first_bit_time = msg_times[0]
+                message_start_sample = segment_start_sample + start_samples[start_idx]
+                message_end_sample = segment_start_sample + next_start_samples[end_idx]
                 time_in_recording = (
-                    segmentindex * 60 * minutes_per_segment
-                    + first_bit_time - filter_delay * Ts - DMA_reset_delay * Ts
+                    message_start_sample / fs - filter_delay * Ts - DMA_reset_delay * Ts
                 )
                 debug.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
                 start_time = time_in_recording
-                end_time = time_in_recording + symbol_time * len(msg_bits)
+                end_time = (
+                    message_end_sample / fs - filter_delay * Ts - DMA_reset_delay * Ts
+                )
                 if use_ecc:
                     decoded_payload = decode_message_with_rs(
                         msg_bits,
