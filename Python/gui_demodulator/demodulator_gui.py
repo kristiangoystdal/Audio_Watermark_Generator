@@ -32,21 +32,16 @@ class App(tk.Tk):
             self.frame, text="FSK Audio Demodulator", font=("Arial", 20, "bold")
         ).pack(pady=(12, 6))
 
-        # Presets
-        self.presets = {
-            "Frequency Pair 1": {"f0": 20884, "f1": 22274, "p0": 60},
-            "Frequency Pair 2": {"f0": 11133, "f1": 12525, "p0": 32},
-            "Frequency Pair 3": {"f0": 6957, "f1": 8350, "p0": 20},
-            "Frequency Pair 4": {"f0": 1392, "f1": 2781, "p0": 4},
-        }
-
         # State
         self.selected_files: list[str] = []
 
         # UI vars
         self.inp = tk.StringVar()
-        self.selected_preset = tk.StringVar(value="Frequency Pair 1")
         self.status = tk.StringVar(value="Idle")
+
+        # FSK parameters (user-entered)
+        self.f0_hz = tk.DoubleVar(value=20884.0)
+        self.f1_hz = tk.DoubleVar(value=22274.0)
 
         # New controls
         self.generate_debug = tk.BooleanVar(value=False)
@@ -75,16 +70,21 @@ class App(tk.Tk):
             command=self.pick_wavs,
         ).pack(side="left", padx=(6, 0))
 
-        # Preset
+        # FSK parameters
         tk.Label(self.frame, text="FSK Parameters", font=("Arial", 15, "bold")).pack(
             anchor="w", padx=12, pady=(8, 2)
         )
-        tk.OptionMenu(self.frame, self.selected_preset, *self.presets.keys()).pack(
-            fill="x", padx=12
+        fsk_row = tk.Frame(self.frame)
+        fsk_row.pack(fill="x", padx=12, pady=(0, 6))
+
+        tk.Label(fsk_row, text="f0 (Hz)").pack(side="left")
+        ttk.Entry(fsk_row, textvariable=self.f0_hz, width=12).pack(
+            side="left", padx=(6, 14)
         )
-        self.preset_label = tk.Label(self.frame, text=self._preset_text(), fg="gray")
-        self.preset_label.pack(anchor="w", padx=12, pady=(2, 6))
-        self.selected_preset.trace_add("write", lambda *_: self._update_preset_label())
+        tk.Label(fsk_row, text="f1 (Hz)").pack(side="left")
+        ttk.Entry(fsk_row, textvariable=self.f1_hz, width=12).pack(
+            side="left", padx=(6, 0)
+        )
 
         # Segmentation option
         tk.Label(
@@ -175,18 +175,25 @@ class App(tk.Tk):
         self.focus_force()
         self.after(1200, lambda: self.attributes("-topmost", False))
 
-    # Helpers
-    def _preset_text(self):
-        p = self.presets[self.selected_preset.get()]
-        return f"f0 = {p['f0']:.2f} Hz,  f1 = {p['f1']:.2f} Hz,  p0 = {p['p0']} cycles"
-
-    def _update_preset_label(self):
-        self.preset_label.config(text=self._preset_text())
-
     def _toggle_seg_controls(self):
         enabled = self.use_segmentation.get()
         state = "normal" if enabled else "disabled"
         self.mins_entry.config(state=state)
+
+    def _get_fsk_params(self) -> tuple[float, float]:
+        """Read and validate f0/f1 from the GUI."""
+        try:
+            f0 = float(self.f0_hz.get())
+            f1 = float(self.f1_hz.get())
+        except Exception:
+            raise ValueError("f0 and f1 must be valid numbers (Hz)")
+
+        if not (f0 > 0 and f1 > 0):
+            raise ValueError("f0 and f1 must be > 0 Hz")
+        if abs(f0 - f1) < 1e-9:
+            raise ValueError("f0 and f1 must be different")
+
+        return f0, f1
 
     def _toggle_ecc_controls(self):
         enabled = self.use_ecc.get()
@@ -210,8 +217,11 @@ class App(tk.Tk):
             messagebox.showerror("Error", "Please choose at least one input WAV")
             return
 
-        preset = self.presets[self.selected_preset.get()]
-        f0, f1, p0 = preset["f0"], preset["f1"], preset["p0"]
+        try:
+            f0, f1 = self._get_fsk_params()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
 
         gen_debug = self.generate_debug.get()
         seg_minutes = (
@@ -239,7 +249,6 @@ class App(tk.Tk):
                             wav_path,
                             f0=f0,
                             f1=f1,
-                            p0=p0,
                             generate_debug=gen_debug,
                             minutes_per_segment=seg_minutes,
                             use_ecc=use_ecc,
