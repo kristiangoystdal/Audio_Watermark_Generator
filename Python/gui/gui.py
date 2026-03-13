@@ -339,6 +339,22 @@ FS_HZ = 960000
 MIN_BIT_US = 3000
 FREQ_MIN = 1000
 FREQ_MAX = 24000
+BIT_SAMPLE_TOLERANCE_PERCENT = 1
+
+
+def tolerance_samples(
+    target_samples: int, tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT
+) -> int:
+    return int(round(target_samples * tolerance_percent / 100.0))
+
+
+def total_samples_within_tolerance(
+    total_samples: int,
+    target_samples: int,
+    tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT,
+) -> bool:
+    tol = tolerance_samples(target_samples, tolerance_percent)
+    return (target_samples - tol) <= total_samples <= (target_samples + tol)
 
 
 def rounded_min_bit_samples(fs: int) -> int:
@@ -378,6 +394,7 @@ def adjust_low_frequency_to_valid(low_freq: float, high_freq: float):
     Adjust only low downward until:
       - low/high period counts differ
       - spacing satisfies min_required_diff_hz(lower_freq)
+      - both low and high total samples are within tolerance of target bit length
     """
     min_bit_samples = rounded_min_bit_samples(FS_HZ)
 
@@ -386,18 +403,27 @@ def adjust_low_frequency_to_valid(low_freq: float, high_freq: float):
 
     high_q = quantized_freq_from_samples(FS_HZ, high_n)
     high_p = period_count_from_samples(min_bit_samples, high_n)
+    high_total = high_n * high_p
 
     while True:
         low_q = quantized_freq_from_samples(FS_HZ, low_n)
         low_p = period_count_from_samples(min_bit_samples, low_n)
+        low_total = low_n * low_p
 
         same_periods = low_p == high_p
         enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
+        low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
+        high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
 
-        if (not same_periods) and enough_diff and low_q < high_q:
+        if (
+            (not same_periods)
+            and enough_diff
+            and low_q < high_q
+            and low_timing_ok
+            and high_timing_ok
+        ):
             break
 
-        # lower the low frequency
         candidate_low_n = low_n + 1
         candidate_low_q = quantized_freq_from_samples(FS_HZ, candidate_low_n)
 
@@ -408,9 +434,9 @@ def adjust_low_frequency_to_valid(low_freq: float, high_freq: float):
 
     low_q = quantized_freq_from_samples(FS_HZ, low_n)
     low_p = period_count_from_samples(min_bit_samples, low_n)
-    total_samples = low_n * low_p
+    low_total = low_n * low_p
 
-    return low_q, low_n, low_p, total_samples
+    return low_q, low_n, low_p, low_total
 
 
 def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
@@ -419,6 +445,7 @@ def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
     Adjust only high upward until:
       - low/high period counts differ
       - spacing satisfies min_required_diff_hz(lower_freq)
+      - both low and high total samples are within tolerance of target bit length
     """
     min_bit_samples = rounded_min_bit_samples(FS_HZ)
 
@@ -427,18 +454,27 @@ def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
 
     low_q = quantized_freq_from_samples(FS_HZ, low_n)
     low_p = period_count_from_samples(min_bit_samples, low_n)
+    low_total = low_n * low_p
 
     while True:
         high_q = quantized_freq_from_samples(FS_HZ, high_n)
         high_p = period_count_from_samples(min_bit_samples, high_n)
+        high_total = high_n * high_p
 
         same_periods = low_p == high_p
         enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
+        low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
+        high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
 
-        if (not same_periods) and enough_diff and high_q > low_q:
+        if (
+            (not same_periods)
+            and enough_diff
+            and high_q > low_q
+            and low_timing_ok
+            and high_timing_ok
+        ):
             break
 
-        # raise the high frequency
         if high_n <= 1:
             break
 
@@ -452,9 +488,9 @@ def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
 
     high_q = quantized_freq_from_samples(FS_HZ, high_n)
     high_p = period_count_from_samples(min_bit_samples, high_n)
-    total_samples = high_n * high_p
+    high_total = high_n * high_p
 
-    return high_q, high_n, high_p, total_samples
+    return high_q, high_n, high_p, high_total
 
 
 def update_low_frequency():
@@ -618,14 +654,23 @@ def validate_all_fields():
         if low >= high:
             invalid_fields.append("Lower Frequency must be less than Higher Frequency")
 
-        q_low_from_low, _, low_p, _ = adjust_low_frequency_to_valid(low, high)
-        q_high_from_high, _, high_p, _ = adjust_high_frequency_to_valid(low, high)
+        min_bit_samples = rounded_min_bit_samples(FS_HZ)
+
+        q_low_from_low, low_n, low_p, low_total = adjust_low_frequency_to_valid(
+            low, high
+        )
+        q_high_from_high, high_n, high_p, high_total = adjust_high_frequency_to_valid(
+            low, high
+        )
 
         min_diff_low = min_required_diff_hz(q_low_from_low)
         actual_diff_low = freq_diff_u16(high, q_low_from_low)
 
-        min_diff_high = min_required_diff_hz(q_high_from_high)
+        min_diff_high = min_required_diff_hz(low)
         actual_diff_high = freq_diff_u16(q_high_from_high, low)
+
+        low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
+        high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
 
         if q_low_from_low >= high:
             invalid_fields.append("Lower Frequency becomes invalid after adjustment")
@@ -636,6 +681,21 @@ def validate_all_fields():
         if actual_diff_low < min_diff_low and actual_diff_high < min_diff_high:
             invalid_fields.append(
                 "Frequency difference is too small after quantization/adjustment"
+            )
+
+        if not low_timing_ok:
+            invalid_fields.append(
+                f"Lower Frequency total samples are not within ±{BIT_SAMPLE_TOLERANCE_PERCENT}% of 3000 µs"
+            )
+
+        if not high_timing_ok:
+            invalid_fields.append(
+                f"Higher Frequency total samples are not within ±{BIT_SAMPLE_TOLERANCE_PERCENT}% of 3000 µs"
+            )
+
+        if low_p == high_p:
+            invalid_fields.append(
+                "Lower and Higher Frequency result in the same period count after quantization"
             )
 
     if not is_field_valid(root.attenuation_field, int, 0, 100):
