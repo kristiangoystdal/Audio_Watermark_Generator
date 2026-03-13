@@ -149,7 +149,14 @@ def split_messages_by_gap(bits, times, symbol_time):
 
 import numpy as np
 
-def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percent: int = 2,):
+def refine_fsk_tones_fft(
+    x,
+    fs: float,
+    f0: float,
+    f1: float,
+    search_width_percent: int = 2,
+    avg_bin_width: int = 500,
+):
     """
     FFT the full signal and find the most prominent peak within:
       [f0 - search_width_hz, f0 + search_width_hz]
@@ -171,16 +178,30 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
     mag = np.abs(X)
     freqs = np.fft.rfftfreq(len(xw), d=1.0 / fs)
 
+    # Smooth magnitudes by averaging neighboring bins (same number of bins).
+    if avg_bin_width < 1:
+        raise ValueError("avg_bin_width must be >= 1")
+    if avg_bin_width % 2 == 0:
+        avg_bin_width += 1
+    if avg_bin_width > 1:
+        kernel = np.ones(avg_bin_width, dtype=float) / avg_bin_width
+        mag_smooth = np.convolve(mag, kernel, mode="same")
+    else:
+        mag_smooth = mag
+
     def peak_in_band(f_center: float) -> float:
         lo = max(0.0, f_center - search_width_percent / 100.0 * f_center)
         hi = min(nyq, f_center + search_width_percent / 100.0 * f_center)
 
+        print(f"Searching for peak in band [{lo:.2f}, {hi:.2f}] Hz around {f_center:.2f} Hz")
+
         band = (freqs >= lo) & (freqs <= hi)
         if not np.any(band):
             raise ValueError(f"No FFT bins in band [{lo}, {hi}] Hz")
-
+        print(f"FFT bins in band: {np.sum(band)}, frequency resolution: {freqs[1] - freqs[0]:.2f} Hz")
+        print(f"Using moving-average smoothing over {avg_bin_width} bins")
         idx_band = np.where(band)[0]
-        k = idx_band[np.argmax(mag[idx_band])]
+        k = idx_band[np.argmax(mag_smooth[idx_band])]
 
         # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
         # Use log-magnitude to behave better for sharp peaks.
@@ -195,7 +216,6 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
                 f_est = freqs[k] + delta * df
                 # Clamp back into the band, just in case
                 return float(min(max(f_est, lo), hi))
-
         return float(freqs[k])
 
     f0_new = peak_in_band(f0)
@@ -205,10 +225,76 @@ def refine_fsk_tones_fft(x, fs: float, f0: float, f1: float, search_width_percen
 
 import numpy as np
 
-def compute_p0(f0, fs=95950):
+def compute_p0(f0, fs=960000):
     m = fs * (3000 / 1_000_000)
     n0 = np.floor(fs / f0)
     return int(np.round(m / n0))
+
+
+def find_message_ranges(mask, max_gap_symbols=3):
+    """
+    Find contiguous message ranges in the original bitstream using reliable symbols.
+
+    Returns a list of (start_idx, end_idx) on the unmasked bit array.
+    """
+    reliable_idx = np.flatnonzero(mask)
+    if len(reliable_idx) == 0:
+        return []
+
+    split_at = np.where(np.diff(reliable_idx) > max_gap_symbols)[0] + 1
+    groups = np.split(reliable_idx, split_at)
+    return [(int(group[0]), int(group[-1])) for group in groups if len(group) > 0]
+
+
+def bits_to_bytes(bits, bit_offset=0):
+    """Pack a bit array into bytes, optionally skipping an initial bit offset."""
+    if bit_offset < 0 or bit_offset >= 8:
+        raise ValueError("bit_offset must be in range [0, 7]")
+
+    usable_bits = len(bits) - bit_offset
+    n_full_bytes = usable_bits // 8
+    if n_full_bytes <= 0:
+        return b""
+
+    out = bytearray()
+    idx = bit_offset
+    for _ in range(n_full_bytes):
+        value = 0
+        for _ in range(8):
+            value = (value << 1) | int(bits[idx])
+            idx += 1
+        out.append(value)
+    return bytes(out)
+
+
+def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_type):
+    """
+    Attempt RS decode from a bit segment.
+
+    Tries all bit alignments [0..7] and returns the first successful payload.
+    """
+    for bit_offset in range(8):
+        codeword = bits_to_bytes(msg_bits, bit_offset=bit_offset)
+        if len(codeword) <= nsym:
+            continue
+        try:
+            payload = decode_codeword_fn(codeword, codec=rsc)
+            return payload
+        except rs_error_type:
+            continue
+    return None
+
+
+def decode_message_without_ecc(msg_bits):
+    """Decode bytes directly from bit segment, trying byte alignments."""
+    for bit_offset in range(8):
+        payload = bits_to_bytes(msg_bits, bit_offset=bit_offset)
+        if not payload:
+            continue
+        text = payload.decode("ascii", errors="replace")
+        if text.startswith("/") and text.endswith("/"):
+            return payload
+    return bits_to_bytes(msg_bits, bit_offset=0)
 
 def decode_fsk(input_filename: str, 
                f0: float = 20833.33, 
@@ -238,7 +324,9 @@ def decode_fsk(input_filename: str,
 
     p0 = compute_p0(f0)
     print(f"\nFor f0={f0:.2f} Hz :   p0={p0}")
-        
+    if use_ecc and (ecc_nsym <= 0 or ecc_nsym >= 255):
+        raise ValueError("ecc_nsym must be in range [1, 254] when ECC is enabled")
+
     base, _ = os.path.splitext(input_filename)
     if generate_debug:
         debug_filename = base + "_debug.txt"
