@@ -45,11 +45,15 @@
 // Configuration for FSK frequencies (in Hz) - these will be adjusted by the
 // algorithm if they don't meet the sample count requirements, but should be set
 // close to the desired frequencies to minimize adjustments
-#define FSK_LOWER_FREQUENCY 1500
-#define FSK_HIGHER_FREQUENCY 16000
+#define FSK_LOWER_FREQUENCY 5486
+#define FSK_HIGHER_FREQUENCY 5675
 
 // Configuration for attenuation of the signal in percent (0-100), where 100 is
 // no attenuation and 0 is maximum attenuation (silence)
 #define SIGNAL_ATTENUATION 100
+
+// Configuration for whether to use Reed-Solomon error correction coding, which adds redundancy to the transmitted data to allow for error detection and correction at the receiver. This can improve reliability in noisy environments but reduces the effective data rate due to the added redundancy.
+#define USE_REED_SOLOMON_ERROR_CORRECTION true
+#define RS_ERROR_CORRECTION_SYMBOLS 20
 
 #endif // USER_CONFIG_H

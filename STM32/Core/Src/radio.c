@@ -139,7 +139,7 @@ void transmit_bytes(void) {
   CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
   if (status != 0) {
     LOGF("Error writing to TX FIFO, status: 0x%02X\r\n", status);
-    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    // Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
     return;
   }
 

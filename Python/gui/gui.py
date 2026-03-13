@@ -335,77 +335,212 @@ tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).gri
 # ------------------------------
 # Frequency helpers
 # ------------------------------
-FS_HZ = 384000
+FS_HZ = 960000
 MIN_BIT_US = 3000
-
-MIN_BIT_SAMPLES = int(((FS_HZ * MIN_BIT_US) + 500000) // 1000000)
-
-NUM_SAMPLES_MIN = 1120
-NUM_SAMPLES_MAX = 1180
-
 FREQ_MIN = 1000
 FREQ_MAX = 24000
+BIT_SAMPLE_TOLERANCE_PERCENT = 1
 
 
-def update_frequency_on_focus_out(var: tk.IntVar):
-    try:
-        user_val = int(var.get())
-    except Exception:
-        user_val = FREQ_MIN
-
-    new_freq, freq_samples, periods, total_samples = adjust_frequency_to_valid(user_val)
-    var.set(new_freq)
+def tolerance_samples(
+    target_samples: int, tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT
+) -> int:
+    return int(round(target_samples * tolerance_percent / 100.0))
 
 
-def adjust_frequency_to_valid(user_freq: int) -> tuple[int, int, int, int]:
-    freq = max(FREQ_MIN, min(FREQ_MAX, int(user_freq)))
+def total_samples_within_tolerance(
+    total_samples: int,
+    target_samples: int,
+    tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT,
+) -> bool:
+    tol = tolerance_samples(target_samples, tolerance_percent)
+    return (target_samples - tol) <= total_samples <= (target_samples + tol)
 
-    for _ in range(FREQ_MAX - FREQ_MIN + 1):
-        freq_samples = int(math.floor(FS_HZ / freq))
-        if freq_samples <= 0:
-            freq_samples = 1
 
-        periods = int(round(MIN_BIT_SAMPLES / freq_samples))
-        if periods <= 0:
-            periods = 1
+def rounded_min_bit_samples(fs: int) -> int:
+    return ((fs * MIN_BIT_US) + 500000) // 1000000
 
-        total_samples = freq_samples * periods
 
-        if NUM_SAMPLES_MIN <= total_samples <= NUM_SAMPLES_MAX:
-            return freq, freq_samples, periods, total_samples
+def quantized_freq_from_samples(fs: int, samples_per_period: int) -> int:
+    if samples_per_period <= 0:
+        return 0
+    return int(math.floor(fs / samples_per_period))
 
-        freq += 1
-        if freq > FREQ_MAX:
-            freq = FREQ_MAX
+
+def period_count_from_samples(min_bit_samples: int, samples_per_period: int) -> int:
+    return int(round(min_bit_samples / samples_per_period))
+
+
+def freq_diff_u16(a: int, b: int) -> int:
+    return abs(a - b)
+
+
+def min_required_diff_hz(lower_freq: int) -> int:
+    return 300 + (400000 // lower_freq)
+
+
+def quantized_params(freq: float, fs: int = FS_HZ):
+    samples_per_period = max(1, int(math.floor(fs / freq)))
+    min_bit_samples = rounded_min_bit_samples(fs)
+    period_count = period_count_from_samples(min_bit_samples, samples_per_period)
+    quantized_freq = quantized_freq_from_samples(fs, samples_per_period)
+    total_samples = samples_per_period * period_count
+    return quantized_freq, samples_per_period, period_count, total_samples
+
+
+def adjust_low_frequency_to_valid(low_freq: float, high_freq: float):
+    """
+    Keep high fixed.
+    Adjust only low downward until:
+      - low/high period counts differ
+      - spacing satisfies min_required_diff_hz(lower_freq)
+      - both low and high total samples are within tolerance of target bit length
+    """
+    min_bit_samples = rounded_min_bit_samples(FS_HZ)
+
+    low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+    high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+    high_q = quantized_freq_from_samples(FS_HZ, high_n)
+    high_p = period_count_from_samples(min_bit_samples, high_n)
+    high_total = high_n * high_p
+
+    while True:
+        low_q = quantized_freq_from_samples(FS_HZ, low_n)
+        low_p = period_count_from_samples(min_bit_samples, low_n)
+        low_total = low_n * low_p
+
+        same_periods = low_p == high_p
+        enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
+        low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
+        high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
+
+        if (
+            (not same_periods)
+            and enough_diff
+            and low_q < high_q
+            and low_timing_ok
+            and high_timing_ok
+        ):
             break
 
-    freq_samples = int(math.floor(FS_HZ / freq))
-    periods = max(1, int(round(MIN_BIT_SAMPLES / max(1, freq_samples))))
-    total_samples = freq_samples * periods
-    return freq, freq_samples, periods, total_samples
+        candidate_low_n = low_n + 1
+        candidate_low_q = quantized_freq_from_samples(FS_HZ, candidate_low_n)
+
+        if candidate_low_q < FREQ_MIN:
+            break
+
+        low_n = candidate_low_n
+
+    low_q = quantized_freq_from_samples(FS_HZ, low_n)
+    low_p = period_count_from_samples(min_bit_samples, low_n)
+    low_total = low_n * low_p
+
+    return low_q, low_n, low_p, low_total
 
 
-root.frequency_low_field.bind(
-    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
-)
-root.frequency_high_field.bind(
-    "<FocusOut>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
-)
-root.frequency_low_field.bind(
-    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
-)
-root.frequency_low_field.bind(
-    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_low_var)
-)
-root.frequency_high_field.bind(
-    "<Return>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
-)
-root.frequency_high_field.bind(
-    "<Tab>", lambda e: update_frequency_on_focus_out(root.frequency_high_var)
-)
+def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
+    """
+    Keep low fixed.
+    Adjust only high upward until:
+      - low/high period counts differ
+      - spacing satisfies min_required_diff_hz(lower_freq)
+      - both low and high total samples are within tolerance of target bit length
+    """
+    min_bit_samples = rounded_min_bit_samples(FS_HZ)
 
-update_frequency_on_focus_out(root.frequency_low_var)
-update_frequency_on_focus_out(root.frequency_high_var)
+    low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+    high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+    low_q = quantized_freq_from_samples(FS_HZ, low_n)
+    low_p = period_count_from_samples(min_bit_samples, low_n)
+    low_total = low_n * low_p
+
+    while True:
+        high_q = quantized_freq_from_samples(FS_HZ, high_n)
+        high_p = period_count_from_samples(min_bit_samples, high_n)
+        high_total = high_n * high_p
+
+        same_periods = low_p == high_p
+        enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
+        low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
+        high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
+
+        if (
+            (not same_periods)
+            and enough_diff
+            and high_q > low_q
+            and low_timing_ok
+            and high_timing_ok
+        ):
+            break
+
+        if high_n <= 1:
+            break
+
+        candidate_high_n = high_n - 1
+        candidate_high_q = quantized_freq_from_samples(FS_HZ, candidate_high_n)
+
+        if candidate_high_q > FREQ_MAX:
+            break
+
+        high_n = candidate_high_n
+
+    high_q = quantized_freq_from_samples(FS_HZ, high_n)
+    high_p = period_count_from_samples(min_bit_samples, high_n)
+    high_total = high_n * high_p
+
+    return high_q, high_n, high_p, high_total
+
+
+def update_low_frequency():
+    try:
+        low = float(root.frequency_low_var.get())
+        high = float(root.frequency_high_var.get())
+    except Exception:
+        return
+
+    low = max(FREQ_MIN, min(FREQ_MAX, low))
+    high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+    if low >= high:
+        low = high - 1
+
+    if low < FREQ_MIN:
+        low = FREQ_MIN
+
+    new_low, _, _, _ = adjust_low_frequency_to_valid(low, high)
+    root.frequency_low_var.set(int(new_low))
+
+
+def update_high_frequency():
+    try:
+        low = float(root.frequency_low_var.get())
+        high = float(root.frequency_high_var.get())
+    except Exception:
+        return
+
+    low = max(FREQ_MIN, min(FREQ_MAX, low))
+    high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+    if high <= low:
+        high = low + 1
+
+    if high > FREQ_MAX:
+        high = FREQ_MAX
+
+    new_high, _, _, _ = adjust_high_frequency_to_valid(low, high)
+    root.frequency_high_var.set(int(new_high))
+
+
+root.frequency_low_field.bind("<FocusOut>", lambda e: update_low_frequency())
+root.frequency_low_field.bind("<Return>", lambda e: update_low_frequency())
+
+root.frequency_high_field.bind("<FocusOut>", lambda e: update_high_frequency())
+root.frequency_high_field.bind("<Return>", lambda e: update_high_frequency())
+
+update_low_frequency()
+update_high_frequency()
 
 
 # ------------------------------
@@ -519,6 +654,50 @@ def validate_all_fields():
         if low >= high:
             invalid_fields.append("Lower Frequency must be less than Higher Frequency")
 
+        min_bit_samples = rounded_min_bit_samples(FS_HZ)
+
+        q_low_from_low, low_n, low_p, low_total = adjust_low_frequency_to_valid(
+            low, high
+        )
+        q_high_from_high, high_n, high_p, high_total = adjust_high_frequency_to_valid(
+            low, high
+        )
+
+        min_diff_low = min_required_diff_hz(q_low_from_low)
+        actual_diff_low = freq_diff_u16(high, q_low_from_low)
+
+        min_diff_high = min_required_diff_hz(low)
+        actual_diff_high = freq_diff_u16(q_high_from_high, low)
+
+        low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
+        high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
+
+        if q_low_from_low >= high:
+            invalid_fields.append("Lower Frequency becomes invalid after adjustment")
+
+        if q_high_from_high <= low:
+            invalid_fields.append("Higher Frequency becomes invalid after adjustment")
+
+        if actual_diff_low < min_diff_low and actual_diff_high < min_diff_high:
+            invalid_fields.append(
+                "Frequency difference is too small after quantization/adjustment"
+            )
+
+        if not low_timing_ok:
+            invalid_fields.append(
+                f"Lower Frequency total samples are not within ±{BIT_SAMPLE_TOLERANCE_PERCENT}% of 3000 µs"
+            )
+
+        if not high_timing_ok:
+            invalid_fields.append(
+                f"Higher Frequency total samples are not within ±{BIT_SAMPLE_TOLERANCE_PERCENT}% of 3000 µs"
+            )
+
+        if low_p == high_p:
+            invalid_fields.append(
+                "Lower and Higher Frequency result in the same period count after quantization"
+            )
+
     if not is_field_valid(root.attenuation_field, int, 0, 100):
         invalid_fields.append("Attenuation must be an integer between 0 and 100")
 
@@ -611,7 +790,5 @@ def dual_build_flash_call():
         root.after(0, lambda: build_btn.config(state="normal"))
         root.after(4000, lambda: status_label.config(text="Idle"))
 
-
-root.bind("<Return>", lambda e: start_dual_flash_thread())
 
 root.mainloop()

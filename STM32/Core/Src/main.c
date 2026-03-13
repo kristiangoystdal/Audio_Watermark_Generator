@@ -36,6 +36,7 @@
 #include "relay.h"
 #include "spi.h"
 #include "user_config.h"
+#include "reed_solomon.h"
 
 // Standard library includes
 #include <cmsis_gcc.h>
@@ -77,7 +78,8 @@
    LEN_IF(INCLUDE_TEMPERATURE, "/TMP000") +                                    \
    LEN_IF(INCLUDE_TIME, "/TIM00000000000000") + 4u)
 
-#define BITSTREAM_LENGTH (MAX_NUM_CHARS * 8u)
+#define MAX_PAYLOAD_BYTES (MAX_NUM_CHARS + RS_ERROR_CORRECTION_SYMBOLS)
+#define BITSTREAM_LENGTH (1u + (MAX_PAYLOAD_BYTES * 8u) + 8u)
 
 #define BIT_POLARITY 0
 
@@ -121,7 +123,15 @@ uint8_t bitstream[BITSTREAM_LENGTH] = {0};
 
 volatile uint8_t active_done = 0;
 
-rtc_time_t now = {0};
+rtc_time_t now = {
+    .seconds = 0,
+    .minutes = 0,
+    .hours   = 0,
+    .day     = 4,  
+    .date    = 1,
+    .month   = 1,
+    .year    = 1970
+};
 
 int temp_int = 25;
 
@@ -181,7 +191,7 @@ static void MX_USART2_UART_Init(void);
 void EnterStopMode(void);
 void calculate_active_duration_ms(size_t bitstream_len);
 void StartActiveWindowMs(uint32_t ms);
-void make_bitstream_from_string(const char *str);
+void make_bitstream_from_bytes(const uint8_t *data, size_t length);
 void update_input_string(void);
 int make_preamble(int start_idx);
 void get_sineval_low(void);
@@ -200,7 +210,7 @@ void read_buffer(void);
 void process_transmission(uint8_t *transmission, int *dBm_value);
 
 void create_string_from_received_data(const uint8_t *transmission,
-                                      int dBm_value, char *output_str,
+                                      int dBm_value, uint8_t *output_str,
                                       size_t output_str_size);
 
 static int init_luts_from_freqpair(void);
@@ -215,10 +225,11 @@ void Error_Handler_Code(status_code_t code);
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
-int main(void) {
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
 
   /* USER CODE BEGIN 1 */
 
@@ -226,8 +237,7 @@ int main(void) {
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
-   */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -289,7 +299,7 @@ int main(void) {
   if (init_luts_from_freqpair() != 0) {
     LOGF("LUT alloc failed\r\n");
     LOGF("--------------------------\r\n");
-    Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
+    // Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
   }
 
   get_sineval_low();
@@ -326,7 +336,7 @@ int main(void) {
     LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
          init_result);
     LOGF("--------------------------\r\n");
-    Error_Handler_Code(init_result);
+    // Error_Handler_Code(init_result);
   }
 
   //-----------------------------------------------------------------------------//
@@ -347,12 +357,12 @@ int main(void) {
 
     // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
     LOGF("Entering STOP mode...\r\n");
-    EnterStopMode();
+    // EnterStopMode();
 
-    // 2) Debounce button
-    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
-    }
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+    // // 2) Debounce button
+    // while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
+    // }
+    // __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
     LOGF("Woke up!\r\n");
 
@@ -375,28 +385,65 @@ int main(void) {
 
       // Create output string based on received data and dBm value (e.g.
       // "/STR.../DID.../LOC.../TMP.../TIM...")
-      char output_str[256] = {0};
+      uint8_t output_str[256] = {0};
       create_string_from_received_data(transmission, dBm_value, output_str,
                                        sizeof(output_str));
 
-      LOGF("Final output string: %s\r\n", output_str);
+      LOGF("Created output string: %s\r\n", output_str);
+      size_t payload_len = strlen((char *)output_str);
+      LOGF("Output string length: %lu characters\r\n", (unsigned long)payload_len);
+
+      if (USE_REED_SOLOMON_ERROR_CORRECTION){
+        // Prepare buffer for Reed-Solomon codeword (message + parity)
+        uint8_t codeword[payload_len + RS_ERROR_CORRECTION_SYMBOLS];
+        memset(codeword, 0, sizeof(codeword));
+
+        // Encode the output string using Reed-Solomon
+        rs_encode_msg((const uint8_t *)output_str, (int)payload_len,
+                      codeword, RS_ERROR_CORRECTION_SYMBOLS);
+
+        LOGF("Reed-Solomon encoded codeword: ");
+        for (size_t i = 0; i < payload_len + RS_ERROR_CORRECTION_SYMBOLS; i++) {
+          LOGF("%02X ", codeword[i]);
+        }
+        LOGF("\r\n");
+
+        // Set output_str to the codeword for transmission (truncated to fit if necessary)
+        size_t codeword_len = payload_len + RS_ERROR_CORRECTION_SYMBOLS;
+        if (codeword_len > sizeof(output_str)) {
+          codeword_len = sizeof(output_str);
+        }
+        memcpy(output_str, codeword, codeword_len);
+        payload_len = codeword_len;
+        LOGF("Using Reed-Solomon codeword for transmission, length: %lu bytes\r\n", (unsigned long)payload_len);
+      }
 
       // Make bitstream from output string
-      make_bitstream_from_string(output_str);
+      make_bitstream_from_bytes(output_str, payload_len); 
       LOGF("Prepared bitstream from output string.\r\n");
-      LOGF("Output string length: %d characters\r\n", (int)strlen(output_str));
+      LOGF("Output string length: %lu characters\r\n", (unsigned long)payload_len);
 
       // Calculate active duration based on bitstream length and bit durations
-      size_t bitstream_len = strlen(output_str) * 8u;
+      size_t bitstream_len = 1u + payload_len * 8u + 8u;
+      // LOGF("Bitstream: ");
+      // for (size_t i = 0; i < bitstream_len; i++) {
+      //   LOGF("%u", bitstream[i]);
+      // }
+      // LOGF("\r\n");
       calculate_active_duration_ms(bitstream_len);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
       LOGF("Calculated active duration for response: %lu ms\r\n",
            (unsigned long)total_ms);
 
+      
+      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+
       // Send transmission over audio
       LOGF("Starting transmission of response over audio...\r\n");
       LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       TX_Start();
+
+    
 
       // Wait for active window to complete (enters low-power sleep while
       // waiting)
@@ -429,20 +476,21 @@ int main(void) {
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
-void SystemClock_Config(void) {
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-   */
+  */
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
+  * in the RCC_OscInitTypeDef structure.
+  */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
@@ -453,30 +501,33 @@ void SystemClock_Config(void) {
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
-                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
     Error_Handler();
   }
 }
 
 /**
- * @brief ADC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_ADC1_Init(void) {
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
 
   /* USER CODE BEGIN ADC1_Init 0 */
 
@@ -490,7 +541,7 @@ static void MX_ADC1_Init(void) {
   /* USER CODE END ADC1_Init 1 */
 
   /** Common config
-   */
+  */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
@@ -507,39 +558,44 @@ static void MX_ADC1_Init(void) {
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure the ADC multi-mode
-   */
+  */
   multimode.Mode = ADC_MODE_INDEPENDENT;
-  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK) {
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure Regular Channel
-   */
+  */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
- * @brief DAC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_DAC1_Init(void) {
+  * @brief DAC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC1_Init(void)
+{
 
   /* USER CODE BEGIN DAC1_Init 0 */
 
@@ -552,14 +608,15 @@ static void MX_DAC1_Init(void) {
   /* USER CODE END DAC1_Init 1 */
 
   /** DAC Initialization
-   */
+  */
   hdac1.Instance = DAC1;
-  if (HAL_DAC_Init(&hdac1) != HAL_OK) {
+  if (HAL_DAC_Init(&hdac1) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** DAC channel OUT1 config
-   */
+  */
   sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_AUTOMATIC;
   sConfig.DAC_DMADoubleDataMode = DISABLE;
   sConfig.DAC_SignedFormat = DISABLE;
@@ -569,20 +626,23 @@ static void MX_DAC1_Init(void) {
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
-  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
+
 }
 
 /**
- * @brief I2C2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_I2C2_Init(void) {
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
 
   /* USER CODE BEGIN I2C2_Init 0 */
 
@@ -600,32 +660,37 @@ static void MX_I2C2_Init(void) {
   hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK) {
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure Analogue filter
-   */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure Digital filter
-   */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK) {
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+
 }
 
 /**
- * @brief SPI1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_SPI1_Init(void) {
+  * @brief SPI1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI1_Init(void)
+{
 
   /* USER CODE BEGIN SPI1_Init 0 */
 
@@ -649,20 +714,23 @@ static void MX_SPI1_Init(void) {
   hspi1.Init.CRCPolynomial = 7;
   hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
   hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
+  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
 }
 
 /**
- * @brief TIM2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TIM2_Init(void) {
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
 
   /* USER CODE BEGIN TIM2_Init 0 */
 
@@ -677,32 +745,37 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 124;
+  htim2.Init.Period = 49;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
 }
 
 /**
- * @brief TIM6 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TIM6_Init(void) {
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
 
   /* USER CODE BEGIN TIM6_Init 0 */
 
@@ -718,25 +791,29 @@ static void MX_TIM6_Init(void) {
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK) {
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK) {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM6_Init 2 */
 
   /* USER CODE END TIM6_Init 2 */
+
 }
 
 /**
- * @brief USART2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_USART2_UART_Init(void) {
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
 
   /* USER CODE BEGIN USART2_Init 0 */
 
@@ -756,29 +833,33 @@ static void MX_USART2_UART_Init(void) {
   huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK) {
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) !=
-      HAL_OK) {
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) !=
-      HAL_OK) {
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) {
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
 }
 
 /**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void) {
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
 
   /* DMA controller clock enable */
   __HAL_RCC_DMAMUX1_CLK_ENABLE();
@@ -788,17 +869,16 @@ static void MX_DMA_Init(void) {
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-  /* DMAMUX_OVR_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMAMUX_OVR_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMAMUX_OVR_IRQn);
+
 }
 
 /**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
-static void MX_GPIO_Init(void) {
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
@@ -810,21 +890,26 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10,
-                    GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_10, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_6, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PA5 PA6 PA7 PA10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10;
+  GPIO_InitStruct.Pin = GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7|GPIO_PIN_10;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_6;
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -878,7 +963,7 @@ void StartActiveWindowMs(uint32_t ms) {
     ms = 1;
   }
 
-  HAL_TIM_Base_Stop_IT(&htim6); // <- important, resets state
+  HAL_TIM_Base_Stop_IT(&htim6);
   __HAL_TIM_SET_COUNTER(&htim6, 0);
   __HAL_TIM_SET_AUTORELOAD(&htim6, ms - 1);
 
@@ -904,32 +989,28 @@ int make_preamble(int start_idx) {
 
   return k;
 }
+void make_bitstream_from_bytes(const uint8_t *data, size_t length) {
+  size_t k = 0;
 
-void make_bitstream_from_string(const char *str) {
-  int k = 0;
-
-  // Preamble bit - silence
-  for (int i = 0; i < 1 && k < BITSTREAM_LENGTH; ++i) {
+  if (k < BITSTREAM_LENGTH) {
     bitstream[k++] = 2; // silence
   }
 
-  // Data bits from string
-  for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
-    for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
-      bitstream[k++] = ((str[i] >> b) & 1) ^ BIT_POLARITY; // data
+  for (size_t i = 0; i < length && k < BITSTREAM_LENGTH; ++i) {
+    for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; --b) {
+      bitstream[k++] = (uint8_t)(((data[i] >> b) & 1u) ^ BIT_POLARITY);
     }
   }
 
-  // Add 8 bits of silence at the end if there's space
   for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = 2; // silence
   }
 
-  // Fill remaining bits with silence if any
   while (k < BITSTREAM_LENGTH) {
     bitstream[k++] = 2; // silence
   }
 }
+
 
 void update_input_string(void) {
   input_string[0] = '\0';
@@ -1223,7 +1304,7 @@ static void TX_Start(void) {
 
   if (st != HAL_OK) {
     LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
-    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    // Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     LOGF("  HAL_DAC_Start_DMA OK\r\n");
   }
@@ -1237,7 +1318,7 @@ static void TX_Start(void) {
 
   if (st != HAL_OK) {
     LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
-    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    // Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     LOGF("  HAL_TIM_Base_Start OK\r\n");
   }
@@ -1247,6 +1328,8 @@ static void TX_Stop(void) {
   LOGF("TX_Stop()\r\n");
 
   tx_active = false;
+
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7,  GPIO_PIN_RESET); 
 
   // Stop trigger + DMA first
   HAL_TIM_Base_Stop(&htim2);
@@ -1324,7 +1407,7 @@ void process_transmission(uint8_t *transmission, int *dBm_value) {
 }
 
 void create_string_from_received_data(const uint8_t *transmission,
-                                      int dBm_value, char *output_str,
+                                      int dBm_value, uint8_t *output_str,
                                       size_t output_str_size) {
   if (!output_str || output_str_size == 0)
     return;
@@ -1342,14 +1425,14 @@ void create_string_from_received_data(const uint8_t *transmission,
   rtc_time_t time_val = now;          // runtime value
 
   // Copy transmission to local buffer for tokenization
-  char buf[256];
+  char buf[256] = {0};
   size_t in_len = strnlen((const char *)transmission, sizeof(buf) - 1);
   memcpy(buf, transmission, in_len);
   buf[in_len] = '\0';
 
   // Parse tokens in the format /KEYvalue, where KEY is 3 chars and value is
   // variable length, separated by '/'
-  for (char *tok = strtok(buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
+  for (char *tok = strtok((char *)buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
 
     if (strncmp(tok, "STR", 3) == 0) {
       strncpy(user_string, tok + 3, sizeof(user_string) - 1);
@@ -1367,7 +1450,7 @@ void create_string_from_received_data(const uint8_t *transmission,
 
     } else if (strncmp(tok, "TIM", 3) == 0) {
       const char *p = tok + 3;
-      if (strlen(p) >= 14) {
+      if (strlen(p) >= 16) {
         char t[3] = {0};
 
         t[0] = p[0];
@@ -1397,14 +1480,15 @@ void create_string_from_received_data(const uint8_t *transmission,
 
   // Build output string based on parsed tokens and compile-time flags, with
   // careful buffer management
+  char temp_buf[256] = {0}; 
   size_t offset = 0;
-  size_t remaining = output_str_size;
+  size_t remaining = sizeof(temp_buf);
   int n = 0;
 
   output_str[0] = '\0';
 
   if (INCLUDE_USER_STRING) {
-    n = snprintf(&output_str[offset], remaining, "/STR%s", user_string);
+    n = snprintf(&temp_buf[offset], remaining, "/STR%s", user_string);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
@@ -1412,7 +1496,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   if (INCLUDE_DEVICE_ID) {
-    n = snprintf(&output_str[offset], remaining, "%s/DID%d",
+    n = snprintf(&temp_buf[offset], remaining, "%s/DID%d",
                  (offset > 0) ? "" : "", device_id);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
@@ -1421,7 +1505,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   if (INCLUDE_LOCATION) {
-    n = snprintf(&output_str[offset], remaining, "%s/LOC%s",
+    n = snprintf(&temp_buf[offset], remaining, "%s/LOC%s",
                  (offset > 0) ? "" : "", location);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
@@ -1430,7 +1514,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   if (INCLUDE_TEMPERATURE) {
-    n = snprintf(&output_str[offset], remaining, "%s/TMP%d",
+    n = snprintf(&temp_buf[offset], remaining, "%s/TMP%d",
                  (offset > 0) ? "" : "", temperature);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
@@ -1439,7 +1523,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   if (INCLUDE_TIME) {
-    n = snprintf(&output_str[offset], remaining,
+    n = snprintf(&temp_buf[offset], remaining,
                  "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
                  time_val.hours, time_val.minutes, time_val.seconds,
                  time_val.day, time_val.date, time_val.month, time_val.year);
@@ -1450,8 +1534,8 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   // Add termination slash
-  if (strlen(output_str) > 0) {
-    n = snprintf(&output_str[offset], remaining, "/");
+  if (strlen(temp_buf) > 0) {
+    n = snprintf(&temp_buf[offset], remaining, "/");
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
@@ -1463,6 +1547,15 @@ void create_string_from_received_data(const uint8_t *transmission,
 
   // Hard guarantee null-termination
   output_str[output_str_size - 1] = '\0';
+
+  // Copy ASCII bytes into uint8_t output buffer
+  size_t out_len = strnlen(temp_buf, sizeof(temp_buf));
+  if (out_len >= output_str_size) {
+    out_len = output_str_size - 1;
+  }
+
+  memcpy(output_str, temp_buf, out_len);
+  output_str[out_len] = 0x00;
 }
 
 static int init_luts_from_freqpair(void) {
@@ -1504,10 +1597,11 @@ int _write(int file, char *ptr, int len) {
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
-void Error_Handler(void) {
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
   /* USER CODE BEGIN Error_Handler_Debug */
   LOGF("Error_Handler: code=%d\r\n", (int)g_error_code);
 
@@ -1521,13 +1615,14 @@ void Error_Handler(void) {
 }
 #ifdef USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line) {
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
      number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
