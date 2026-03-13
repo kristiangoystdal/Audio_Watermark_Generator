@@ -29,11 +29,19 @@ add_subdirectory(cmake/stm32cubemx)
 # 👉 For App builds:
 #     The Python tool passes the absolute path using -DLINKER_SCRIPT_PATH=...
 # ------------------------------------------------------------
-if(DEFINED ENV{LINKER_SCRIPT_PATH})
-    message("Using linker script from environment: $ENV{LINKER_SCRIPT_PATH}")
+# Prefer CMake variable (passed via -DLINKER_SCRIPT_PATH=...)
+if(DEFINED LINKER_SCRIPT_PATH AND EXISTS "${LINKER_SCRIPT_PATH}")
+    message(STATUS "Using linker script from CMake var: ${LINKER_SCRIPT_PATH}")
+    set(LINKER_SCRIPT "${LINKER_SCRIPT_PATH}")
+
+# Fallback: environment variable
+elseif(DEFINED ENV{LINKER_SCRIPT_PATH} AND EXISTS "$ENV{LINKER_SCRIPT_PATH}")
+    message(STATUS "Using linker script from env: $ENV{LINKER_SCRIPT_PATH}")
     set(LINKER_SCRIPT "$ENV{LINKER_SCRIPT_PATH}")
+
+# Fallback: local repo file
 elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld")
-    message("Using local linker script: ${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld")
+    message(STATUS "Using local linker script: ${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld")
     set(LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld")
 else()
     message(FATAL_ERROR "❌ Linker script not found!")
@@ -47,6 +55,7 @@ target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
     -T${LINKER_SCRIPT}
     --specs=nano.specs
     --specs=nosys.specs 
+    -Wl,--gc-sections
 )
 
 # ------------------------------------------------------------

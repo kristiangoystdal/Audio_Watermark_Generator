@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #ifndef USER_CONFIG_H
 #define USER_CONFIG_H
 
@@ -40,7 +42,14 @@
 #define USE_CABLE_TRANSMISSION true
 #define USE_SPEAKER_TRANSMISSION true
 
-#define FSK_LOWER_FREQUENCY 1234  // in Hz
-#define FSK_HIGHER_FREQUENCY 8442 // in Hz
+// Configuration for FSK frequencies (in Hz) - these will be adjusted by the
+// algorithm if they don't meet the sample count requirements, but should be set
+// close to the desired frequencies to minimize adjustments
+#define FSK_LOWER_FREQUENCY 1500
+#define FSK_HIGHER_FREQUENCY 16000
+
+// Configuration for attenuation of the signal in percent (0-100), where 100 is
+// no attenuation and 0 is maximum attenuation (silence)
+#define SIGNAL_ATTENUATION 100
 
 #endif // USER_CONFIG_H

@@ -6,6 +6,9 @@ from tkinter import filedialog, messagebox
 from tkinter import ttk
 from pathlib import Path
 
+# Import your decoder with the NEW signature:
+# def decode_fsk(input_filename: str, f0: float, f1: float,
+#                generate_debug: bool = False, minutes_per_segment: int = 1)
 from demodulator import decode_fsk
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 
@@ -194,11 +197,6 @@ class App(tk.Tk):
             raise ValueError("f0 and f1 must be different")
 
         return f0, f1
-
-    def _toggle_ecc_controls(self):
-        enabled = self.use_ecc.get()
-        state = "normal" if enabled else "disabled"
-        self.ecc_entry.config(state=state)
 
     def pick_wavs(self):
         paths = filedialog.askopenfilenames(

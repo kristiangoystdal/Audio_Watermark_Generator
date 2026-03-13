@@ -6,7 +6,7 @@
  ******************************************************************************
  * @attention
  *
- * Copyright (c) 2025 STMicroelectronics.
+ * Copyright (c) 2026 STMicroelectronics.
  * All rights reserved.
  *
  * This software is licensed under terms that can be found in the LICENSE file
@@ -21,20 +21,40 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <user_config.h>
 
+// Include headers for custom modules
+#include "battery.h"
+#include "cc1101.h"
 #include "ds3231.h"
-#include "stm32g431xx.h"
-#include "stm32g4xx_hal.h"
-#include "stm32g4xx_hal_dac.h"
-#include "stm32g4xx_hal_gpio.h"
-#include <frequency_pairs.h>
+#include "error_codes.h"
+#include "frequency_config.h"
+#include "ism.h"
+#include "ism_config_433.h"
+#include "led_feedback.h"
+#include "log.h"
+#include "radio.h"
+#include "relay.h"
+#include "spi.h"
+#include "user_config.h"
+
+// Standard library includes
+#include <cmsis_gcc.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <stm32g431xx.h>
+#include <stm32g4xx.h>
+#include <stm32g4xx_hal.h>
+#include <stm32g4xx_hal_dac.h>
+#include <stm32g4xx_hal_def.h>
+#include <stm32g4xx_hal_gpio.h>
 #include <string.h>
+#include <sys/_intsup.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 /* USER CODE END Includes */
 
@@ -46,9 +66,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
-#define pi 3.14159265358979323846
+#define pi 3.14159265358979323846f
 
-// Compute NUM_CHARS based on user_config.h toggles
 #define LEN_IF(cond, lit) ((cond) ? (sizeof(lit) - 1u) : 0u)
 
 #define MAX_NUM_CHARS                                                          \
@@ -60,30 +79,17 @@
 
 #define BITSTREAM_LENGTH (MAX_NUM_CHARS * 8u)
 
-#define MID_12B 2048
+#define BIT_POLARITY 0
 
-#define BIT_POLARITY 0          // 0 = normal, 1 = inverted
 #define DS3231_ADDR (0x68 << 1) // 7-bit addr shifted for HAL
+#define T4B_I2C_ADDR_7BIT 0x20
+#define T4B_I2C_ADDR_HAL (T4B_I2C_ADDR_7BIT << 1) // 0x40 for HAL
 
 #define DIV_FLOOR(n, d) ((uint32_t)((n) / (d)))
-#define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d))) // round half-up
-
-#define FSK_LOWER_NUM_SAMPLES DIV_FLOOR(FS_HZ, FSK_LOWER_FREQUENCY)
-#define FSK_HIGHER_NUM_SAMPLES DIV_FLOOR(FS_HZ, FSK_HIGHER_FREQUENCY)
-
-#define FSK_LOWER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_LOWER_NUM_SAMPLES)
-#define FSK_HIGHER_PERIODS DIV_ROUND(MIN_BIT_SAMPLES, FSK_HIGHER_NUM_SAMPLES)
+#define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d)))
 
 #define OUTPUT_SEGMENT 1000
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
-
-// Add/keep these near your defines
-#define DMA_BUF_LEN (BUFFER_SIZE)
-
-// (Optional but recommended) make sure it's even at compile time
-#if (DMA_BUF_LEN % 2u) != 0u
-#error "BUFFER_SIZE must be even (so it can be split into two halves)."
-#endif
 
 /* USER CODE END PD */
 
@@ -93,108 +99,805 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-
-COM_InitTypeDef BspCOMInit;
+ADC_HandleTypeDef hadc1;
 
 DAC_HandleTypeDef hdac1;
 DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c2;
 
+SPI_HandleTypeDef hspi1;
+
 TIM_HandleTypeDef htim2;
-TIM_HandleTypeDef htim8;
+TIM_HandleTypeDef htim6;
+
+UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 
-// Circular buffer for DAC output
-__ALIGN_BEGIN __IO uint16_t output_buffer[BUFFER_SIZE] __ALIGN_END;
+char input_string[MAX_NUM_CHARS] = {0};
 
-uint16_t sine_val_low[FSK_LOWER_NUM_SAMPLES];
-uint16_t sine_val_high[FSK_HIGHER_NUM_SAMPLES];
-uint16_t dc_mid[FSK_LOWER_NUM_SAMPLES];
+uint8_t bitstream[BITSTREAM_LENGTH] = {0};
 
-static uint16_t bitstream[BITSTREAM_LENGTH];
+volatile uint8_t active_done = 0;
 
-static volatile uint32_t current_period = 1;
-static volatile uint16_t current_bit = 2;
+rtc_time_t now = {0};
 
-float total_time = 0.0;
-uint32_t pulse_time = 1000; // in timer ticks
-double tick_hz = 1000000.0;
-uint32_t arr = 0;
-uint32_t ticks = 0;
+int temp_int = 25;
 
-static volatile bool tx_active = false;
+static uint32_t *sine_val_low = NULL;
+static uint32_t *sine_val_high = NULL;
+static uint32_t *dc_mid = NULL;
 
-int counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
-bool first_run = true;
-
-// User string buffer
-char input_string[MAX_NUM_CHARS + 1]; // global
-
-rtc_time_t now;
-int8_t temp_int = 0;
-
-uint32_t cable_speaker_delay_ms = 100;
+// Pulse Calculation Variables
 uint32_t fs = 0;
-
+uint32_t cable_speaker_delay_ms = 0;
 float f_0_bit_duration = 0.0f;
 float f_1_bit_duration = 0.0f;
-float f_2_bit_duration = 0.0f;
+float total_time = 0.0;
 
-uint32_t current_bitstream_index = 0;
-
-bool moved_to_next_bit = false;
-
+// FSK
 typedef struct {
-  bool moved_to_next_bit;
+  size_t bit_index;
   size_t current_period;
   size_t current_index;
 } FillResult;
 
-FillResult result = {false, 0, 0};
+__ALIGN_BEGIN uint32_t output_buffer[BUFFER_SIZE] __ALIGN_END;
 
-size_t current_sine_period = 0;
-size_t current_sine_index = 0;
-uint16_t next_bit = 2;
+volatile bool tx_active = true;
+volatile size_t current_bitstream_index = 0;
+volatile uint8_t current_bit = 0;
+volatile uint8_t next_bit = 0;
+volatile size_t current_sine_period = 0;
+volatile size_t current_sine_index = 0;
+volatile bool moved_to_next_bit = false;
+FillResult result;
+
+bool RX = true; // set to false for TX mode, true for RX mode
+
+uint8_t transmission[256] = {0};
+int dBm_value = 0;
+
+freq_pair_t freq_pair = {0};
+
+volatile status_code_t g_error_code = STATUS_CODE_OK;
 
 /* USER CODE END PV */
 
-/* Private function prototypes
- * -----------------------------------------------*/
+/* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_TIM2_Init(void);
+static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
-static void MX_TIM8_Init(void);
 static void MX_I2C2_Init(void);
+static void MX_SPI1_Init(void);
+static void MX_TIM2_Init(void);
+static void MX_TIM6_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
+
+void EnterStopMode(void);
+void calculate_active_duration_ms(size_t bitstream_len);
+void StartActiveWindowMs(uint32_t ms);
+void make_bitstream_from_string(const char *str);
+void update_input_string(void);
+int make_preamble(int start_idx);
+void get_sineval_low(void);
+void get_sineval_high(void);
+void get_dc_mid(void);
+uint32_t get_dac_sample_rate_hz(void);
+void Set_DAC_Output_To_Midlevel(void);
+
+static void TX_Start(void);
+static void TX_Stop(void);
+
+void app_radio_test(void);
+
+void read_buffer(void);
+
+void process_transmission(uint8_t *transmission, int *dBm_value);
+
+void create_string_from_received_data(const uint8_t *transmission,
+                                      int dBm_value, char *output_str,
+                                      size_t output_str_size);
+
+static int init_luts_from_freqpair(void);
+
+void Error_Handler_Code(status_code_t code);
 
 /* USER CODE END PFP */
 
-/* Private user code
- * ---------------------------------------------------------*/
+/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void DWT_Delay_Init(void) {
-  // Enable DWT and CYCCNT
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+/* USER CODE END 0 */
+
+/**
+ * @brief  The application entry point.
+ * @retval int
+ */
+int main(void) {
+
+  /* USER CODE BEGIN 1 */
+
+  /* USER CODE END 1 */
+
+  /* MCU Configuration--------------------------------------------------------*/
+
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
+   */
+  HAL_Init();
+
+  /* USER CODE BEGIN Init */
+
+  /* USER CODE END Init */
+
+  /* Configure the system clock */
+  SystemClock_Config();
+
+  /* USER CODE BEGIN SysInit */
+
+  /* USER CODE END SysInit */
+
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_ADC1_Init();
+  MX_DAC1_Init();
+  MX_I2C2_Init();
+  MX_SPI1_Init();
+  MX_TIM2_Init();
+  MX_TIM6_Init();
+  MX_USART2_UART_Init();
+  /* USER CODE BEGIN 2 */
+
+  LOGF("\r\n");
+  LOGF("UART boot OK\r\n");
+  HAL_Delay(200);
+
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
+
+  // Read battery voltage
+  is_battery_low(&hadc1);
+
+  uint32_t dac_sample_rate = get_dac_sample_rate_hz();
+  LOGF("DAC sample rate: %lu Hz\r\n", (unsigned long)dac_sample_rate);
+
+  // Turn on LED to indicate power on
+  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
+
+  //-----------------------------------------------------------------------------//
+  // Find and set FSK frequencies based on user config and sample count
+  // requirements
+  //-----------------------------------------------------------------------------//
+
+  freq_pair = find_frequency_pair(dac_sample_rate);
+
+  LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
+       (unsigned int)freq_pair.lower_freq, (unsigned int)freq_pair.higher_freq);
+  LOGF("--------------------------\r\n");
+
+  //-----------------------------------------------------------------------------//
+  // Prepare sine wave lookup tables
+  //-----------------------------------------------------------------------------//
+
+  if (init_luts_from_freqpair() != 0) {
+    LOGF("LUT alloc failed\r\n");
+    LOGF("--------------------------\r\n");
+    Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
+  }
+
+  get_sineval_low();
+  get_sineval_high();
+  get_dc_mid();
+
+  //-----------------------------------------------------------------------------//
+  // Set DAC output to mid-level (silence) before starting
+  //-----------------------------------------------------------------------------//
+
+  Set_DAC_Output_To_Midlevel();
+
+  //-----------------------------------------------------------------------------//
+  // Initialize RTC
+  //-----------------------------------------------------------------------------//
+
+  // DS3231_PowerOn();
+  // if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
+  //   DS3231_Init();
+  //   Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
+  //   INITIAL_DOM,
+  //            INITIAL_MONTH, INITIAL_YEAR);
+  // }
+  // Get_Time(&now);
+  // LOGF("-------------------------\r\n");
+
+  //-----------------------------------------------------------------------------//
+  // Initialize radio
+  //-----------------------------------------------------------------------------//
+
+  HAL_Delay(20);
+  int8_t init_result = init_radio(RX);
+  if (init_result != 0) {
+    LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
+         init_result);
+    LOGF("--------------------------\r\n");
+    Error_Handler_Code(init_result);
+  }
+
+  //-----------------------------------------------------------------------------//
+  // If RX, set relay to mixing mode
+  //-----------------------------------------------------------------------------//
+
+  if (RX) {
+    turn_on_relay();
+  }
+
+  //-----------------------------------------------------------------------------//
+  // Main loop
+  //-----------------------------------------------------------------------------//
+
+  LOGF("Entering main loop...\r\n");
+
+  while (1) {
+
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    LOGF("Entering STOP mode...\r\n");
+    EnterStopMode();
+
+    // 2) Debounce button
+    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
+    }
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+
+    LOGF("Woke up!\r\n");
+
+    // 3) Check state and either start RX or TX
+    if (RX) {
+      // RX mode: read from radio and store in string
+      read_RX(transmission, sizeof(transmission));
+      LOGF("Received transmission: ");
+      for (size_t i = 0; i < sizeof(transmission); i++) {
+        LOGF("%02X ", transmission[i]);
+      }
+      LOGF("\r\n");
+
+      // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
+      // etc.)
+      process_transmission(transmission, &dBm_value);
+
+      LOGF("Processed transmission into %s\r\n", transmission);
+      LOGF("dBm value: %d\r\n", dBm_value);
+
+      // Create output string based on received data and dBm value (e.g.
+      // "/STR.../DID.../LOC.../TMP.../TIM...")
+      char output_str[256] = {0};
+      create_string_from_received_data(transmission, dBm_value, output_str,
+                                       sizeof(output_str));
+
+      LOGF("Final output string: %s\r\n", output_str);
+
+      // Make bitstream from output string
+      make_bitstream_from_string(output_str);
+      LOGF("Prepared bitstream from output string.\r\n");
+      LOGF("Output string length: %d characters\r\n", (int)strlen(output_str));
+
+      // Calculate active duration based on bitstream length and bit durations
+      size_t bitstream_len = strlen(output_str) * 8u;
+      calculate_active_duration_ms(bitstream_len);
+      uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
+      LOGF("Calculated active duration for response: %lu ms\r\n",
+           (unsigned long)total_ms);
+
+      // Send transmission over audio
+      LOGF("Starting transmission of response over audio...\r\n");
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      TX_Start();
+
+      // Wait for active window to complete (enters low-power sleep while
+      // waiting)
+      StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+      while (!active_done) {
+        __WFI(); // CPU sleeps while DMA+TIM2+DAC run
+      }
+      active_done = 0;
+
+      // Stop transmission and go back to sleep
+      TX_Stop();
+
+    } else {
+      // Send transmission over radio
+      LOGF("Starting transmission over radio...\r\n");
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      start_TX();
+    }
+
+    // 4) Check battery voltage and go back to sleep if low
+    is_battery_low(&hadc1);
+
+    LOGF("Going back to sleep...\r\n");
+
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+  }
+  /* USER CODE END 3 */
 }
 
-void DWT_Delay_us(uint32_t us) {
-  uint32_t start = DWT->CYCCNT;
-  uint32_t ticks = (SystemCoreClock / 1000000U) * us;
-  while ((DWT->CYCCNT - start) < ticks)
-    ;
+/**
+ * @brief System Clock Configuration
+ * @retval None
+ */
+void SystemClock_Config(void) {
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Configure the main internal regulator output voltage
+   */
+  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+   * in the RCC_OscInitTypeDef structure.
+   */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
+  RCC_OscInitStruct.PLL.PLLN = 12;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
+  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
+                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
+    Error_Handler();
+  }
 }
 
-void DWT_Delay_ms(uint32_t ms) { DWT_Delay_us(ms * 1000U); }
+/**
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_ADC1_Init(void) {
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_MultiModeTypeDef multimode = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+   */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.GainCompensation = 0;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc1.Init.LowPowerAutoWait = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc1.Init.OversamplingMode = DISABLE;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure the ADC multi-mode
+   */
+  multimode.Mode = ADC_MODE_INDEPENDENT;
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+   */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+}
+
+/**
+ * @brief DAC1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_DAC1_Init(void) {
+
+  /* USER CODE BEGIN DAC1_Init 0 */
+
+  /* USER CODE END DAC1_Init 0 */
+
+  DAC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN DAC1_Init 1 */
+
+  /* USER CODE END DAC1_Init 1 */
+
+  /** DAC Initialization
+   */
+  hdac1.Instance = DAC1;
+  if (HAL_DAC_Init(&hdac1) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** DAC channel OUT1 config
+   */
+  sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_AUTOMATIC;
+  sConfig.DAC_DMADoubleDataMode = DISABLE;
+  sConfig.DAC_SignedFormat = DISABLE;
+  sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
+  sConfig.DAC_Trigger = DAC_TRIGGER_T2_TRGO;
+  sConfig.DAC_Trigger2 = DAC_TRIGGER_NONE;
+  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
+  sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
+  sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN DAC1_Init 2 */
+
+  /* USER CODE END DAC1_Init 2 */
+}
+
+/**
+ * @brief I2C2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_I2C2_Init(void) {
+
+  /* USER CODE BEGIN I2C2_Init 0 */
+
+  /* USER CODE END I2C2_Init 0 */
+
+  /* USER CODE BEGIN I2C2_Init 1 */
+
+  /* USER CODE END I2C2_Init 1 */
+  hi2c2.Instance = I2C2;
+  hi2c2.Init.Timing = 0x10805D88;
+  hi2c2.Init.OwnAddress1 = 0;
+  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c2.Init.OwnAddress2 = 0;
+  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+   */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+   */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C2_Init 2 */
+
+  /* USER CODE END I2C2_Init 2 */
+}
+
+/**
+ * @brief SPI1 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_SPI1_Init(void) {
+
+  /* USER CODE BEGIN SPI1_Init 0 */
+
+  /* USER CODE END SPI1_Init 0 */
+
+  /* USER CODE BEGIN SPI1_Init 1 */
+
+  /* USER CODE END SPI1_Init 1 */
+  /* SPI1 parameter configuration*/
+  hspi1.Instance = SPI1;
+  hspi1.Init.Mode = SPI_MODE_MASTER;
+  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi1.Init.NSS = SPI_NSS_SOFT;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
+  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi1.Init.CRCPolynomial = 7;
+  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
+  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
+  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI1_Init 2 */
+
+  /* USER CODE END SPI1_Init 2 */
+}
+
+/**
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM2_Init(void) {
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 124;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+}
+
+/**
+ * @brief TIM6 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_TIM6_Init(void) {
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 47999;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 65535;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK) {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+}
+
+/**
+ * @brief USART2 Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_USART2_UART_Init(void) {
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+}
+
+/**
+ * Enable DMA controller clock
+ */
+static void MX_DMA_Init(void) {
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMAMUX1_CLK_ENABLE();
+  __HAL_RCC_DMA1_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+  /* DMAMUX_OVR_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMAMUX_OVR_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMAMUX_OVR_IRQn);
+}
+
+/**
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_GPIO_Init(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+  /* USER CODE BEGIN MX_GPIO_Init_1 */
+
+  /* USER CODE END MX_GPIO_Init_1 */
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOF_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10,
+                    GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_6, GPIO_PIN_RESET);
+
+  /*Configure GPIO pins : PA5 PA6 PA7 PA10 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PB0 PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_6;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB7 */
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /* USER CODE BEGIN MX_GPIO_Init_2 */
+
+  /* USER CODE END MX_GPIO_Init_2 */
+}
+
+/* USER CODE BEGIN 4 */
+
+void EnterStopMode(void) {
+
+  // Clear EXTI pending + NVIC pending for PB7 (wakeup source)
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+  HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
+
+  // Clear PWR wake flags
+  PWR->SCR = PWR_SCR_CWUF;
+
+  // Optional: disable debug in STOP (important on ST-LINK boards)
+  DBGMCU->CR &=
+      ~(DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STANDBY);
+
+  HAL_SuspendTick();
+
+  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+  HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
+  PWR->SCR = PWR_SCR_CWUF;
+  __DSB();
+  __ISB();
+
+  HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
+
+  // We are awake here, but clocks are still not restored:
+  SystemClock_Config();
+  HAL_ResumeTick();
+}
+
+void StartActiveWindowMs(uint32_t ms) {
+  active_done = 0;
+
+  if (ms == 0) {
+    ms = 1;
+  }
+
+  HAL_TIM_Base_Stop_IT(&htim6); // <- important, resets state
+  __HAL_TIM_SET_COUNTER(&htim6, 0);
+  __HAL_TIM_SET_AUTORELOAD(&htim6, ms - 1);
+
+  __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE);
+  __HAL_TIM_CLEAR_IT(&htim6, TIM_IT_UPDATE);
+
+  HAL_TIM_Base_Start_IT(&htim6);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+  if (htim->Instance == TIM6) {
+    HAL_TIM_Base_Stop_IT(&htim6); // <- makes it one-shot reliably
+    active_done = 1;
+  }
+}
 
 int make_preamble(int start_idx) {
   int k = start_idx;
-  uint16_t id = 0; // 0x2DD4
+  uint16_t id = 0x2DD4;
   for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
     bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
   }
@@ -226,21 +929,6 @@ void make_bitstream_from_string(const char *str) {
   while (k < BITSTREAM_LENGTH) {
     bitstream[k++] = 2; // silence
   }
-}
-
-void DS3231_PowerOn(void) {
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-}
-
-void DS3231_PowerOff(void) {
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-}
-
-void update_time_temperature(void) {
-  DS3231_PowerOn();
-  Get_Time(&now);
-  Read_Temperature(&temp_int);
-  DS3231_PowerOff();
 }
 
 void update_input_string(void) {
@@ -308,28 +996,49 @@ void update_input_string(void) {
 
 // Function to generate sine wave lookup table for low frequency
 void get_sineval_low(void) {
-  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
+  if (!sine_val_low || freq_pair.lower_freq_samples == 0) {
+    return; // eller Error_Handler()
+  }
+
+  const float dac_max = 4095.0f;
+  const float dac_mid = dac_max / 2.0f;
+  const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
+
+  for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
     sine_val_low[i] =
-        (uint16_t)((4095.0 / 2.0) *
-                   (1.0 +
-                    sinf(2.0 * pi * i / FSK_LOWER_NUM_SAMPLES) * (1.5 / 1.65)));
+        (uint32_t)(dac_mid *
+                   (1.0 + sinf(2.0 * pi * i / freq_pair.lower_freq_samples) *
+                              amplitude));
   }
 }
 
 // Function to generate sine wave lookup table for the high frequency
 void get_sineval_high(void) {
-  for (int i = 0; i < FSK_HIGHER_NUM_SAMPLES; i++) {
+  if (!sine_val_high || freq_pair.higher_freq_samples == 0) {
+    return; // eller Error_Handler()
+  }
+
+  const float dac_max = 4095.0f;
+  const float dac_mid = dac_max / 2.0f;
+  const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
+
+  for (uint16_t i = 0; i < freq_pair.higher_freq_samples; i++) {
     sine_val_high[i] =
-        (uint16_t)((4095.0 / 2.0) *
-                   (1.0 + sinf(2.0 * pi * i / FSK_HIGHER_NUM_SAMPLES) *
-                              (1.5 / 1.65)));
+        (uint32_t)(dac_mid *
+                   (1.0 + sinf(2.0 * pi * i / freq_pair.higher_freq_samples) *
+                              amplitude));
   }
 }
 
-// Function to generate mid-scale lookup table
 void get_dc_mid(void) {
-  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; ++i)
-    dc_mid[i] = MID_12B;
+  if (!dc_mid || freq_pair.lower_freq_samples == 0) {
+    return; // eller Error_Handler()
+  }
+
+  uint32_t mid_value = (uint32_t)(4095.0 / 2.0);
+  for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
+    dc_mid[i] = mid_value;
+  }
 }
 
 uint32_t get_dac_sample_rate_hz(void) {
@@ -340,802 +1049,459 @@ uint32_t get_dac_sample_rate_hz(void) {
   return tim_clk / ((htim2.Init.Prescaler + 1) * (htim2.Init.Period + 1));
 }
 
-// Function to calculate the total time it takes to send the bitstream
-void calculate_pulse_time(void) {
+void calculate_active_duration_ms(size_t bitstream_len) {
   fs = get_dac_sample_rate_hz();
 
-  float f_0 = FSK_LOWER_FREQUENCY;
-  float f_1 = FSK_HIGHER_FREQUENCY;
+  float f_0 = (float)fs / (float)freq_pair.lower_freq_samples;
+  float f_1 = (float)fs / (float)freq_pair.higher_freq_samples;
 
-  f_0_bit_duration = (float)FSK_LOWER_PERIODS / f_0;
-  f_1_bit_duration = (float)FSK_HIGHER_PERIODS / f_1;
-  f_2_bit_duration = f_0_bit_duration; // silence uses lower frequency
+  f_0_bit_duration = (float)freq_pair.lower_freq_periods / f_0;
+  f_1_bit_duration = (float)freq_pair.higher_freq_periods / f_1;
 
   // Exact bitstream time
   total_time = 0.0f;
-  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
+  for (int i = 0; i < bitstream_len; ++i) {
     if (bitstream[i] == 0) {
-      total_time += ((float)FSK_LOWER_PERIODS) / f_0;
+      total_time += ((float)freq_pair.lower_freq_periods) / f_0;
     } else if (bitstream[i] == 1) {
-      total_time += (float)FSK_HIGHER_PERIODS / f_1;
+      total_time += (float)freq_pair.higher_freq_periods / f_1;
     } else {
-      total_time += (float)FSK_LOWER_PERIODS / f_0;
+      total_time += ((float)freq_pair.lower_freq_periods) / f_0; // silence
     }
   }
 
   // Add silence time
-  total_time *= 1.05f;                            // 5% margin
-  total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
-
-  // Convert to ticks using the PSC already set for TIM8
-  uint32_t tim8_clk = HAL_RCC_GetPCLK2Freq();
-  if ((RCC->CFGR & RCC_CFGR_PPRE2) != RCC_CFGR_PPRE2_DIV1)
-    tim8_clk *= 2U;
-  tick_hz = (double)tim8_clk / (double)(htim8.Init.Prescaler + 1U);
-
-  arr = __HAL_TIM_GET_AUTORELOAD(&htim8);
-  ticks = (uint32_t)llround(total_time * tick_hz);
-
-  pulse_time = ticks;
-  __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_1, pulse_time);
+  // total_time *= 1.05f;                            // 5% margin
+  // total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
 }
 
-size_t get_target_bit_periods(uint16_t bit) {
-  if (bit == 0) {
-    return FSK_LOWER_PERIODS;
-  } else if (bit == 1) {
-    return FSK_HIGHER_PERIODS;
-  } else {
-    return FSK_LOWER_PERIODS; // silence uses lower frequency periods
-  }
-}
-
-#include <string.h>
-
-FillResult fill_half_buffer(uint16_t *buffer, uint16_t bit, uint16_t next_bit,
-                            size_t generation_size, size_t current_sine_period,
-                            size_t current_sine_index) {
+static inline FillResult
+fill_half_buffer(uint32_t *buffer, size_t generation_size,
+                 const uint8_t *bitstream, size_t bitstream_len,
+                 size_t bit_index, size_t current_sine_period,
+                 size_t current_sine_index) {
   size_t out = 0;
   size_t period = current_sine_period;
   size_t idx = current_sine_index;
-  uint16_t cur_bit = bit;
-  bool moved = false;
 
   while (out < generation_size) {
+    // If finished, just output mid forever (prevents repeats)
+    if (bit_index >= bitstream_len) {
+      for (; out < generation_size; ++out) {
+        buffer[out] = dc_mid[0];
+      }
+      break;
+    }
 
-    /* Select LUT */
-    const uint16_t *lut;
+    uint8_t cur_bit = bitstream[bit_index];
+
+    /* Select LUT + target periods for THIS bit */
+    const uint32_t *lut;
     size_t lut_len;
     size_t target_periods;
 
     if (cur_bit == 0) {
       lut = sine_val_low;
-      lut_len = FSK_LOWER_NUM_SAMPLES;
-      target_periods = FSK_LOWER_PERIODS;
+      lut_len = freq_pair.lower_freq_samples;
+      target_periods = freq_pair.lower_freq_periods;
     } else if (cur_bit == 1) {
       lut = sine_val_high;
-      lut_len = FSK_HIGHER_NUM_SAMPLES;
-      target_periods = FSK_HIGHER_PERIODS;
-    } else {
+      lut_len = freq_pair.higher_freq_samples;
+      target_periods = freq_pair.higher_freq_periods;
+    } else { // silence
       lut = dc_mid;
-      lut_len = FSK_LOWER_NUM_SAMPLES; // constant value
-      target_periods = FSK_LOWER_PERIODS;
+      lut_len = freq_pair.lower_freq_samples;
+      target_periods = freq_pair.lower_freq_periods;
     }
 
-    /* How many samples can we copy this round? */
+    /* Copy as much as we can from current LUT position */
     size_t left_buf = generation_size - out;
     size_t left_lut = lut_len - idx;
-    size_t n = left_buf < left_lut ? left_buf : left_lut;
+    size_t n = (left_buf < left_lut) ? left_buf : left_lut;
 
-    memcpy(&buffer[out], &lut[idx], n * sizeof(uint16_t));
-
+    memcpy(&buffer[out], &lut[idx], n * sizeof(uint32_t));
     out += n;
     idx += n;
 
-    /* Wrapped LUT = completed one period */
+    /* Completed one period? */
     if (idx == lut_len) {
       idx = 0;
       period++;
 
-      /* Completed all periods for this bit */
+      /* Completed this bit? -> advance to next bit */
       if (period == target_periods) {
         period = 0;
-        cur_bit = next_bit;
-        moved = true;
+        if (bit_index + 1u < bitstream_len) {
+          bit_index++;
+        } else {
+          // reached end -> hold at end
+          bit_index = bitstream_len;
+        }
       }
     }
   }
 
-  return (FillResult){.moved_to_next_bit = moved,
-                      .current_period = period,
-                      .current_index = idx};
+  return (FillResult){
+      .bit_index = bit_index, .current_period = period, .current_index = idx};
 }
 
-// DAC conversion complete callbacks for half buffer
+// DMA Half Transfer Complete callback
 void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   if (!tx_active)
     return;
 
-  // Fill the first half of the buffer based on the current bit
-  result = fill_half_buffer((uint16_t *)&output_buffer[0], current_bit,
-                            next_bit, BUFFER_SIZE / 2, current_sine_period,
-                            current_sine_index);
+  FillResult r =
+      fill_half_buffer((uint32_t *)&output_buffer[0], BUFFER_SIZE / 2,
+                       bitstream, BITSTREAM_LENGTH, current_bitstream_index,
+                       current_sine_period, current_sine_index);
 
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
+  current_bitstream_index = r.bit_index;
+  current_sine_period = r.current_period;
+  current_sine_index = r.current_index;
 }
 
-// DAC conversion complete callback for the full buffer
+// DMA Transfer Complete callback
 void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   if (!tx_active)
     return;
 
-  // Fill the first half of the buffer based on the current bit
-  result = fill_half_buffer((uint16_t *)&output_buffer[BUFFER_SIZE / 2],
-                            current_bit, next_bit, BUFFER_SIZE / 2,
-                            current_sine_period, current_sine_index);
+  FillResult r = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
+                                  BUFFER_SIZE / 2, bitstream, BITSTREAM_LENGTH,
+                                  current_bitstream_index, current_sine_period,
+                                  current_sine_index);
 
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
+  current_bitstream_index = r.bit_index;
+  current_sine_period = r.current_period;
+  current_sine_index = r.current_index;
 }
 
-void reset_dac(void) {
-  // Stop DAC DMA
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+static void TX_Start(void) {
+  LOGF("\r\nTX_Start()\r\n");
 
-  // Restart the bitstream from the beginning
-  current_period = 0;
   current_bitstream_index = 0;
-  current_bit = bitstream[0];
-  next_bit = bitstream[1 % BITSTREAM_LENGTH];
   current_sine_period = 0;
   current_sine_index = 0;
-
-  // Prefill both halves of the circular buffer with the first bit
-  result = fill_half_buffer((uint16_t *)&output_buffer[0], current_bit,
-                            next_bit, BUFFER_SIZE / 2, 0, 0);
-
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
-
-  result = fill_half_buffer((uint16_t *)&output_buffer[BUFFER_SIZE / 2],
-                            current_bit, next_bit, BUFFER_SIZE / 2,
-                            current_sine_period, current_sine_index);
-
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-  }
-
-  __HAL_TIM_SET_COUNTER(&htim2, 0);
-  HAL_TIM_Base_Start(&htim2);
-
   tx_active = true;
 
-  // Restart DAC with the circular buffer
-  HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                    BUFFER_SIZE, DAC_ALIGN_12B_R);
+  FillResult r1 =
+      fill_half_buffer((uint32_t *)&output_buffer[0], BUFFER_SIZE / 2,
+                       bitstream, BITSTREAM_LENGTH, current_bitstream_index,
+                       current_sine_period, current_sine_index);
+
+  current_bitstream_index = r1.bit_index;
+  current_sine_period = r1.current_period;
+  current_sine_index = r1.current_index;
+
+  FillResult r2 = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
+                                   BUFFER_SIZE / 2, bitstream, BITSTREAM_LENGTH,
+                                   current_bitstream_index, current_sine_period,
+                                   current_sine_index);
+
+  current_bitstream_index = r2.bit_index;
+  current_sine_period = r2.current_period;
+  current_sine_index = r2.current_index;
+
+  LOGF("  Buffer filled\r\n");
+
+  // Clean start
+  HAL_TIM_Base_Stop(&htim2);
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
+  HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
+
+  DMA1->IFCR =
+      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
+  NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
+
+  LOGF("  Peripherals stopped & DMA flags cleared\r\n");
+
+  // Start DAC
+  HAL_StatusTypeDef st;
+
+  // Start DMA
+  st = HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                         BUFFER_SIZE, DAC_ALIGN_12B_R);
+
+  if (st != HAL_OK) {
+    LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+  } else {
+    LOGF("  HAL_DAC_Start_DMA OK\r\n");
+  }
+
+  // Ensure trigger enabled
+  SET_BIT(DAC1->CR, DAC_CR_TEN1);
+
+  // Start timer last
+  __HAL_TIM_SET_COUNTER(&htim2, 0);
+  st = HAL_TIM_Base_Start(&htim2);
+
+  if (st != HAL_OK) {
+    LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+  } else {
+    LOGF("  HAL_TIM_Base_Start OK\r\n");
+  }
 }
 
-// Timer interrupt callback for TIM8
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM8) {
-    update_time_temperature();
-    if (first_run && now.minutes != STARTING_MINUTE && ENABLE_DELAYED_START) {
-      counter = INTERVAL_BETWEEN_REPEATS_MINUTES;
-      HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-      HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
-      return;
-    } else {
-      first_run = false;
-      if (!USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-        counter++;
-        if (counter >= INTERVAL_BETWEEN_REPEATS_MINUTES) {
-          counter = 0;
+static void TX_Stop(void) {
+  LOGF("TX_Stop()\r\n");
 
-          if (USE_SPEAKER_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-          }
-          if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-          }
-          if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
-            DWT_Delay_ms(cable_speaker_delay_ms);
-          }
-          if (USE_CABLE_TRANSMISSION) {
-            HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-          }
+  tx_active = false;
 
-          update_time_temperature();
-          update_input_string();
-          make_bitstream_from_string(input_string);
-          calculate_pulse_time();
-          reset_dac();
-        }
-      } else {
+  // Stop trigger + DMA first
+  HAL_TIM_Base_Stop(&htim2);
+  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 
-        if (USE_SPEAKER_TRANSMISSION) {
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-        }
-        if (USE_CABLE_TRANSMISSION) {
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_SET);
-        }
-        if (USE_CABLE_TRANSMISSION || USE_SPEAKER_TRANSMISSION) {
-          DWT_Delay_ms(cable_speaker_delay_ms);
-        }
-        if (USE_CABLE_TRANSMISSION) {
-          HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5, GPIO_PIN_RESET);
-        }
-        update_time_temperature();
-        update_input_string();
-        make_bitstream_from_string(input_string);
-        calculate_pulse_time();
-        reset_dac();
+  Set_DAC_Output_To_Midlevel();
+
+  // Optional: if you want to *keep* the mid DC during STOP, leave DAC
+  // running. If you want lowest power, stop it (output may go undefined
+  // depending on buffer mode): HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
+
+  DMA1->IFCR =
+      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
+  NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
+
+  LOGF("  TX stopped cleanly (DAC set to mid)\r\n");
+}
+
+void Set_DAC_Output_To_Midlevel(void) {
+  CLEAR_BIT(DAC1->CR, DAC_CR_TEN1);
+
+  // Ensure DAC channel is enabled
+  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+
+  // Set mid-scale (12-bit right aligned)
+  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dc_mid[0]);
+}
+
+void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
+  size_t str_len = strlen(str);
+  size_t max_bytes =
+      (hex_buf_size < (str_len / 2)) ? hex_buf_size : (str_len / 2);
+
+  for (size_t i = 0; i < max_bytes; i++) {
+    sscanf(&str[i * 2], "%2hhx", &hex_buf[i]);
+  }
+}
+
+void process_transmission(uint8_t *transmission, int *dBm_value) {
+  size_t len = strlen((const char *)transmission);
+  if (len <= 4) {
+    LOGF("Transmission too short to process.\r\n");
+    return;
+  }
+
+  for (size_t i = 0; i < len; i++) {
+    LOGF("%02X ", transmission[i]);
+  }
+  LOGF("\r\n");
+
+  uint8_t rssi_hex = transmission[len - 2]; // 2nd from end
+
+  // LOGF("Extracted RSSI hex: %02X\r\n", rssi_hex);
+
+  int8_t rssi_signed = (int8_t)rssi_hex; // 2's complement
+
+  // LOGF("RSSI signed value: %d\r\n", rssi_signed);
+
+  int rssi_dbm = (rssi_signed / 2) - 74; // integer dBm
+
+  // LOGF("RSSI: %d dBm\r\n", rssi_dbm);
+
+  dBm_value[0] = (int)rssi_dbm;
+
+  // Create cleaned string: skip first 2 char, skip last 2 chars
+  size_t cleaned_len = (len > 4) ? (len - 4) : 0;
+  char cleaned_str[MAX_NUM_CHARS] = {0};
+  if (cleaned_len > 0) {
+    strncpy(cleaned_str, (const char *)transmission + 2, cleaned_len);
+    cleaned_str[cleaned_len] = '\0'; // Null-terminate
+  }
+
+  // Overwrite the transmission parameter (cast needed for const)
+  strncpy((char *)transmission, cleaned_str, MAX_NUM_CHARS - 1);
+}
+
+void create_string_from_received_data(const uint8_t *transmission,
+                                      int dBm_value, char *output_str,
+                                      size_t output_str_size) {
+  if (!output_str || output_str_size == 0)
+    return;
+
+  // Clear the entire output string buffer to ensure no leftover data, and set
+  // first char to null for safe concatenation
+  memset(output_str, 0, output_str_size);
+  output_str[0] = '\0';
+
+  // Initialize with default values
+  char user_string[64] = USER_STRING; // fallback from user_config.h
+  int device_id = DEVICE_ID;          // fallback from user_config.h
+  char location[64] = LOCATION;       // fallback from user_config.h
+  int temperature = temp_int;         // runtime value
+  rtc_time_t time_val = now;          // runtime value
+
+  // Copy transmission to local buffer for tokenization
+  char buf[256];
+  size_t in_len = strnlen((const char *)transmission, sizeof(buf) - 1);
+  memcpy(buf, transmission, in_len);
+  buf[in_len] = '\0';
+
+  // Parse tokens in the format /KEYvalue, where KEY is 3 chars and value is
+  // variable length, separated by '/'
+  for (char *tok = strtok(buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
+
+    if (strncmp(tok, "STR", 3) == 0) {
+      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
+      user_string[sizeof(user_string) - 1] = '\0';
+
+    } else if (strncmp(tok, "DID", 3) == 0) {
+      device_id = atoi(tok + 3);
+
+    } else if (strncmp(tok, "LOC", 3) == 0) {
+      strncpy(location, tok + 3, sizeof(location) - 1);
+      location[sizeof(location) - 1] = '\0';
+
+    } else if (strncmp(tok, "TMP", 3) == 0) {
+      temperature = atoi(tok + 3);
+
+    } else if (strncmp(tok, "TIM", 3) == 0) {
+      const char *p = tok + 3;
+      if (strlen(p) >= 14) {
+        char t[3] = {0};
+
+        t[0] = p[0];
+        t[1] = p[1];
+        time_val.hours = (uint8_t)atoi(t);
+        t[0] = p[2];
+        t[1] = p[3];
+        time_val.minutes = (uint8_t)atoi(t);
+        t[0] = p[4];
+        t[1] = p[5];
+        time_val.seconds = (uint8_t)atoi(t);
+        t[0] = p[6];
+        t[1] = p[7];
+        time_val.day = (uint8_t)atoi(t);
+        t[0] = p[8];
+        t[1] = p[9];
+        time_val.date = (uint8_t)atoi(t);
+        t[0] = p[10];
+        t[1] = p[11];
+        time_val.month = (uint8_t)atoi(t);
+
+        char y[5] = {p[12], p[13], p[14], p[15], 0};
+        time_val.year = (uint16_t)atoi(y);
       }
     }
   }
-}
 
-void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM8 && htim->Channel == HAL_TIM_ACTIVE_CHANNEL_1) {
-    if (USE_SPEAKER_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
+  // Build output string based on parsed tokens and compile-time flags, with
+  // careful buffer management
+  size_t offset = 0;
+  size_t remaining = output_str_size;
+  int n = 0;
+
+  output_str[0] = '\0';
+
+  if (INCLUDE_USER_STRING) {
+    n = snprintf(&output_str[offset], remaining, "/STR%s", user_string);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
     }
-    if (USE_CABLE_TRANSMISSION) {
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_SET);
-      DWT_Delay_ms(100);
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_6, GPIO_PIN_RESET);
+  }
+
+  if (INCLUDE_DEVICE_ID) {
+    n = snprintf(&output_str[offset], remaining, "%s/DID%d",
+                 (offset > 0) ? "" : "", device_id);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
     }
-
-    tx_active = false;
-    HAL_TIM_Base_Stop(&htim2); // optional: stop TIM2 base to save a few µA
-
-    HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, MID_12B);
-  }
-}
-
-/* USER CODE END 0 */
-
-/**
- * @brief  The application entry point.
- * @retval int
- */
-int main(void) {
-
-  /* USER CODE BEGIN 1 */
-
-  /* USER CODE END 1 */
-
-  /* MCU
-   * Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the
-   * Systick.
-   */
-  HAL_Init();
-
-  /* USER CODE BEGIN Init */
-
-  /* USER CODE END Init */
-
-  /* Configure the system clock */
-  SystemClock_Config();
-
-  /* USER CODE BEGIN SysInit */
-
-  /* USER CODE END SysInit */
-
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_TIM2_Init();
-  MX_DAC1_Init();
-  MX_TIM8_Init();
-  MX_I2C2_Init();
-  /* USER CODE BEGIN 2 */
-
-  DWT_Delay_Init();
-
-  /* USER CODE END 2 */
-
-  /* Initialize leds */
-  BSP_LED_Init(LED_GREEN);
-
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no
-   * parity
-   */
-  BspCOMInit.BaudRate = 115200;
-  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits = COM_STOPBITS_1;
-  BspCOMInit.Parity = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE) {
-    Error_Handler();
   }
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
-
-  //-------------------------------------------------------------------------------------------//
-  // Set initial time and date in DS3231 RTC (uncomment to set)
-  //-------------------------------------------------------------------------------------------//
-
-  if (SET_INITIAL_TIME) {
-    DS3231_PowerOn();
-    if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
-      DS3231_Init();
-      Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
-               INITIAL_MONTH, INITIAL_YEAR);
+  if (INCLUDE_LOCATION) {
+    n = snprintf(&output_str[offset], remaining, "%s/LOC%s",
+                 (offset > 0) ? "" : "", location);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
     }
-    DS3231_PowerOff();
   }
 
-  //-------------------------------------------------------------------------------------------//
-  // Get current time and temperature from DS3231 RTC
-  //-------------------------------------------------------------------------------------------//
-
-  update_time_temperature();
-
-  //-------------------------------------------------------------------------------------------//
-  // Load user configuration from user_config.h
-  //-------------------------------------------------------------------------------------------//
-
-  update_input_string();
-
-  //-------------------------------------------------------------------------------------------//
-  // Create a bistream from a string
-  //-------------------------------------------------------------------------------------------//
-
-  make_bitstream_from_string(input_string);
-
-  //-------------------------------------------------------------------------------------------//
-  // Calculate the total time it takes to send the bitstream
-  //-------------------------------------------------------------------------------------------//
-
-  calculate_pulse_time();
-
-  //-------------------------------------------------------------------------------------------//
-  // Generate the sine wave and mid-scale lookup tables
-  //-------------------------------------------------------------------------------------------//
-
-  get_sineval_low();
-  get_sineval_high();
-  get_dc_mid();
-
-  //-------------------------------------------------------------------------------------------//
-  // Filling the circular buffer for the DAC
-  //-------------------------------------------------------------------------------------------//
-
-  current_sine_period = 0;
-  current_sine_index = 0;
-  current_bitstream_index = 0;
-
-  current_bit = bitstream[current_bitstream_index];
-  next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
-
-  result = fill_half_buffer((uint16_t *)&output_buffer[0], current_bit,
-                            next_bit, BUFFER_SIZE / 2, current_sine_period,
-                            current_sine_index);
-
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  if (INCLUDE_TEMPERATURE) {
+    n = snprintf(&output_str[offset], remaining, "%s/TMP%d",
+                 (offset > 0) ? "" : "", temperature);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
   }
 
-  result = fill_half_buffer((uint16_t *)&output_buffer[BUFFER_SIZE / 2],
-                            current_bit, next_bit, BUFFER_SIZE / 2,
-                            current_sine_period, current_sine_index);
-
-  moved_to_next_bit = result.moved_to_next_bit;
-  current_sine_period = result.current_period;
-  current_sine_index = result.current_index;
-
-  if (moved_to_next_bit) {
-    moved_to_next_bit = false;
-    current_bitstream_index = (current_bitstream_index + 1) % BITSTREAM_LENGTH;
-    current_bit = bitstream[current_bitstream_index];
-    next_bit = bitstream[(current_bitstream_index + 1) % BITSTREAM_LENGTH];
+  if (INCLUDE_TIME) {
+    n = snprintf(&output_str[offset], remaining,
+                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
+                 time_val.hours, time_val.minutes, time_val.seconds,
+                 time_val.day, time_val.date, time_val.month, time_val.year);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
   }
 
-  //-------------------------------------------------------------------------------------------//
-  // Start timers and interrupts
-  //-------------------------------------------------------------------------------------------//
-
-  HAL_TIM_Base_Start_IT(&htim8);
-  HAL_TIM_PWM_Start_IT(&htim8, TIM_CHANNEL_1);
-
-  // Force TIM8 to overflow immediately
-  __HAL_TIM_SET_COUNTER(&htim8, htim8.Init.Period - 1);
-
-  HAL_TIM_Base_Start_IT(&htim2);
-
-  //-------------------------------------------------------------------------------------------//
-  // Set timer count to right before triggering the pulse
-  //-------------------------------------------------------------------------------------------//
-
-  while (1) {
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-
-    // Enter Sleep Mode, wake up is done by interrupts
-    __WFI();
-
-    /* USER CODE END 3 */
+  // Add termination slash
+  if (strlen(output_str) > 0) {
+    n = snprintf(&output_str[offset], remaining, "/");
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
   }
+
+  // Optional: append RSSI info for debug/logging
+  // snprintf(&output_str[offset], remaining, " RSSI=%d dBm", dBm_value);
+
+  // Hard guarantee null-termination
+  output_str[output_str_size - 1] = '\0';
 }
 
-/**
- * @brief System Clock Configuration
- * @retval None
- */
-void SystemClock_Config(void) {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+static int init_luts_from_freqpair(void) {
+  // frigjør hvis de finnes fra før
+  free(sine_val_low);
+  sine_val_low = NULL;
+  free(sine_val_high);
+  sine_val_high = NULL;
+  free(dc_mid);
+  dc_mid = NULL;
 
-  /** Configure the main internal regulator output voltage
-   */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
+  sine_val_low = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
+  sine_val_high = malloc(freq_pair.higher_freq_samples * sizeof(uint32_t));
+  dc_mid = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
-  RCC_OscInitStruct.PLL.PLLN = 8;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-    Error_Handler();
+  if (!sine_val_low || !sine_val_high || !dc_mid) {
+    free(sine_val_low);
+    sine_val_low = NULL;
+    free(sine_val_high);
+    sine_val_high = NULL;
+    free(dc_mid);
+    dc_mid = NULL;
+    return -1;
   }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
-                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
-    Error_Handler();
-  }
+  return 0;
 }
 
-/**
- * @brief DAC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_DAC1_Init(void) {
-
-  /* USER CODE BEGIN DAC1_Init 0 */
-
-  /* USER CODE END DAC1_Init 0 */
-
-  DAC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN DAC1_Init 1 */
-
-  /* USER CODE END DAC1_Init 1 */
-
-  /** DAC Initialization
-   */
-  hdac1.Instance = DAC1;
-  if (HAL_DAC_Init(&hdac1) != HAL_OK) {
-    Error_Handler();
-  }
-
-  /** DAC channel OUT1 config
-   */
-  sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_AUTOMATIC;
-  sConfig.DAC_DMADoubleDataMode = DISABLE;
-  sConfig.DAC_SignedFormat = DISABLE;
-  sConfig.DAC_SampleAndHold = DAC_SAMPLEANDHOLD_DISABLE;
-  sConfig.DAC_Trigger = DAC_TRIGGER_T2_TRGO;
-  sConfig.DAC_Trigger2 = DAC_TRIGGER_NONE;
-  sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
-  sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
-  sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
-  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DAC1_Init 2 */
-
-  /* USER CODE END DAC1_Init 2 */
+void Error_Handler_Code(status_code_t code) {
+  g_error_code = code;
+  Error_Handler(); // call the CubeMX-compatible one
 }
 
-/**
- * @brief I2C2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_I2C2_Init(void) {
-
-  /* USER CODE BEGIN I2C2_Init 0 */
-
-  /* USER CODE END I2C2_Init 0 */
-
-  /* USER CODE BEGIN I2C2_Init 1 */
-
-  /* USER CODE END I2C2_Init 1 */
-  hi2c2.Instance = I2C2;
-  hi2c2.Init.Timing = 0x10707DBC;
-  hi2c2.Init.OwnAddress1 = 0;
-  hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c2.Init.OwnAddress2 = 0;
-  hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK) {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-   */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-   */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C2_Init 2 */
-
-  /* USER CODE END I2C2_Init 2 */
+int _write(int file, char *ptr, int len) {
+  (void)file;
+  HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
+  return len;
 }
-
-/**
- * @brief TIM2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TIM2_Init(void) {
-
-  /* USER CODE BEGIN TIM2_Init 0 */
-
-  /* USER CODE END TIM2_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM2_Init 1 */
-
-  /* USER CODE END TIM2_Init 1 */
-  htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 0;
-  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 31;
-  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
-    Error_Handler();
-  }
-  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_GATED;
-  sSlaveConfig.InputTrigger = TIM_TS_ITR5;
-  if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK) {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM2_Init 2 */
-
-  /* USER CODE END TIM2_Init 2 */
-}
-
-/**
- * @brief TIM8 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TIM8_Init(void) {
-
-  /* USER CODE BEGIN TIM8_Init 0 */
-
-  /* USER CODE END TIM8_Init 0 */
-
-  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
-  TIM_BreakDeadTimeConfigTypeDef sBreakDeadTimeConfig = {0};
-
-  /* USER CODE BEGIN TIM8_Init 1 */
-
-  /* USER CODE END TIM8_Init 1 */
-  htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 31999;
-  htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim8.Init.Period = 60129;
-  htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim8.Init.RepetitionCounter = 0;
-  htim8.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim8) != HAL_OK) {
-    Error_Handler();
-  }
-  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim8, &sClockSourceConfig) != HAL_OK) {
-    Error_Handler();
-  }
-  if (HAL_TIM_PWM_Init(&htim8) != HAL_OK) {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_OC1REF;
-  sMasterConfig.MasterOutputTrigger2 = TIM_TRGO2_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim8, &sMasterConfig) != HAL_OK) {
-    Error_Handler();
-  }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  sConfigOC.OCIdleState = TIM_OCIDLESTATE_RESET;
-  sConfigOC.OCNIdleState = TIM_OCNIDLESTATE_RESET;
-  if (HAL_TIM_PWM_ConfigChannel(&htim8, &sConfigOC, TIM_CHANNEL_1) != HAL_OK) {
-    Error_Handler();
-  }
-  sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
-  sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
-  sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 0;
-  sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
-  sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
-  sBreakDeadTimeConfig.BreakFilter = 0;
-  sBreakDeadTimeConfig.BreakAFMode = TIM_BREAK_AFMODE_INPUT;
-  sBreakDeadTimeConfig.Break2State = TIM_BREAK2_DISABLE;
-  sBreakDeadTimeConfig.Break2Polarity = TIM_BREAK2POLARITY_HIGH;
-  sBreakDeadTimeConfig.Break2Filter = 0;
-  sBreakDeadTimeConfig.Break2AFMode = TIM_BREAK_AFMODE_INPUT;
-  sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
-  if (HAL_TIMEx_ConfigBreakDeadTime(&htim8, &sBreakDeadTimeConfig) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM8_Init 2 */
-
-  /* USER CODE END TIM8_Init 2 */
-  HAL_TIM_MspPostInit(&htim8);
-}
-
-/**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void) {
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMAMUX1_CLK_ENABLE();
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel2_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
-}
-
-/**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
-static void MX_GPIO_Init(void) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
-
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7,
-                    GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-
-  /*Configure GPIO pins : PA5 PA6 PA7 */
-  GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
-}
-
-/* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
-
-/* USER CODE BEGIN Header */
-/**
- ******************************************************************************
- * @file           : main.c
- * @brief          : Main program body
- ******************************************************************************
- * @attention
- *
- * Copyright (c) 2025 STMicroelectronics.
- * All rights reserved.
- *
- * This software is licensed under terms that can be found in the LICENSE
- *file in the root directory of this software component. If no LICENSE file
- *comes with this software, it is provided AS-IS.
- *
- ******************************************************************************
- */
-/* USER CODE END Header */
-
-/**
- * @}
- */
-
-/**
- * @}
- */
 
 /**
  * @brief  This function is executed in case of error occurrence.
@@ -1143,8 +1509,11 @@ static void MX_GPIO_Init(void) {
  */
 void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return
-   * state */
+  LOGF("Error_Handler: code=%d\r\n", (int)g_error_code);
+
+  // If you want it to repeat forever:
+  LED_BlinkStatusCode((uint8_t)g_error_code);
+
   __disable_irq();
   while (1) {
   }
@@ -1161,8 +1530,8 @@ void Error_Handler(void) {
 void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
-     number, ex: printf("Wrong parameters value: file %s on line %d\r\n",
-     file, line) */
+     number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
+     line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
