@@ -21,6 +21,7 @@ void LED_SetShortDuration(uint16_t duration);
 void LED_SetLongDuration(uint16_t duration);
 void LED_BlinkShort(void);
 void LED_BlinkLong(void);
+void LED_Toggle(void);
 
 void LED_BlinkStatusCode(uint8_t code);
 
