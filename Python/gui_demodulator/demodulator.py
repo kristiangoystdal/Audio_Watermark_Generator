@@ -18,6 +18,14 @@ MIN_MESSAGE_BITS = 16
 
 DEBUG_PLOTS = False
 
+if DEBUG_PLOTS:
+    #make PLOTS folder and clear existing contents for debug plot output
+    import shutil
+    if os.path.exists("PLOTS"):
+        shutil.rmtree("PLOTS")
+    os.makedirs("PLOTS", exist_ok=True)
+
+
 days_of_week = [
     "Monday",
     "Tuesday",
@@ -324,15 +332,17 @@ def print_message(message, start_time, end_time, debug, labels):
         labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
 
         messages_lines = message.split("/")
-        for line in messages_lines:
+        for idx, line in enumerate(messages_lines):
+            if idx > 1 and idx != len(messages_lines) - 1:
+                labels.write(" | ")
             if line[0:3] == "STR":
-                labels.write("Message: " + line[3:] + " | ")
+                labels.write("Message: " + line[3:])
             elif line[0:3] == "LOC":
-                labels.write("Location: " + line[3:] + " | ")
+                labels.write("Location: " + line[3:])
             elif line[0:3] == "DID":
-                labels.write("Device ID: " + line[3:] + " | ")
+                labels.write("Device ID: " + line[3:])
             elif line[0:3] == "TMP":
-                labels.write("Temperature: " + line[3:] + "°C | ")
+                labels.write("Temperature: " + line[3:] + "°C")
             elif line[0:3] == "TIM":
                 labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}")
         debug.write("\n")
@@ -600,16 +610,16 @@ def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=200.0, step_h
 
         _, scores = fsk_decode(region_x, fs, candidate_f0, f1, N, N_err)
 
+
+        avg_abs_score = float(np.mean(np.abs(scores))) if len(scores) else float("-inf")
         if DEBUG_PLOTS:
             plt.scatter(range(len(scores)), scores, s=10)
-            plt.title(f"f0={candidate_f0:.2f} Hz Candidate Symbol Scores")
+            plt.title(f"f0={candidate_f0:.2f} Hz Candidate Symbol Scores. Score: {avg_abs_score:.6f}")
             plt.xlabel("Symbol Index")
             plt.ylabel("Score (E1 - E0)")
             plt.grid()
             plt.savefig(f"PLOTS/f0_candidate_{candidate_f0:.2f}_scores.png")
             plt.clf()
-
-        avg_abs_score = float(np.mean(np.abs(scores))) if len(scores) else float("-inf")
 
         if best_setup is None or avg_abs_score > best_setup["avg_abs_score"]:
             best_setup = {
