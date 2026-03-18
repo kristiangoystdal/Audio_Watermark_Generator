@@ -1,4 +1,4 @@
-NSYM = 8
+NSYM = 20
 PRIM = 0x11D
 FCR = 0
 GENERATOR = 2
