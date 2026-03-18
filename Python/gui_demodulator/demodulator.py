@@ -12,8 +12,21 @@ import numpy as np
 import soundfile as sf
 from scipy.signal import firwin, lfilter, windows
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
+import matplotlib.pyplot as plt
 
 MIN_MESSAGE_BITS = 16
+
+DEBUG_PLOTS = False
+
+days_of_week = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+]
 
 def find_likely_fsk_region(
     x,
@@ -139,7 +152,17 @@ def find_likely_fsk_region(
 
     return result
 
-def fsk_symbol_metrics(x, fs, f0, f1, N_samples, N_err, start):
+def fsk_symbol_metrics(
+    x,
+    fs,
+    f0,
+    f1,
+    N_samples,
+    N_err,
+    start,
+    return_starts=False,
+    initial_acc_err=0.0,
+):
     """
     Compute per-symbol energy at f0 and f1 using a sliding Hann window.
 
@@ -151,10 +174,13 @@ def fsk_symbol_metrics(x, fs, f0, f1, N_samples, N_err, start):
     e_0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
     e_1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
     E0, E1, S = [], [], []
-    acc_err = 0.0
+    starts = [] if return_starts else None
+    acc_err = float(initial_acc_err)
     for seg_start in range(start, len(x) - N_samples+ 1, N_samples):
         acc_err += N_err
         seg_start -= int(math.floor(acc_err))
+        if seg_start < 0 or seg_start + N_samples > len(x):
+            continue
         seg = x[seg_start : seg_start + N_samples] * W
         X0 = np.vdot(e_0, seg)
         X1 = np.vdot(e_1, seg)
@@ -164,6 +190,10 @@ def fsk_symbol_metrics(x, fs, f0, f1, N_samples, N_err, start):
         E0.append(e0v)
         E1.append(e1v)
         S.append(abs(e1v - e0v))
+        if return_starts:
+            starts.append(seg_start)
+    if return_starts:
+        return np.array(E0), np.array(E1), np.array(S), np.array(starts, dtype=int)
     return np.array(E0), np.array(E1), np.array(S)
 
 def fsk_decode(x, fs, f0, f1, N, N_err):
@@ -174,12 +204,19 @@ def fsk_decode(x, fs, f0, f1, N, N_err):
     scores = E1 - E0
     return bits, scores
 
-
 def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
     """Search for the symbol alignment offset that maximizes average separation."""
     offsets = list(range(0, N, stepsize))
     total_offsets = len(offsets)
     progress_width = 24
+    try:
+        region_info = find_likely_fsk_region(x, fs, f0, f1=f1)
+        active_start = max(0, int(round(region_info["start_time"] * fs)))
+        active_end = min(len(x), int(round(region_info["end_time"] * fs)))
+    except ValueError:
+        active_start = 0
+        active_end = len(x)
+    active_audio = x[active_start:active_end]
 
     def print_progress(done_offsets: int):
         fraction = done_offsets / total_offsets if total_offsets else 1.0
@@ -193,19 +230,47 @@ def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
     best_offset, best_val = 0, -np.inf
     print_progress(0)
     for idx, offset in enumerate(offsets, start=1):
+        if len(active_audio) < N:
+            print_progress(idx)
+            continue
+
+        def corrected_symbol_start(symbol_idx: int) -> int:
+            nominal_start = offset + symbol_idx * N
+            return nominal_start - int(math.floor((symbol_idx + 1) * N_err))
+
+        effective_symbol_step = N - N_err
+        if effective_symbol_step <= 0:
+            print_progress(idx)
+            continue
+        symbol_idx = max(0, int(math.floor((active_start - offset) / effective_symbol_step)))
+        while symbol_idx > 0 and corrected_symbol_start(symbol_idx - 1) >= active_start:
+            symbol_idx -= 1
+        while corrected_symbol_start(symbol_idx) < active_start:
+            symbol_idx += 1
+
+        local_offset = offset + symbol_idx * N - active_start
         _, _, separation = fsk_symbol_metrics(
-            x, fs, f0, f1, N, N_err, start=offset
+            active_audio,
+            fs,
+            f0,
+            f1,
+            N,
+            N_err,
+            start=local_offset,
+            initial_acc_err=symbol_idx * N_err,
         )
         if len(separation) == 0:
             print_progress(idx)
             continue
+
         val = float(np.mean(separation))
         if val > best_val:
             best_val, best_offset = val, offset
         print_progress(idx)
     sys.stdout.write("\n")
+    if not np.isfinite(best_val):
+        return 0, 0.0
     return best_offset, best_val
-
 
 def fsk_decode_aligned(x, fs, f0, f1, N, N_err, offset):
     """Decode bits for a signal chunk given a known alignment offset."""
@@ -214,7 +279,6 @@ def fsk_decode_aligned(x, fs, f0, f1, N, N_err, offset):
     bits = (E1 > E0).astype(int)
     scores = E1 - E0
     return bits, scores
-
 
 def compute_symbol_start_samples(num_symbols, N_samples, N_err, start=0):
     """Return symbol start samples using the same accumulated drift correction as demodulation."""
@@ -243,21 +307,12 @@ def generate_mask(th0, th1, scores):
     scores = np.asarray(scores, dtype=float)
     return (scores > th1) | (scores < th0)
 
-days_of_week = [
-    "Monday",
-    "Tuesday",
-    "Wednesday",
-    "Thursday",
-    "Friday",
-    "Saturday",
-    "Sunday",
-]
-
 def print_message(message, start_time, end_time, debug, labels):
     """Write decoded message info to debug and labels streams."""
     debug.write("Decoded Message: \"" + message + "\"\n")
-    if len(message) == 0:
-        debug.write("Warning: 0 length message\n")
+    debug.write(f"{len(message)} characters\n")
+    if len(message) < 5:
+        debug.write("Warning: Message too short\n")
         return
     elif message[0] != "/":
         debug.write("Warning: Message might be corrupted (missing '/' preamble)\n")
@@ -267,7 +322,6 @@ def print_message(message, start_time, end_time, debug, labels):
         return
     else:
         labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
-        debug.write(f"{len(message)} characters\n")
 
         messages_lines = message.split("/")
         for line in messages_lines:
@@ -280,8 +334,9 @@ def print_message(message, start_time, end_time, debug, labels):
             elif line[0:3] == "TMP":
                 labels.write("Temperature: " + line[3:] + "°C | ")
             elif line[0:3] == "TIM":
-                labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}" + "\n")
+                labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}")
         debug.write("\n")
+        labels.write("\n")
 
 def seconds_to_hms(total_seconds):
     """Convert seconds to a human-readable hours/minutes/seconds string."""
@@ -308,15 +363,13 @@ def split_messages_by_gap(bits, times, symbol_time):
     time_segments = np.split(times, split_idx)
     return [(b, t) for b, t in zip(bit_segments, time_segments) if len(b) > 0]
 
-import numpy as np
-
 def refine_fsk_tones_fft(
     x,
     fs: float,
     f0: float,
     f1: float,
-    search_width_percent: int = 2,
-    avg_bin_width: int = 200,
+    search_width_hz: float = 200.0,
+    avg_bin_width: int = 50,
 ):
     """
     FFT the full signal and find the most prominent peak within:
@@ -330,6 +383,8 @@ def refine_fsk_tones_fft(
     """
     x = np.asarray(x, dtype=float)
     nyq = fs / 2.0
+    if search_width_hz <= 0:
+        raise ValueError("search_width_hz must be > 0")
 
     # Window to reduce spectral leakage
     w = np.hanning(len(x))
@@ -365,14 +420,26 @@ def refine_fsk_tones_fft(
         return smoothed_ext[rel_lo:rel_hi]
 
     def peak_in_band(f_center: float) -> float:
-        lo = max(0.0, f_center - search_width_percent / 100.0 * f_center)
-        hi = min(nyq, f_center + search_width_percent / 100.0 * f_center)
+        lo = max(0.0, f_center - search_width_hz)
+        hi = min(nyq, f_center + search_width_hz)
         k_lo = hz_to_bin(lo)
         k_hi = hz_to_bin(hi)
         if k_hi < k_lo:
             raise ValueError(f"No FFT bins in band [{lo}, {hi}] Hz")
         band_smooth = smooth_band_slice(k_lo, k_hi)
         k = k_lo + int(np.argmax(band_smooth))
+
+        if DEBUG_PLOTS:
+            freqs = np.arange(len(power)) * df
+            plt.plot(freqs[k_lo : k_hi + 1], band_smooth, label="Smoothed Power")
+            plt.plot(freqs[k_lo : k_hi + 1], power[k_lo : k_hi + 1], label="Original Power", alpha=0.5)
+            plt.axvline(freqs[k], color="red", linestyle="--", label=f"Peak at {freqs[k]:.2f} Hz")
+            plt.title(f"FFT Magnitude around {f_center:.2f} Hz")
+            plt.xlabel("Frequency (Hz)")
+            plt.ylabel("Power")
+            plt.legend()
+            plt.grid()
+            plt.show()
 
         # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
         # Use log-magnitude to behave better for sharp peaks.
@@ -393,13 +460,10 @@ def refine_fsk_tones_fft(
 
     return f0_new, f1_new
 
-import numpy as np
-
 def compute_p0(f0, DAC_fs=960000):
     m = DAC_fs * (3000 / 1_000_000)
     n0 = np.floor(DAC_fs / f0)
     return int(np.round(m / n0))
-
 
 def find_message_ranges(mask, max_gap_symbols=3):
     """
@@ -415,27 +479,34 @@ def find_message_ranges(mask, max_gap_symbols=3):
     groups = np.split(reliable_idx, split_at)
     return [(int(group[0]), int(group[-1])) for group in groups if len(group) > 0]
 
-
 def bits_to_bytes(bits, bit_offset=0):
     """Pack a bit array into bytes, optionally skipping an initial bit offset."""
     if bit_offset < 0 or bit_offset >= 8:
         raise ValueError("bit_offset must be in range [0, 7]")
 
     usable_bits = len(bits) - bit_offset
+    if usable_bits <= 0:
+        return b""
+
     n_full_bytes = usable_bits // 8
-    if n_full_bytes <= 0:
+    trailing_bits = usable_bits % 8
+    n_bytes = n_full_bytes + (1 if trailing_bits > 4 else 0)
+    if n_bytes <= 0:
         return b""
 
     out = bytearray()
     idx = bit_offset
-    for _ in range(n_full_bytes):
+    for byte_idx in range(n_bytes):
         value = 0
-        for _ in range(8):
+        bits_in_byte = 8
+        if byte_idx == n_full_bytes and trailing_bits > 4:
+            bits_in_byte = trailing_bits
+        for _ in range(bits_in_byte):
             value = (value << 1) | int(bits[idx])
             idx += 1
+        value <<= 8 - bits_in_byte
         out.append(value)
     return bytes(out)
-
 
 def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_type):
     """
@@ -454,19 +525,43 @@ def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_typ
             continue
     return None
 
+def decode_message_without_ecc(
+    msg_bits=None,
+    payload_bytes=None,
+    strip_trailing_bytes=0,
+    trim_to_trailing_slash=False,
+):
+    """Decode bytes directly from a bit segment or byte payload, trying byte alignments."""
+    def normalize_payload(payload: bytes) -> bytes:
+        if strip_trailing_bytes > 0:
+            payload = payload[:-strip_trailing_bytes]
+        if trim_to_trailing_slash:
+            slash_idx = payload.rfind(b"/")
+            payload = payload[: slash_idx + 1] if slash_idx >= 0 else b""
+        return payload
 
-def decode_message_without_ecc(msg_bits):
-    """Decode bytes directly from bit segment, trying byte alignments."""
+    if payload_bytes is not None:
+        payload = normalize_payload(payload_bytes)
+        if not payload:
+            return b""
+        text = payload.decode("ascii", errors="replace")
+        if text.startswith("/") and text.endswith("/"):
+            return payload
+        return payload
+
+    if msg_bits is None:
+        return b""
+
     for bit_offset in range(8):
-        payload = bits_to_bytes(msg_bits, bit_offset=bit_offset)
+        payload = normalize_payload(bits_to_bytes(msg_bits, bit_offset=bit_offset))
         if not payload:
             continue
         text = payload.decode("ascii", errors="replace")
         if text.startswith("/") and text.endswith("/"):
             return payload
-    return bits_to_bytes(msg_bits, bit_offset=0)
+    return normalize_payload(bits_to_bytes(msg_bits, bit_offset=0))
 
-def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=100.0, step_hz=1.0, region_info=None):
+def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=200.0, step_hz=5.0, region_info=None):
     """Sweep f0 around the refined tone using a fixed p0 and absolute Hz step spacing."""
     if step_hz <= 0:
         raise ValueError("step_hz must be > 0")
@@ -504,6 +599,16 @@ def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=100.0, step_h
             continue
 
         _, scores = fsk_decode(region_x, fs, candidate_f0, f1, N, N_err)
+
+        if DEBUG_PLOTS:
+            plt.scatter(range(len(scores)), scores, s=10)
+            plt.title(f"f0={candidate_f0:.2f} Hz Candidate Symbol Scores")
+            plt.xlabel("Symbol Index")
+            plt.ylabel("Score (E1 - E0)")
+            plt.grid()
+            plt.savefig(f"PLOTS/f0_candidate_{candidate_f0:.2f}_scores.png")
+            plt.clf()
+
         avg_abs_score = float(np.mean(np.abs(scores))) if len(scores) else float("-inf")
 
         if best_setup is None or avg_abs_score > best_setup["avg_abs_score"]:
@@ -583,6 +688,42 @@ def decode_fsk(input_filename: str,
         audio = (audio - np.mean(audio))
         print("Locating likely FSK-active region...")
         region_info = find_likely_fsk_region(audio, fs, f0, f1=f1)
+
+        if DEBUG_PLOTS:
+
+            #plot fft of entire audio signal for debugging
+            w = np.hanning(len(audio))
+            xw = audio * w
+            X = np.fft.rfft(xw)
+            power = X.real * X.real + X.imag * X.imag
+            freqs = np.arange(len(power)) * fs / len(xw)
+            plt.figure(figsize=(12, 4))
+            plt.plot(freqs, power, label="FFT Power")
+            plt.axvline(f0, color="red", linestyle="--", label=f"f0={f0:.2f} Hz")
+            plt.axvline(f1, color="green", linestyle="--", label=f"f1={f1:.2f} Hz")
+            plt.title("FFT Power Spectrum of Audio Signal")
+            plt.xlabel("Frequency (Hz)")
+            plt.ylabel("Power")
+            plt.xlim(0, fs / 2)
+            plt.legend()
+            plt.grid()
+            plt.savefig("PLOTS/audio_fft_spectrum.png")
+            plt.clf()
+
+
+            #plot audio and highlight detected region for debugging
+            times = np.arange(len(audio)) / fs
+            plt.figure(figsize=(12, 4))
+            plt.plot(times, audio, label="Audio Signal")
+            plt.axvspan(region_info["start_time"], region_info["end_time"], color="orange", alpha=0.3, label="Detected FSK Region")
+            plt.title("Audio Signal with Detected FSK Region")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Amplitude")
+            plt.legend()
+            plt.grid()
+            plt.savefig("PLOTS/detected_fsk_region.png")
+            plt.clf()
+
         region_start = max(0, int(round(region_info["start_time"] * fs)))
         region_end = min(len(audio), int(round(region_info["end_time"] * fs)))
         active_audio = audio[region_start:region_end]
@@ -611,6 +752,7 @@ def decode_fsk(input_filename: str,
         print(f"Processing {len(segments)} audio segment(s) for demodulation...")
         segmentindex = 0
         for segment_start_sample, audio in segments:
+            print(f"\nProcessing segment {segmentindex}...")
             print(f"Finding the best offset for segment {segmentindex}...")
             best_offset, best_offset_score = find_best_offset(audio, fs, f0, f1, N, N_err)
             print(
@@ -618,6 +760,16 @@ def decode_fsk(input_filename: str,
                 f"(avg separation {best_offset_score:.6f})..."
             )
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
+
+            if DEBUG_PLOTS:
+                plt.scatter(range(len(scores)), scores, s=10)
+                plt.title(f"Segment {segmentindex} Symbol Scores")
+                plt.xlabel("Symbol Index")
+                plt.ylabel("Score (E1 - E0)")
+                plt.grid()
+                plt.savefig(f"PLOTS/segment_{segmentindex}_scores.png")
+                plt.clf()
+            
             if len(bits) == 0:
                 segmentindex += 1
                 continue
@@ -673,12 +825,16 @@ def decode_fsk(input_filename: str,
                     )
                     if decoded_payload is None:
                         debug.write("Warning: RS decode failed for this message segment\n")
-
-                        message = decode_message_without_ecc(msg_bits)
+                        decoded_payload = decode_message_without_ecc(
+                            msg_bits=msg_bits,
+                            trim_to_trailing_slash=True,
+                        )
+                        if not decoded_payload:
+                            debug.write("Warning: Could not decode bytes for this message segment\n")
+                            continue
                         print("Attempting to decode without ECC...")
-                        print("message: " + message.decode("ascii", errors="replace") + "\n")
+                        print("message: " + decoded_payload.decode("ascii", errors="replace") + "\n")
                         print("Bytes: " + str(bits_to_bytes(msg_bits)) + "\n")
-                        continue
                 else:
                     decoded_payload = decode_message_without_ecc(msg_bits)
                     if not decoded_payload:
