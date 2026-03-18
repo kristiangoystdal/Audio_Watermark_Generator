@@ -183,6 +183,11 @@ class App(tk.Tk):
         state = "normal" if enabled else "disabled"
         self.mins_entry.config(state=state)
 
+    def _toggle_ecc_controls(self):
+        enabled = self.use_ecc.get()
+        state = "normal" if enabled else "disabled"
+        self.ecc_entry.config(state=state)
+
     def _get_fsk_params(self) -> tuple[float, float]:
         """Read and validate f0/f1 from the GUI."""
         try:
