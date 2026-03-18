@@ -174,11 +174,53 @@ def fsk_decode(x, fs, f0, f1, N, N_err):
     scores = E1 - E0
     return bits, scores
 
-def compute_symbol_start_samples(num_symbols, N_samples, N_err):
+
+def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
+    """Search for the symbol alignment offset that maximizes average separation."""
+    offsets = list(range(0, N, stepsize))
+    total_offsets = len(offsets)
+    progress_width = 24
+
+    def print_progress(done_offsets: int):
+        fraction = done_offsets / total_offsets if total_offsets else 1.0
+        filled = int(round(progress_width * fraction))
+        bar = "#" * filled + "-" * (progress_width - filled)
+        sys.stdout.write(
+            f"\rFinding best offset [{bar}] {fraction * 100:5.1f}%"
+        )
+        sys.stdout.flush()
+
+    best_offset, best_val = 0, -np.inf
+    print_progress(0)
+    for idx, offset in enumerate(offsets, start=1):
+        _, _, separation = fsk_symbol_metrics(
+            x, fs, f0, f1, N, N_err, start=offset
+        )
+        if len(separation) == 0:
+            print_progress(idx)
+            continue
+        val = float(np.mean(separation))
+        if val > best_val:
+            best_val, best_offset = val, offset
+        print_progress(idx)
+    sys.stdout.write("\n")
+    return best_offset, best_val
+
+
+def fsk_decode_aligned(x, fs, f0, f1, N, N_err, offset):
+    """Decode bits for a signal chunk given a known alignment offset."""
+    E0, E1, _ = fsk_symbol_metrics(
+        x, fs, f0, f1, N, N_err, start=offset)
+    bits = (E1 > E0).astype(int)
+    scores = E1 - E0
+    return bits, scores
+
+
+def compute_symbol_start_samples(num_symbols, N_samples, N_err, start=0):
     """Return symbol start samples using the same accumulated drift correction as demodulation."""
     starts = np.empty(num_symbols, dtype=int)
     acc_err = 0.0
-    seg_start = 0
+    seg_start = start
     for idx in range(num_symbols):
         acc_err += N_err
         corrected_start = seg_start - int(math.floor(acc_err))
@@ -569,18 +611,36 @@ def decode_fsk(input_filename: str,
         print(f"Processing {len(segments)} audio segment(s) for demodulation...")
         segmentindex = 0
         for segment_start_sample, audio in segments:
-            print(f"decoding bits for segment {segmentindex}...")
-            bits, scores = fsk_decode(audio, fs, f0, f1, N, N_err)
+            print(f"Finding the best offset for segment {segmentindex}...")
+            best_offset, best_offset_score = find_best_offset(audio, fs, f0, f1, N, N_err)
+            print(
+                f"Decoding bits for segment {segmentindex} with offset {best_offset} "
+                f"(avg separation {best_offset_score:.6f})..."
+            )
+            bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
             if len(bits) == 0:
                 segmentindex += 1
                 continue
-            start_samples = compute_symbol_start_samples(len(bits), N, N_err)
+            start_samples = compute_symbol_start_samples(len(bits), N, N_err, start=best_offset)
             if len(start_samples) > 1:
                 next_start_samples = np.empty_like(start_samples)
                 next_start_samples[:-1] = start_samples[1:]
-                next_start_samples[-1] = start_samples[-1] + N - int(math.floor((len(bits) + 1) * N_err)) + int(math.floor(len(bits) * N_err))
+                next_start_samples[-1] = (
+                    start_samples[-1]
+                    + N
+                    - int(math.floor((len(bits) + 1) * N_err))
+                    + int(math.floor(len(bits) * N_err))
+                )
             else:
-                next_start_samples = np.array([start_samples[0] + N], dtype=int)
+                next_start_samples = np.array(
+                    [
+                        start_samples[0]
+                        + N
+                        - int(math.floor((len(bits) + 1) * N_err))
+                        + int(math.floor(len(bits) * N_err))
+                    ],
+                    dtype=int,
+                )
             th0, th1 = define_thresholds(scores)
             mask = generate_mask(th0, th1, scores)
             DMA_reset_delay = 25  # samples
@@ -617,6 +677,7 @@ def decode_fsk(input_filename: str,
                         message = decode_message_without_ecc(msg_bits)
                         print("Attempting to decode without ECC...")
                         print("message: " + message.decode("ascii", errors="replace") + "\n")
+                        print("Bytes: " + str(bits_to_bytes(msg_bits)) + "\n")
                         continue
                 else:
                     decoded_payload = decode_message_without_ecc(msg_bits)
