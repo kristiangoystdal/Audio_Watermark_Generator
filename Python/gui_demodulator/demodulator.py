@@ -2,7 +2,7 @@
 FSK demodulator utilities for extracting bitstreams and messages from audio files.
 
 Example command-line usage:
-python demodulator.py -i /path/to/recording.wav --f0 20833.33 --f1 22222.22 --p0 60 --use-ecc --ecc-parity-bytes 8 --generate-debug --minutes-per-segment -1
+python demodulator.py -i test.wav --f0 21333 --f1 22325 --use-ecc --ecc-parity-bytes 20 --generate-debug --minutes-per-segment -1
 """
 
 import math
@@ -13,11 +13,7 @@ import soundfile as sf
 from scipy.signal import firwin, lfilter, windows
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 
-def bandlimit(signal, f_lower, f_upper, fs, numtaps=257):
-    """Apply an FIR bandpass filter and return filtered signal and group delay."""
-    bp = firwin(numtaps, [f_lower, f_upper], pass_zero=False, fs=fs)
-    group_delay = (numtaps - 1) // 2
-    return lfilter(bp, [1.0], signal), group_delay
+MIN_MESSAGE_BITS = 16
 
 def find_likely_fsk_region(
     x,
@@ -25,7 +21,7 @@ def find_likely_fsk_region(
     f0,
     f1=None,
     window_duration=0.25,
-    hop_duration=1,
+    hop_duration=0.1,
     band_width_hz=150.0,
     threshold_sigma=3.0,
 ):
@@ -170,33 +166,19 @@ def fsk_symbol_metrics(x, fs, f0, f1, N_samples, N_err, start):
         S.append(abs(e1v - e0v))
     return np.array(E0), np.array(E1), np.array(S)
 
-def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
-    """Search for the symbol alignment offset that maximizes average separation."""
-    best_offset, best_val = 0, -np.inf
-    for offset in range(0, N, stepsize):
-        _, _, S = fsk_symbol_metrics(
-            x, fs, f0, f1, N, N_err, start=offset
-        )
-        if len(S) == 0:
-            continue
-        val = np.mean(S)
-        if val > best_val:
-            best_val, best_offset = val, offset
-    return best_offset, best_val
-
-def fsk_decode_aligned(x, fs, f0, f1, N, N_err, offset):
-    """Decode bits for a signal chunk given a known alignment offset."""
+def fsk_decode(x, fs, f0, f1, N, N_err):
+    """Decode bits for a signal chunk using zero symbol offset."""
     E0, E1, _ = fsk_symbol_metrics(
-        x, fs, f0, f1, N, N_err, start=offset)
+        x, fs, f0, f1, N, N_err, start=0)
     bits = (E1 > E0).astype(int)
     scores = E1 - E0
     return bits, scores
 
-def compute_symbol_start_samples(num_symbols, start, N_samples, N_err):
+def compute_symbol_start_samples(num_symbols, N_samples, N_err):
     """Return symbol start samples using the same accumulated drift correction as demodulation."""
     starts = np.empty(num_symbols, dtype=int)
     acc_err = 0.0
-    seg_start = int(start)
+    seg_start = 0
     for idx in range(num_symbols):
         acc_err += N_err
         corrected_start = seg_start - int(math.floor(acc_err))
@@ -479,8 +461,7 @@ def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=100.0, step_h
         if N <= 0:
             continue
 
-        best_offset, _ = find_best_offset(region_x, fs, candidate_f0, f1, N, N_err)
-        _, scores = fsk_decode_aligned(region_x, fs, candidate_f0, f1, N, N_err, best_offset)
+        _, scores = fsk_decode(region_x, fs, candidate_f0, f1, N, N_err)
         avg_abs_score = float(np.mean(np.abs(scores))) if len(scores) else float("-inf")
 
         if best_setup is None or avg_abs_score > best_setup["avg_abs_score"]:
@@ -490,7 +471,6 @@ def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=100.0, step_h
                 "symbol_time": float(symbol_time),
                 "N": int(N),
                 "N_err": float(N_err),
-                "best_offset": int(best_offset),
                 "avg_abs_score": float(avg_abs_score),
                 "region_start_time": float(region_info["start_time"]),
                 "region_end_time": float(region_info["end_time"]),
@@ -566,11 +546,8 @@ def decode_fsk(input_filename: str,
         active_audio = audio[region_start:region_end]
         if len(active_audio) == 0:
             active_audio = audio
-
         print("Refining FSK tones from detected active region...")
         f0, f1 = refine_fsk_tones_fft(active_audio, fs, f0, f1)
-        print("Bandlimiting audio around the refined FSK tones...")
-        audio, filter_delay = bandlimit(audio, f0 - 1100, f1 + 1000, fs)
         print("Selecting best f0 for demodulation...")
         best_f0_setup = select_best_f0_setup(audio, fs, f0, f1, p0, region_info=region_info)
         f0 = best_f0_setup["f0"]
@@ -592,14 +569,12 @@ def decode_fsk(input_filename: str,
         print(f"Processing {len(segments)} audio segment(s) for demodulation...")
         segmentindex = 0
         for segment_start_sample, audio in segments:
-            print(f"Demodulating segment {segmentindex + 1}/{len(segments)}...")
-            best_offset, _ = find_best_offset(audio, fs, f0, f1, N, N_err)
-            bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
-
+            print(f"decoding bits for segment {segmentindex}...")
+            bits, scores = fsk_decode(audio, fs, f0, f1, N, N_err)
             if len(bits) == 0:
                 segmentindex += 1
                 continue
-            start_samples = compute_symbol_start_samples(len(bits), best_offset, N, N_err)
+            start_samples = compute_symbol_start_samples(len(bits), N, N_err)
             if len(start_samples) > 1:
                 next_start_samples = np.empty_like(start_samples)
                 next_start_samples[:-1] = start_samples[1:]
@@ -617,12 +592,16 @@ def decode_fsk(input_filename: str,
                 message_start_sample = segment_start_sample + start_samples[start_idx]
                 message_end_sample = segment_start_sample + next_start_samples[end_idx]
                 time_in_recording = (
-                    message_start_sample / fs - filter_delay * Ts - DMA_reset_delay * Ts
+                    message_start_sample / fs - DMA_reset_delay * Ts
                 )
-                debug.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
+                if len(msg_bits) < MIN_MESSAGE_BITS:
+                    continue
+                else:
+                    debug.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
+                    print(f"Decoded message bits: {len(msg_bits)}\n")
                 start_time = time_in_recording
                 end_time = (
-                    message_end_sample / fs - filter_delay * Ts - DMA_reset_delay * Ts
+                    message_end_sample / fs - DMA_reset_delay * Ts
                 )
                 if use_ecc:
                     decoded_payload = decode_message_with_rs(
@@ -634,6 +613,10 @@ def decode_fsk(input_filename: str,
                     )
                     if decoded_payload is None:
                         debug.write("Warning: RS decode failed for this message segment\n")
+
+                        message = decode_message_without_ecc(msg_bits)
+                        print("Attempting to decode without ECC...")
+                        print("message: " + message.decode("ascii", errors="replace") + "\n")
                         continue
                 else:
                     decoded_payload = decode_message_without_ecc(msg_bits)
