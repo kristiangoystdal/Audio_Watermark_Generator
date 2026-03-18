@@ -379,7 +379,7 @@ def refine_fsk_tones_fft(
     f0: float,
     f1: float,
     search_width_hz: float = 200.0,
-    avg_bin_width: int = 50,
+    avg_bin_width: int = 20,
 ):
     """
     FFT the full signal and find the most prominent peak within:
@@ -450,6 +450,7 @@ def refine_fsk_tones_fft(
             plt.legend()
             plt.grid()
             plt.show()
+            plt.clf()
 
         # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
         # Use log-magnitude to behave better for sharp peaks.
@@ -571,70 +572,144 @@ def decode_message_without_ecc(
             return payload
     return normalize_payload(bits_to_bytes(msg_bits, bit_offset=0))
 
-def select_best_f0_setup(x, fs, refined_f0, f1, p0, search_span_hz=200.0, step_hz=5.0, region_info=None):
-    """Sweep f0 around the refined tone using a fixed p0 and absolute Hz step spacing."""
-    if step_hz <= 0:
-        raise ValueError("step_hz must be > 0")
+def select_best_symbol_timing_and_offset(
+    x,
+    fs,
+    refined_f0,
+    f1,
+    p0,
+    n_true_search_radius=2.0,
+    n_true_step=0.1,
+    stepsize=25,
+    region_info=None,
+):
+    """Jointly search N and symbol offset while keeping refined_f0 fixed."""
+    if n_true_search_radius < 0:
+        raise ValueError("n_true_search_radius must be >= 0")
+    if n_true_step <= 0:
+        raise ValueError("n_true_step must be > 0")
+    if stepsize <= 0:
+        raise ValueError("stepsize must be > 0")
 
-    candidate_f0s = np.arange(
-        refined_f0 - search_span_hz,
-        refined_f0 + search_span_hz + 0.5 * step_hz,
-        step_hz,
-        dtype=float,
-    )
-    candidate_f0s = candidate_f0s[candidate_f0s > 0]
     if region_info is None:
-        print("Locating likely FSK-active region for f0 sweep...")
+        print("Locating likely FSK-active region for timing/offset sweep...")
         region_info = find_likely_fsk_region(x, fs, refined_f0, f1=f1)
     region_start = max(0, int(round(region_info["start_time"] * fs)))
     region_end = min(len(x), int(round(region_info["end_time"] * fs)))
     region_x = x[region_start:region_end]
     if len(region_x) == 0:
         region_x = x
+        region_start = 0
+        region_end = len(x)
 
-    print(
-        f"Testing {len(candidate_f0s)} f0 candidates over "
-        f"{search_span_hz:.1f} Hz around refined f0={refined_f0:.2f} Hz..."
+    symbol_time = p0 / refined_f0
+    nominal_N_true = fs * symbol_time
+    candidate_N_trues = np.arange(
+        max(n_true_step, nominal_N_true - n_true_search_radius),
+        nominal_N_true + n_true_search_radius + 0.5 * n_true_step,
+        n_true_step,
+        dtype=float,
     )
 
+    print(
+        f"Testing {len(candidate_N_trues)} N_true candidates around "
+        f"N_true={nominal_N_true:.4f} samples using refined f0={refined_f0:.2f} Hz..."
+    )
+
+    total_candidates = sum(
+        max(1, len(range(0, max(1, int(math.ceil(candidate_N_true))), stepsize)))
+        for candidate_N_true in candidate_N_trues
+    )
+    progress_width = 24
+
+    def print_progress(done_candidates: int):
+        fraction = done_candidates / total_candidates if total_candidates else 1.0
+        filled = int(round(progress_width * fraction))
+        bar = "#" * filled + "-" * (progress_width - filled)
+        sys.stdout.write(
+            f"\rFinding best timing/offset [{bar}] {fraction * 100:5.1f}%"
+        )
+        sys.stdout.flush()
+
+    def score_offset(N: int, N_err: float, offset: int):
+        if len(region_x) < N:
+            return float("-inf"), np.array([], dtype=float)
+
+        def corrected_symbol_start(symbol_idx: int) -> int:
+            nominal_start = offset + symbol_idx * N
+            return nominal_start - int(math.floor((symbol_idx + 1) * N_err))
+
+        effective_symbol_step = N - N_err
+        if effective_symbol_step <= 0:
+            return float("-inf"), np.array([], dtype=float)
+        symbol_idx = max(0, int(math.floor((region_start - offset) / effective_symbol_step)))
+        while symbol_idx > 0 and corrected_symbol_start(symbol_idx - 1) >= region_start:
+            symbol_idx -= 1
+        while corrected_symbol_start(symbol_idx) < region_start:
+            symbol_idx += 1
+
+        local_offset = offset + symbol_idx * N - region_start
+        E0, E1, separation = fsk_symbol_metrics(
+            region_x,
+            fs,
+            refined_f0,
+            f1,
+            N,
+            N_err,
+            start=local_offset,
+            initial_acc_err=symbol_idx * N_err,
+        )
+        scores = E1 - E0
+        if len(separation) == 0:
+            return float("-inf"), scores
+        return float(np.mean(separation)), scores
+
     best_setup = None
-    for candidate_f0 in candidate_f0s:
-        symbol_time = p0 / candidate_f0
-        N = int(round(fs * symbol_time))
-        N_true = fs * symbol_time
-        if N < N_true:
-            N += 1
-        N_err = N - N_true
-        if N <= 0:
-            continue
+    done_candidates = 0
+    print_progress(0)
+    for candidate_N_true in candidate_N_trues:
+        N = max(1, int(math.ceil(candidate_N_true)))
+        N_err = N - candidate_N_true
+        offsets = list(range(0, N, stepsize)) or [0]
+        best_offset = 0
+        best_score = float("-inf")
 
-        _, scores = fsk_decode(region_x, fs, candidate_f0, f1, N, N_err)
+        for offset in offsets:
+            score, scores = score_offset(N, N_err, offset)
+            if DEBUG_PLOTS:
+                plt.scatter(range(len(scores)), scores, s=10)
+                plt.title(
+                    f"N_true={candidate_N_true:.4f}, N={N}, offset={offset} Symbol Scores. "
+                    f"Score: {score if np.isfinite(score) else float(0):.6f}"
+                )
+                plt.xlabel("Symbol Index")
+                plt.ylabel("Score (E1 - E0)")
+                plt.grid()
+                plt.savefig(f"PLOTS/Ntrue_{candidate_N_true:.4f}_N_{N}_offset_{offset}_scores.png")
+                plt.clf()
+            done_candidates += 1
+            if score > best_score:
+                best_score = score
+                best_offset = offset
+            print_progress(done_candidates)
 
-
-        avg_abs_score = float(np.mean(np.abs(scores))) if len(scores) else float("-inf")
-        if DEBUG_PLOTS:
-            plt.scatter(range(len(scores)), scores, s=10)
-            plt.title(f"f0={candidate_f0:.2f} Hz Candidate Symbol Scores. Score: {avg_abs_score:.6f}")
-            plt.xlabel("Symbol Index")
-            plt.ylabel("Score (E1 - E0)")
-            plt.grid()
-            plt.savefig(f"PLOTS/f0_candidate_{candidate_f0:.2f}_scores.png")
-            plt.clf()
-
-        if best_setup is None or avg_abs_score > best_setup["avg_abs_score"]:
+        if best_setup is None or best_score > best_setup["avg_abs_score"]:
             best_setup = {
-                "f0": float(candidate_f0),
+                "f0": float(refined_f0),
                 "p0": int(p0),
-                "symbol_time": float(symbol_time),
+                "symbol_time": float(candidate_N_true / fs),
                 "N": int(N),
+                "N_true": float(candidate_N_true),
                 "N_err": float(N_err),
-                "avg_abs_score": float(avg_abs_score),
+                "offset": int(best_offset),
+                "avg_abs_score": float(best_score if np.isfinite(best_score) else 0.0),
                 "region_start_time": float(region_info["start_time"]),
                 "region_end_time": float(region_info["end_time"]),
             }
 
+    sys.stdout.write("\n")
     if best_setup is None:
-        raise ValueError("No valid f0 candidate produced demodulation scores")
+        raise ValueError("No valid N/offset candidate produced demodulation scores")
 
     return best_setup
 
@@ -668,7 +743,6 @@ def decode_fsk(input_filename: str,
         raise ValueError("ecc_nsym must be in range [1, 254] when ECC is enabled")
     user_f0 = f0
     p0 = compute_p0(user_f0)
-
     base, _ = os.path.splitext(input_filename)
     if generate_debug:
         debug_filename = base + "_debug.txt"
@@ -707,7 +781,6 @@ def decode_fsk(input_filename: str,
             X = np.fft.rfft(xw)
             power = X.real * X.real + X.imag * X.imag
             freqs = np.arange(len(power)) * fs / len(xw)
-            plt.figure(figsize=(12, 4))
             plt.plot(freqs, power, label="FFT Power")
             plt.axvline(f0, color="red", linestyle="--", label=f"f0={f0:.2f} Hz")
             plt.axvline(f1, color="green", linestyle="--", label=f"f1={f1:.2f} Hz")
@@ -723,7 +796,6 @@ def decode_fsk(input_filename: str,
 
             #plot audio and highlight detected region for debugging
             times = np.arange(len(audio)) / fs
-            plt.figure(figsize=(12, 4))
             plt.plot(times, audio, label="Audio Signal")
             plt.axvspan(region_info["start_time"], region_info["end_time"], color="orange", alpha=0.3, label="Detected FSK Region")
             plt.title("Audio Signal with Detected FSK Region")
@@ -741,18 +813,12 @@ def decode_fsk(input_filename: str,
             active_audio = audio
         print("Refining FSK tones from detected active region...")
         f0, f1 = refine_fsk_tones_fft(active_audio, fs, f0, f1)
-        print("Selecting best f0 for demodulation...")
-        best_f0_setup = select_best_f0_setup(audio, fs, f0, f1, p0, region_info=region_info)
-        f0 = best_f0_setup["f0"]
-        p0 = best_f0_setup["p0"]
+        f0 = float(f0)
+        p0 = int(p0)
         Ts = 1 / fs
-        symbol_time = best_f0_setup["symbol_time"]
-        N = best_f0_setup["N"]
-        N_err = best_f0_setup["N_err"]
         print(
             f"Demodulation parameters: f0={f0:.2f} Hz, f1={f1:.2f} Hz, p0={p0}, "
-            f"search-region={best_f0_setup['region_start_time']:.3f}s-"
-            f"{best_f0_setup['region_end_time']:.3f}s"
+            f"search-region={region_info['start_time']:.3f}s-{region_info['end_time']:.3f}s"
         )
         if minutes_per_segment <= 0:
             minutes_per_segment = len(audio) / fs / 60          
@@ -763,10 +829,14 @@ def decode_fsk(input_filename: str,
         segmentindex = 0
         for segment_start_sample, audio in segments:
             print(f"\nProcessing segment {segmentindex}...")
-            print(f"Finding the best offset for segment {segmentindex}...")
-            best_offset, best_offset_score = find_best_offset(audio, fs, f0, f1, N, N_err)
+            print(f"Finding the best timing/offset for segment {segmentindex}...")
+            best_setup = select_best_symbol_timing_and_offset(audio, fs, f0, f1, p0)
+            N = best_setup["N"]
+            N_err = best_setup["N_err"]
+            best_offset = best_setup["offset"]
+            best_offset_score = best_setup["avg_abs_score"]
             print(
-                f"Decoding bits for segment {segmentindex} with offset {best_offset} "
+                f"Decoding bits for segment {segmentindex} with N={N}, offset {best_offset} "
                 f"(avg separation {best_offset_score:.6f})..."
             )
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
