@@ -15,7 +15,7 @@ from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 # ------------------------------
 FS_HZ = 960000
 MIN_BIT_US = 3000
-FREQ_MIN = 1000
+FREQ_MIN = 2000
 FREQ_MAX = 24000
 BIT_SAMPLE_TOLERANCE_PERCENT = 1
 
