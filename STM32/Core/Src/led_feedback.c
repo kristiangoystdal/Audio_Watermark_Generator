@@ -47,3 +47,5 @@ void LED_BlinkStatusCode(uint8_t code) {
     HAL_Delay(duration_between_blinks_ms * 5);
   }
 }
+
+void LED_Toggle(void) { HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin); }
