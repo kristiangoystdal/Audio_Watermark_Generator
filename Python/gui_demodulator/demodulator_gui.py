@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-import os
 import math
+import os
+import re
 import threading
 import tkinter as tk
+from dataclasses import dataclass
+from datetime import datetime
 from tkinter import filedialog, messagebox
 from tkinter import ttk
 from pathlib import Path
+
+import soundfile as sf
 
 from demodulator import decode_fsk
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
@@ -18,6 +23,14 @@ MIN_BIT_US = 3000
 FREQ_MIN = 2000
 FREQ_MAX = 24000
 BIT_SAMPLE_TOLERANCE_PERCENT = 1
+SYNC_FILE_SUFFIX = "_synced"
+LABEL_TIMESTAMP_RE = re.compile(
+    r"Time:\s*"
+    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
+    r"\s+on\s+"
+    r"(?P<weekday>[A-Za-z]+)\s+"
+    r"(?P<day>\d{2})/(?P<month>\d{2})/(?P<year>\d{4})"
+)
 
 
 def derive_txt_path(wav_path: str) -> str:
@@ -25,11 +38,251 @@ def derive_txt_path(wav_path: str) -> str:
     return base + ".txt"
 
 
+def derive_synced_wav_path(wav_path: str) -> str:
+    base, ext = os.path.splitext(wav_path)
+    return base + SYNC_FILE_SUFFIX + ext
+
+
+def derive_synced_txt_path(wav_path: str) -> str:
+    base, _ = os.path.splitext(wav_path)
+    return base + SYNC_FILE_SUFFIX + ".txt"
+
+
+@dataclass(frozen=True)
+class LabelEntry:
+    start_time: float
+    end_time: float
+    label_text: str
+    message_timestamp: datetime | None
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    outputs: tuple[str, ...]
+    message: str
+    shared_timestamp: datetime | None = None
+
+
+def extract_message_timestamp(label_text: str) -> datetime | None:
+    match = LABEL_TIMESTAMP_RE.search(label_text)
+    if match is None:
+        return None
+
+    try:
+        return datetime(
+            year=int(match.group("year")),
+            month=int(match.group("month")),
+            day=int(match.group("day")),
+            hour=int(match.group("hour")),
+            minute=int(match.group("minute")),
+            second=int(match.group("second")),
+        )
+    except ValueError:
+        return None
+
+
+def parse_label_entries(txt_path: str) -> list[LabelEntry]:
+    entries: list[LabelEntry] = []
+    with open(txt_path, "r", encoding="utf-8") as handle:
+        for line_no, raw_line in enumerate(handle, start=1):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            parts = line.split("\t", 2)
+            if len(parts) != 3:
+                raise ValueError(
+                    f"Invalid label line in {Path(txt_path).name} at line {line_no}"
+                )
+
+            try:
+                start_time = float(parts[0])
+                end_time = float(parts[1])
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid time range in {Path(txt_path).name} at line {line_no}"
+                ) from exc
+
+            label_text = parts[2]
+            entries.append(
+                LabelEntry(
+                    start_time=start_time,
+                    end_time=end_time,
+                    label_text=label_text,
+                    message_timestamp=extract_message_timestamp(label_text),
+                )
+            )
+    return entries
+
+
+def find_shared_message_timestamp(
+    entries_by_file: dict[str, list[LabelEntry]],
+) -> datetime | None:
+    timestamp_sets = []
+    for entries in entries_by_file.values():
+        timestamps = {
+            entry.message_timestamp
+            for entry in entries
+            if entry.message_timestamp is not None
+        }
+        if not timestamps:
+            return None
+        timestamp_sets.append(timestamps)
+
+    if not timestamp_sets:
+        return None
+
+    shared = set.intersection(*timestamp_sets)
+    if not shared:
+        return None
+    return min(shared)
+
+
+def write_synced_label_file(
+    output_txt_path: str,
+    entries: list[LabelEntry],
+    crop_start_time: float,
+    crop_duration: float,
+):
+    crop_end_time = crop_start_time + crop_duration
+    with open(output_txt_path, "w", encoding="utf-8") as handle:
+        for entry in entries:
+            if entry.start_time + 1e-9 < crop_start_time:
+                continue
+            if entry.end_time - 1e-9 > crop_end_time:
+                continue
+
+            synced_start = entry.start_time - crop_start_time
+            synced_end = entry.end_time - crop_start_time
+            handle.write(
+                f"{synced_start:.6f}\t{synced_end:.6f}\t{entry.label_text}\n"
+            )
+
+
+def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
+    if len(wav_paths) < 2:
+        return SyncResult(
+            outputs=(),
+            message="Automatic synchronization needs at least two audio files.",
+        )
+
+    entries_by_file: dict[str, list[LabelEntry]] = {}
+    for wav_path in wav_paths:
+        txt_path = derive_txt_path(wav_path)
+        if not os.path.exists(txt_path):
+            raise FileNotFoundError(f"Missing label file: {Path(txt_path).name}")
+        entries_by_file[wav_path] = parse_label_entries(txt_path)
+
+    shared_timestamp = find_shared_message_timestamp(entries_by_file)
+    if shared_timestamp is None:
+        return SyncResult(
+            outputs=(),
+            message=(
+                "No shared message timestamp was found across all selected files. "
+                "No synchronized copies were created."
+            ),
+        )
+
+    crop_plan: dict[str, dict[str, object]] = {}
+    sample_rates = set()
+    min_available_frames: int | None = None
+    min_available_duration: float | None = None
+
+    for wav_path, entries in entries_by_file.items():
+        matching_entries = [
+            entry for entry in entries if entry.message_timestamp == shared_timestamp
+        ]
+        if not matching_entries:
+            raise ValueError(f"Shared timestamp lookup failed for {Path(wav_path).name}")
+
+        anchor = min(matching_entries, key=lambda entry: entry.start_time)
+        info = sf.info(wav_path)
+        sample_rates.add(info.samplerate)
+
+        start_sample = int(round(anchor.start_time * info.samplerate))
+        start_sample = max(0, min(start_sample, info.frames))
+        available_frames = info.frames - start_sample
+        available_duration = available_frames / info.samplerate if info.samplerate else 0.0
+
+        crop_plan[wav_path] = {
+            "info": info,
+            "start_sample": start_sample,
+            "crop_start_time": start_sample / info.samplerate if info.samplerate else 0.0,
+            "available_frames": available_frames,
+            "available_duration": available_duration,
+        }
+
+        if min_available_frames is None or available_frames < min_available_frames:
+            min_available_frames = available_frames
+        if min_available_duration is None or available_duration < min_available_duration:
+            min_available_duration = available_duration
+
+    if min_available_frames is None or min_available_duration is None:
+        raise ValueError("Could not determine a valid synchronized crop window.")
+
+    if min_available_duration <= 0:
+        raise ValueError("Shared timestamp leaves no remaining audio to synchronize.")
+
+    outputs: list[str] = []
+    use_shared_frame_count = len(sample_rates) == 1
+    for wav_path in wav_paths:
+        plan = crop_plan[wav_path]
+        info = plan["info"]
+        start_sample = int(plan["start_sample"])
+        available_frames = int(plan["available_frames"])
+
+        if use_shared_frame_count:
+            frames_to_write = min_available_frames
+        else:
+            frames_to_write = min(
+                available_frames,
+                int(math.floor(min_available_duration * info.samplerate + 1e-9)),
+            )
+
+        if frames_to_write <= 0:
+            raise ValueError(
+                f"Synchronized crop length is empty for {Path(wav_path).name}"
+            )
+
+        audio, fs = sf.read(wav_path, always_2d=False)
+        synced_audio = audio[start_sample : start_sample + frames_to_write]
+
+        synced_wav_path = derive_synced_wav_path(wav_path)
+        synced_txt_path = derive_synced_txt_path(wav_path)
+
+        sf.write(
+            synced_wav_path,
+            synced_audio,
+            fs,
+            format=info.format,
+            subtype=info.subtype,
+            endian=info.endian,
+        )
+        write_synced_label_file(
+            synced_txt_path,
+            entries_by_file[wav_path],
+            crop_start_time=float(plan["crop_start_time"]),
+            crop_duration=frames_to_write / fs,
+        )
+        outputs.append(synced_wav_path)
+
+    timestamp_text = shared_timestamp.strftime("%Y-%m-%d %H:%M:%S")
+    return SyncResult(
+        outputs=tuple(outputs),
+        message=(
+            f"Created {len(outputs)} synchronized WAV "
+            f"{'copy' if len(outputs) == 1 else 'copies'} using shared "
+            f"message timestamp {timestamp_text}."
+        ),
+        shared_timestamp=shared_timestamp,
+    )
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("FSK Audio Demodulator")
-        self.geometry("520x560")
+        self.geometry("520x620")
         self.resizable(False, False)
 
         self.frame = tk.Frame(self, padx=20, pady=20)
@@ -59,6 +312,7 @@ class App(tk.Tk):
         self.minutes_per_segment = tk.IntVar(value=1)
         self.use_ecc = tk.BooleanVar(value=True)
         self.ecc_parity_bytes = tk.IntVar(value=DEFAULT_ECC_NSYM)
+        self.auto_sync_audio = tk.BooleanVar(value=False)
 
         # Global click to defocus entry widgets
         self.bind_all("<Button-1>", self._global_defocus, add="+")
@@ -132,6 +386,19 @@ class App(tk.Tk):
             opt, text="Generate debug output", variable=self.generate_debug
         ).pack(side="left")
 
+        # Batch options
+        tk.Label(self.frame, text="Batch Settings", font=("Arial", 15, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 2)
+        )
+        batch = tk.Frame(self.frame)
+        batch.pack(fill="x", **pad)
+        self.auto_sync_check = tk.Checkbutton(
+            batch,
+            text="Auto-sync matching timestamps for multiple files",
+            variable=self.auto_sync_audio,
+        )
+        self.auto_sync_check.pack(side="left")
+
         # ECC options
         tk.Label(self.frame, text="Error Correction", font=("Arial", 15, "bold")).pack(
             anchor="w", padx=12, pady=(8, 2)
@@ -175,6 +442,7 @@ class App(tk.Tk):
         # Initial toggle state
         self._toggle_seg_controls()
         self._toggle_ecc_controls()
+        self._toggle_sync_controls()
 
         # Initial frequency auto-fix
         self.update_low_frequency()
@@ -404,6 +672,12 @@ class App(tk.Tk):
         state = "normal" if enabled else "disabled"
         self.ecc_entry.config(state=state)
 
+    def _toggle_sync_controls(self):
+        enabled = len(self.selected_files) >= 2
+        if not enabled:
+            self.auto_sync_audio.set(False)
+        self.auto_sync_check.config(state="normal" if enabled else "disabled")
+
     def _get_fsk_params(self) -> tuple[float, float]:
         try:
             f0 = float(self.f0_hz.get())
@@ -429,6 +703,7 @@ class App(tk.Tk):
             self.inp.set(Path(self.selected_files[0]).name)
         else:
             self.inp.set(f"{len(self.selected_files)} files selected")
+        self._toggle_sync_controls()
 
     def run_clicked(self):
         if not self.selected_files:
@@ -447,6 +722,7 @@ class App(tk.Tk):
         )
         use_ecc = self.use_ecc.get()
         parity_bytes = self.ecc_parity_bytes.get()
+        auto_sync = self.auto_sync_audio.get() and len(self.selected_files) >= 2
 
         if use_ecc and not (1 <= parity_bytes <= 254):
             messagebox.showerror("Error", "Parity bytes must be between 1 and 254")
@@ -458,11 +734,22 @@ class App(tk.Tk):
 
         def worker():
             errors = []
+            sync_result: SyncResult | None = None
+            sync_error: str | None = None
+            failed_paths = set()
+
+            def set_status(text: str):
+                self.after(0, lambda value=text: self.status.set(value))
+
+            def show_dialog(kind: str, title: str, text: str):
+                dialog = getattr(messagebox, kind)
+                self.after(0, lambda: dialog(title, text))
+
             try:
                 total = len(self.selected_files)
                 for i, wav_path in enumerate(self.selected_files, start=1):
                     name = Path(wav_path).name
-                    self.status.set(f"Processing {i}/{total}: {name}")
+                    set_status(f"Processing {i}/{total}: {name}")
                     try:
                         decode_fsk(
                             wav_path,
@@ -475,19 +762,58 @@ class App(tk.Tk):
                         )
                     except Exception as e:
                         errors.append((wav_path, str(e)))
+                        failed_paths.add(wav_path)
+
+                successful_paths = [
+                    wav_path
+                    for wav_path in self.selected_files
+                    if wav_path not in failed_paths
+                ]
+
+                if auto_sync and len(successful_paths) >= 2:
+                    set_status("Synchronizing matching audio files...")
+                    try:
+                        sync_result = synchronize_audio_files(successful_paths)
+                    except Exception as e:
+                        sync_error = str(e)
+                elif auto_sync and len(successful_paths) < 2:
+                    sync_result = SyncResult(
+                        outputs=(),
+                        message=(
+                            "Automatic synchronization was skipped because fewer "
+                            "than two files were decoded successfully."
+                        ),
+                    )
 
                 if errors:
                     msg = "Some files failed:\n\n" + "\n".join(
                         f"- {Path(p).name}: {err}" for p, err in errors
                     )
-                    messagebox.showerror("Completed with errors", msg)
+                    if sync_error:
+                        msg += f"\n\nAutomatic synchronization failed:\n{sync_error}"
+                    elif sync_result is not None:
+                        msg += f"\n\n{sync_result.message}"
+                    show_dialog("showerror", "Completed with errors", msg)
+                elif sync_error:
+                    show_dialog(
+                        "showerror",
+                        "Automatic synchronization failed",
+                        sync_error,
+                    )
+                elif sync_result is not None:
+                    show_dialog("showinfo", "Automatic synchronization", sync_result.message)
 
-                self.status.set(
-                    "Done" if not errors else f"Done ({len(errors)} errors)"
-                )
+                if errors:
+                    set_status(f"Done ({len(errors)} errors)")
+                elif sync_error:
+                    set_status("Done (sync failed)")
+                elif sync_result is not None and sync_result.outputs:
+                    set_status(f"Done ({len(sync_result.outputs)} synced)")
+                else:
+                    set_status("Done")
             finally:
-                self.progress.stop()
-                self.run_btn.config(state="normal")
+                self.after(0, self.progress.stop)
+                self.after(0, lambda: self.run_btn.config(state="normal"))
 
                 def reset_ui():
                     self.status.set("")
