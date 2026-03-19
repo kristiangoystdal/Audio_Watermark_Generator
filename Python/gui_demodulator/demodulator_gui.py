@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 import os
+import math
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import ttk
 from pathlib import Path
 
-# Import your decoder with the NEW signature:
-# def decode_fsk(input_filename: str, f0: float, f1: float,
-#                generate_debug: bool = False, minutes_per_segment: int = 1)
 from demodulator import decode_fsk
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
+
+# ------------------------------
+# Frequency helpers constants
+# ------------------------------
+FS_HZ = 960000
+MIN_BIT_US = 3000
+FREQ_MIN = 2000
+FREQ_MAX = 24000
+BIT_SAMPLE_TOLERANCE_PERCENT = 1
 
 
 def derive_txt_path(wav_path: str) -> str:
@@ -42,16 +49,19 @@ class App(tk.Tk):
         self.inp = tk.StringVar()
         self.status = tk.StringVar(value="Idle")
 
-        # FSK parameters (user-entered)
+        # FSK parameters
         self.f0_hz = tk.DoubleVar(value=20884.0)
         self.f1_hz = tk.DoubleVar(value=22274.0)
 
-        # New controls
+        # Other controls
         self.generate_debug = tk.BooleanVar(value=False)
         self.use_segmentation = tk.BooleanVar(value=True)
         self.minutes_per_segment = tk.IntVar(value=1)
         self.use_ecc = tk.BooleanVar(value=True)
         self.ecc_parity_bytes = tk.IntVar(value=DEFAULT_ECC_NSYM)
+
+        # Global click to defocus entry widgets
+        self.bind_all("<Button-1>", self._global_defocus, add="+")
 
         pad = {"padx": 12, "pady": 4}
 
@@ -81,13 +91,19 @@ class App(tk.Tk):
         fsk_row.pack(fill="x", padx=12, pady=(0, 6))
 
         tk.Label(fsk_row, text="f0 (Hz)").pack(side="left")
-        ttk.Entry(fsk_row, textvariable=self.f0_hz, width=12).pack(
-            side="left", padx=(6, 14)
-        )
+        self.f0_entry = ttk.Entry(fsk_row, textvariable=self.f0_hz, width=12)
+        self.f0_entry.pack(side="left", padx=(6, 14))
+
         tk.Label(fsk_row, text="f1 (Hz)").pack(side="left")
-        ttk.Entry(fsk_row, textvariable=self.f1_hz, width=12).pack(
-            side="left", padx=(6, 0)
-        )
+        self.f1_entry = ttk.Entry(fsk_row, textvariable=self.f1_hz, width=12)
+        self.f1_entry.pack(side="left", padx=(6, 0))
+
+        # Bind auto-adjust
+        self.f0_entry.bind("<FocusOut>", lambda e: self.update_low_frequency())
+        self.f0_entry.bind("<Return>", lambda e: self.update_low_frequency())
+
+        self.f1_entry.bind("<FocusOut>", lambda e: self.update_high_frequency())
+        self.f1_entry.bind("<Return>", lambda e: self.update_high_frequency())
 
         # Segmentation option
         tk.Label(
@@ -117,9 +133,9 @@ class App(tk.Tk):
         ).pack(side="left")
 
         # ECC options
-        tk.Label(
-            self.frame, text="Error Correction", font=("Arial", 15, "bold")
-        ).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(self.frame, text="Error Correction", font=("Arial", 15, "bold")).pack(
+            anchor="w", padx=12, pady=(8, 2)
+        )
         ecc = tk.Frame(self.frame)
         ecc.pack(fill="x", **pad)
         tk.Checkbutton(
@@ -138,7 +154,6 @@ class App(tk.Tk):
         )
         self.ecc_entry.pack(side="left")
 
-        # Add spacing
         tk.Label(self.frame, text="").pack(pady=(4, 0))
 
         # Controls
@@ -148,7 +163,6 @@ class App(tk.Tk):
             ctrl, text="Decode and Extract", command=self.run_clicked, width=25
         )
         self.run_btn.pack(side="left", expand=True)
-
         self.run_btn.pack(pady=(0, 6))
 
         ttk.Separator(self.frame, orient="horizontal").pack(
@@ -162,6 +176,10 @@ class App(tk.Tk):
         self._toggle_seg_controls()
         self._toggle_ecc_controls()
 
+        # Initial frequency auto-fix
+        self.update_low_frequency()
+        self.update_high_frequency()
+
         # Center window
         self.update_idletasks()
         w = self.winfo_width()
@@ -170,7 +188,7 @@ class App(tk.Tk):
         y = (self.winfo_screenheight() // 2) - (h // 2)
         self.geometry(f"{w}x{h}+{x}+{y}")
 
-        # Bring to front (Option A)
+        # Bring to front
         self.deiconify()
         self.update_idletasks()
         self.lift()
@@ -178,13 +196,215 @@ class App(tk.Tk):
         self.focus_force()
         self.after(1200, lambda: self.attributes("-topmost", False))
 
+    # ------------------------------
+    # Frequency helper methods
+    # ------------------------------
+    def tolerance_samples(
+        self, target_samples: int, tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT
+    ) -> int:
+        return int(round(target_samples * tolerance_percent / 100.0))
+
+    def total_samples_within_tolerance(
+        self,
+        total_samples: int,
+        target_samples: int,
+        tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT,
+    ) -> bool:
+        tol = self.tolerance_samples(target_samples, tolerance_percent)
+        return (target_samples - tol) <= total_samples <= (target_samples + tol)
+
+    def rounded_min_bit_samples(self, fs: int) -> int:
+        return ((fs * MIN_BIT_US) + 500000) // 1000000
+
+    def quantized_freq_from_samples(self, fs: int, samples_per_period: int) -> int:
+        if samples_per_period <= 0:
+            return 0
+        return int(math.floor(fs / samples_per_period))
+
+    def period_count_from_samples(
+        self, min_bit_samples: int, samples_per_period: int
+    ) -> int:
+        return int(round(min_bit_samples / samples_per_period))
+
+    def freq_diff_u16(self, a: int, b: int) -> int:
+        return abs(a - b)
+
+    def min_required_diff_hz(self, lower_freq: int) -> int:
+        return 300 + (400000 // lower_freq)
+
+    def quantized_params(self, freq: float, fs: int = FS_HZ):
+        samples_per_period = max(1, int(math.floor(fs / freq)))
+        min_bit_samples = self.rounded_min_bit_samples(fs)
+        period_count = self.period_count_from_samples(
+            min_bit_samples, samples_per_period
+        )
+        quantized_freq = self.quantized_freq_from_samples(fs, samples_per_period)
+        total_samples = samples_per_period * period_count
+        return quantized_freq, samples_per_period, period_count, total_samples
+
+    def adjust_low_frequency_to_valid(self, low_freq: float, high_freq: float):
+        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+
+        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_p = self.period_count_from_samples(min_bit_samples, high_n)
+        high_total = high_n * high_p
+
+        while True:
+            low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+            low_p = self.period_count_from_samples(min_bit_samples, low_n)
+            low_total = low_n * low_p
+
+            same_periods = low_p == high_p
+            enough_diff = self.freq_diff_u16(
+                high_q, low_q
+            ) >= self.min_required_diff_hz(low_q)
+            low_timing_ok = self.total_samples_within_tolerance(
+                low_total, min_bit_samples
+            )
+            high_timing_ok = self.total_samples_within_tolerance(
+                high_total, min_bit_samples
+            )
+
+            if (
+                (not same_periods)
+                and enough_diff
+                and low_q < high_q
+                and low_timing_ok
+                and high_timing_ok
+            ):
+                break
+
+            candidate_low_n = low_n + 1
+            candidate_low_q = self.quantized_freq_from_samples(FS_HZ, candidate_low_n)
+
+            if candidate_low_q < FREQ_MIN:
+                break
+
+            low_n = candidate_low_n
+
+        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_p = self.period_count_from_samples(min_bit_samples, low_n)
+        low_total = low_n * low_p
+
+        return low_q, low_n, low_p, low_total
+
+    def adjust_high_frequency_to_valid(self, low_freq: float, high_freq: float):
+        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+
+        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_p = self.period_count_from_samples(min_bit_samples, low_n)
+        low_total = low_n * low_p
+
+        while True:
+            high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+            high_p = self.period_count_from_samples(min_bit_samples, high_n)
+            high_total = high_n * high_p
+
+            same_periods = low_p == high_p
+            enough_diff = self.freq_diff_u16(
+                high_q, low_q
+            ) >= self.min_required_diff_hz(low_q)
+            low_timing_ok = self.total_samples_within_tolerance(
+                low_total, min_bit_samples
+            )
+            high_timing_ok = self.total_samples_within_tolerance(
+                high_total, min_bit_samples
+            )
+
+            if (
+                (not same_periods)
+                and enough_diff
+                and high_q > low_q
+                and low_timing_ok
+                and high_timing_ok
+            ):
+                break
+
+            if high_n <= 1:
+                break
+
+            candidate_high_n = high_n - 1
+            candidate_high_q = self.quantized_freq_from_samples(FS_HZ, candidate_high_n)
+
+            if candidate_high_q > FREQ_MAX:
+                break
+
+            high_n = candidate_high_n
+
+        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_p = self.period_count_from_samples(min_bit_samples, high_n)
+        high_total = high_n * high_p
+
+        return high_q, high_n, high_p, high_total
+
+    def update_low_frequency(self):
+        try:
+            low = float(self.f0_hz.get())
+            high = float(self.f1_hz.get())
+        except Exception:
+            return
+
+        low = max(FREQ_MIN, min(FREQ_MAX, low))
+        high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+        if low >= high:
+            low = high - 1
+
+        if low < FREQ_MIN:
+            low = FREQ_MIN
+
+        new_low, _, _, _ = self.adjust_low_frequency_to_valid(low, high)
+        self.f0_hz.set(int(new_low))
+
+    def update_high_frequency(self):
+        try:
+            low = float(self.f0_hz.get())
+            high = float(self.f1_hz.get())
+        except Exception:
+            return
+
+        low = max(FREQ_MIN, min(FREQ_MAX, low))
+        high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+        if high <= low:
+            high = low + 1
+
+        if high > FREQ_MAX:
+            high = FREQ_MAX
+
+        new_high, _, _, _ = self.adjust_high_frequency_to_valid(low, high)
+        self.f1_hz.set(int(new_high))
+
+    # ------------------------------
+    # UI helpers
+    # ------------------------------
+    def _global_defocus(self, event):
+        w = event.widget
+
+        # Keep normal behavior when clicking into editable input widgets
+        if isinstance(w, (tk.Entry, ttk.Entry, tk.Spinbox, tk.Text)):
+            return
+
+        # Let the clicked widget process the click first, then remove focus
+        self.after_idle(self.focus_set)
+
     def _toggle_seg_controls(self):
         enabled = self.use_segmentation.get()
         state = "normal" if enabled else "disabled"
         self.mins_entry.config(state=state)
 
+    def _toggle_ecc_controls(self):
+        enabled = self.use_ecc.get()
+        state = "normal" if enabled else "disabled"
+        self.ecc_entry.config(state=state)
+
     def _get_fsk_params(self) -> tuple[float, float]:
-        """Read and validate f0/f1 from the GUI."""
         try:
             f0 = float(self.f0_hz.get())
             f1 = float(self.f1_hz.get())
@@ -227,6 +447,7 @@ class App(tk.Tk):
         )
         use_ecc = self.use_ecc.get()
         parity_bytes = self.ecc_parity_bytes.get()
+
         if use_ecc and not (1 <= parity_bytes <= 254):
             messagebox.showerror("Error", "Parity bytes must be between 1 and 254")
             return
@@ -252,15 +473,15 @@ class App(tk.Tk):
                             use_ecc=use_ecc,
                             ecc_nsym=parity_bytes,
                         )
-
                     except Exception as e:
                         errors.append((wav_path, str(e)))
-                # Quiet on success; show error popup if any failed
+
                 if errors:
                     msg = "Some files failed:\n\n" + "\n".join(
                         f"- {Path(p).name}: {err}" for p, err in errors
                     )
                     messagebox.showerror("Completed with errors", msg)
+
                 self.status.set(
                     "Done" if not errors else f"Done ({len(errors)} errors)"
                 )
