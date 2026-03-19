@@ -256,7 +256,9 @@ def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
         while corrected_symbol_start(symbol_idx) < active_start:
             symbol_idx += 1
 
-        local_offset = offset + symbol_idx * N - active_start
+        # Align the local start to the drift-corrected symbol boundary that is
+        # actually evaluated by fsk_symbol_metrics for this symbol index.
+        local_offset = corrected_symbol_start(symbol_idx) - active_start
         _, _, separation = fsk_symbol_metrics(
             active_audio,
             fs,
@@ -265,7 +267,6 @@ def find_best_offset(x, fs, f0, f1, N, N_err, stepsize=25):
             N,
             N_err,
             start=local_offset,
-            initial_acc_err=symbol_idx * N_err,
         )
         if len(separation) == 0:
             print_progress(idx)
@@ -648,7 +649,9 @@ def select_best_symbol_timing_and_offset(
         while corrected_symbol_start(symbol_idx) < region_start:
             symbol_idx += 1
 
-        local_offset = offset + symbol_idx * N - region_start
+        # Align the local start to the drift-corrected symbol boundary that is
+        # actually evaluated by fsk_symbol_metrics for this symbol index.
+        local_offset = corrected_symbol_start(symbol_idx) - region_start
         E0, E1, separation = fsk_symbol_metrics(
             region_x,
             fs,
@@ -657,7 +660,6 @@ def select_best_symbol_timing_and_offset(
             N,
             N_err,
             start=local_offset,
-            initial_acc_err=symbol_idx * N_err,
         )
         scores = E1 - E0
         if len(separation) == 0:
@@ -710,6 +712,13 @@ def select_best_symbol_timing_and_offset(
     sys.stdout.write("\n")
     if best_setup is None:
         raise ValueError("No valid N/offset candidate produced demodulation scores")
+
+    print(
+        "Best timing/offset found: "
+        f"N={best_setup['N']}, "
+        f"N_true={best_setup['N_true']:.4f}, "
+        f"offset={best_setup['offset']}"
+    )
 
     return best_setup
 
@@ -774,26 +783,6 @@ def decode_fsk(input_filename: str,
         region_info = find_likely_fsk_region(audio, fs, f0, f1=f1)
 
         if DEBUG_PLOTS:
-
-            #plot fft of entire audio signal for debugging
-            w = np.hanning(len(audio))
-            xw = audio * w
-            X = np.fft.rfft(xw)
-            power = X.real * X.real + X.imag * X.imag
-            freqs = np.arange(len(power)) * fs / len(xw)
-            plt.plot(freqs, power, label="FFT Power")
-            plt.axvline(f0, color="red", linestyle="--", label=f"f0={f0:.2f} Hz")
-            plt.axvline(f1, color="green", linestyle="--", label=f"f1={f1:.2f} Hz")
-            plt.title("FFT Power Spectrum of Audio Signal")
-            plt.xlabel("Frequency (Hz)")
-            plt.ylabel("Power")
-            plt.xlim(0, fs / 2)
-            plt.legend()
-            plt.grid()
-            plt.savefig("PLOTS/audio_fft_spectrum.png")
-            plt.clf()
-
-
             #plot audio and highlight detected region for debugging
             times = np.arange(len(audio)) / fs
             plt.plot(times, audio, label="Audio Signal")
@@ -801,7 +790,6 @@ def decode_fsk(input_filename: str,
             plt.title("Audio Signal with Detected FSK Region")
             plt.xlabel("Time (s)")
             plt.ylabel("Amplitude")
-            plt.legend()
             plt.grid()
             plt.savefig("PLOTS/detected_fsk_region.png")
             plt.clf()
