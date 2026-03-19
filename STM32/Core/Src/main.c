@@ -370,7 +370,7 @@ int main(void) {
 
     // For testing without button: just delay for a few seconds to simulate
     // sleep
-    // HAL_Delay(5000);
+    HAL_Delay(15000);
 
     uint32_t wake_tick = HAL_GetTick();
 
