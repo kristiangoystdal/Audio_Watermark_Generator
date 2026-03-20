@@ -185,6 +185,8 @@ def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
 
     crop_plan: dict[str, dict[str, object]] = {}
     sample_rates = set()
+    anchor_samples: dict[str, int] = {}
+    anchor_times: dict[str, float] = {}
     min_available_frames: int | None = None
     min_available_duration: float | None = None
 
@@ -199,28 +201,54 @@ def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
         info = sf.info(wav_path)
         sample_rates.add(info.samplerate)
 
-        start_sample = int(round(anchor.start_time * info.samplerate))
-        start_sample = max(0, min(start_sample, info.frames))
-        available_frames = info.frames - start_sample
-        available_duration = available_frames / info.samplerate if info.samplerate else 0.0
+        crop_plan[wav_path] = {"info": info}
+        anchor_sample = int(round(anchor.start_time * info.samplerate))
+        anchor_sample = max(0, min(anchor_sample, info.frames))
+        anchor_samples[wav_path] = anchor_sample
+        anchor_times[wav_path] = (
+            anchor_sample / info.samplerate if info.samplerate else 0.0
+        )
 
-        crop_plan[wav_path] = {
-            "info": info,
-            "start_sample": start_sample,
-            "crop_start_time": start_sample / info.samplerate if info.samplerate else 0.0,
-            "available_frames": available_frames,
-            "available_duration": available_duration,
-        }
+    if len(sample_rates) == 1:
+        target_anchor_sample = min(anchor_samples.values())
+        for wav_path in wav_paths:
+            info = crop_plan[wav_path]["info"]
+            start_sample = anchor_samples[wav_path] - target_anchor_sample
+            available_frames = info.frames - start_sample
+            crop_plan[wav_path]["start_sample"] = start_sample
+            crop_plan[wav_path]["crop_start_time"] = (
+                start_sample / info.samplerate if info.samplerate else 0.0
+            )
+            crop_plan[wav_path]["available_frames"] = available_frames
 
-        if min_available_frames is None or available_frames < min_available_frames:
-            min_available_frames = available_frames
-        if min_available_duration is None or available_duration < min_available_duration:
-            min_available_duration = available_duration
+            if min_available_frames is None or available_frames < min_available_frames:
+                min_available_frames = available_frames
+        if min_available_frames is None or min_available_frames <= 0:
+            raise ValueError("Could not determine a valid synchronized crop window.")
+        min_available_duration = min_available_frames / next(iter(sample_rates))
+    else:
+        target_anchor_time = min(anchor_times.values())
+        for wav_path in wav_paths:
+            info = crop_plan[wav_path]["info"]
+            crop_start_time = max(0.0, anchor_times[wav_path] - target_anchor_time)
+            start_sample = int(round(crop_start_time * info.samplerate))
+            start_sample = max(0, min(start_sample, info.frames))
+            available_frames = info.frames - start_sample
+            available_duration = (
+                available_frames / info.samplerate if info.samplerate else 0.0
+            )
 
-    if min_available_frames is None or min_available_duration is None:
-        raise ValueError("Could not determine a valid synchronized crop window.")
+            crop_plan[wav_path]["start_sample"] = start_sample
+            crop_plan[wav_path]["crop_start_time"] = (
+                start_sample / info.samplerate if info.samplerate else 0.0
+            )
+            crop_plan[wav_path]["available_frames"] = available_frames
+            crop_plan[wav_path]["available_duration"] = available_duration
 
-    if min_available_duration <= 0:
+            if min_available_duration is None or available_duration < min_available_duration:
+                min_available_duration = available_duration
+
+    if min_available_duration is None or min_available_duration <= 0:
         raise ValueError("Shared timestamp leaves no remaining audio to synchronize.")
 
     outputs: list[str] = []
