@@ -717,10 +717,13 @@ class FlashToolApp(tk.Tk):
         row.pack(fill="x")
 
         # Left side: debug toggle
-        ttk.Checkbutton(
+        self.checkbox(
             row,
-            text="Show build log",
-            variable=self.vars["show_log"],
+            0,
+            0,
+            "Show Build Log",
+            self.vars["show_log"],
+            padx=(0, 0),
         ).pack(side="left")
 
         # Right side: build button
