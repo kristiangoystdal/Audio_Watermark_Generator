@@ -98,27 +98,35 @@ def change_user_config(root, set_initial_time, safe_log=None):
     config_path = ensure_user_config(False, safe_log)
 
     try:
-        # Read values from GUI fields
-        user_string = root.user_string_field.get().strip()
-        device_id = root.device_id_field.get().strip()
-        location = root.location_field.get().strip()
-        delay_minutes = root.delay_field.get().strip()
-        interval_minutes = root.interval_field.get().strip()
+        # Read values from GUI vars
+        user_string = root.vars["user_string"].get().strip()
+        device_id = root.vars["device_id"].get().strip()
+        location = root.vars["location"].get().strip()
+        delay_minutes = str(root.vars["start_minute"].get()).strip()
+        interval_minutes = str(root.vars["interval"].get()).strip()
 
-        include_user_string = root.include_user_string_var.get()
-        include_device_id = root.include_device_id_var.get()
-        include_location = root.include_location_var.get()
-        include_temperature = root.include_temperature_var.get()
-        include_time = root.include_time_var.get()
+        include_user_string = root.vars["include_user_string"].get()
+        include_device_id = root.vars["include_device_id"].get()
+        include_location = root.vars["include_location"].get()
+        include_temperature = root.vars["include_temperature"].get()
+        include_time = root.vars["include_time"].get()
 
-        enable_delayed_start = root.default_delay_var.get()
-        use_default_interval = root.default_interval_var.get()
+        enable_delayed_start = root.vars["use_start_minute"].get()
+        use_default_interval = root.vars["default_interval"].get()
 
-        use_cable_transmission = root.transmission_var.get() == "cable"
-        use_speaker_transmission = root.transmission_var.get() == "speaker"
+        transmission = root.vars["transmission"].get()
+        use_cable_transmission = transmission == "cable"
+        use_speaker_transmission = transmission == "speaker"
 
-        frequency_lower = root.frequency_low_var.get()
-        frequency_higher = root.frequency_high_var.get()
+        frequency_lower = root.vars["frequency_low"].get()
+        frequency_higher = root.vars["frequency_high"].get()
+
+        attenuation = root.vars["attenuation"].get()
+
+        rs_error_correction_symbols = root.vars["ecc_level"].get()
+
+        rx_mode = root.vars["rx_mode"].get()
+
     except Exception as e:
         if safe_log:
             safe_log(f"[ERROR] Failed to read GUI fields: {str(e)}")
@@ -159,6 +167,12 @@ def change_user_config(root, set_initial_time, safe_log=None):
 
         fsk_low_i = to_int("FSK_LOWER_FREQUENCY", frequency_lower, 1, 50000)
         fsk_high_i = to_int("FSK_HIGHER_FREQUENCY", frequency_higher, 1, 50000)
+
+        attenuation_i = to_int("SIGNAL_ATTENUATION", attenuation, 0, 120)
+
+        rs_error_correction_symbols_i = to_int(
+            "RS_ERROR_CORRECTION_SYMBOLS", rs_error_correction_symbols, 0, 100
+        )
     except ValueError as e:
         if safe_log:
             safe_log(f"[ERROR] {e}")
@@ -177,6 +191,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "ENABLE_DELAYED_START",
         "USE_CABLE_TRANSMISSION",
         "USE_SPEAKER_TRANSMISSION",
+        "RX_MODE",
     }
 
     int_vars = {
@@ -193,8 +208,8 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INTERVAL_BETWEEN_REPEATS_MINUTES",
         "FSK_LOWER_FREQUENCY",
         "FSK_HIGHER_FREQUENCY",
-        # (FSK_FREQUENCY_PAIR if you have it as an int define)
-        "FSK_FREQUENCY_PAIR",
+        "SIGNAL_ATTENUATION",
+        "RS_ERROR_CORRECTION_SYMBOLS",
     }
 
     # Values to apply (use normalized ints)
@@ -223,6 +238,9 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INTERVAL_BETWEEN_REPEATS_MINUTES": interval_minutes_i,
         "USE_CABLE_TRANSMISSION": bool(use_cable_transmission),
         "USE_SPEAKER_TRANSMISSION": bool(use_speaker_transmission),
+        "SIGNAL_ATTENUATION": attenuation_i,
+        "RS_ERROR_CORRECTION_SYMBOLS": rs_error_correction_symbols_i,
+        "RX_MODE": bool(rx_mode),
     }
 
     def format_define(var: str, val):
