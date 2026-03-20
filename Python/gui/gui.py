@@ -1,878 +1,1131 @@
 import tkinter as tk
-from tkinter import messagebox
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import threading
 import math
 
-# Import scripts
 from scripts.paths import *
 from scripts.user_config import *
 from scripts.build import *
 
 
 # ---------------------------------------------------------
-# GUI Setup
+# Constants
 # ---------------------------------------------------------
-root = tk.Tk()
-root.title("Audio Watermark Flash Tool")
-root.resizable(False, False)
-root.geometry("1000x760")
-root.attributes("-topmost", True)
+APP_TITLE = "Audio Watermark Flash Tool"
+WINDOW_SIZE = "1000x760"
 
-
-outer_frame = tk.Frame(root)
-outer_frame.pack(fill="both", expand=True)
-
-main_frame = tk.Frame(outer_frame, padx=24, pady=24)
-main_frame.place(relx=0.5, y=0, anchor="n")
-
-# ------------------------------
-# Title
-# ------------------------------
-tk.Label(
-    main_frame,
-    text="Audio Watermark Flash Tool",
-    font=("Arial", 22, "bold"),
-).grid(row=0, column=0, columnspan=2, pady=(0, 20), sticky="")
-
-# ------------------------------
-# Two-column content area
-# ------------------------------
-content_frame = tk.Frame(main_frame)
-content_frame.grid(row=1, column=0, columnspan=2)
-
-content_frame.grid_columnconfigure(0, weight=1)
-content_frame.grid_columnconfigure(1, weight=1)
-content_frame.grid_anchor("n")
-
-left_col = tk.Frame(content_frame)
-right_col = tk.Frame(content_frame)
-
-left_col.grid(row=0, column=0, padx=(0, 28), sticky="n")
-right_col.grid(row=0, column=1, sticky="n")
-
-
-# ---------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------
-SECTION_WIDTH = 470
-ENTRY_WIDTH = 28
+SECTION_WIDTH = 460
+ENTRY_WIDTH = 40
 SMALL_ENTRY_WIDTH = 12
 
+FS_HZ = 960000
+MIN_BIT_US = 3000
+FREQ_MIN = 2000
+FREQ_MAX = 24000
+BIT_SAMPLE_TOLERANCE_PERCENT = 1
 
-def make_section(parent, title, row, width=SECTION_WIDTH, border=False):
-    if border:
-        bd = 2
-        relief = "groove"
-    else:
-        bd = 0
-        relief = "flat"
-
-    section = tk.LabelFrame(
-        parent,
-        text=title if border else "",  # optional: remove title if no border
-        padx=14,
-        pady=12,
-        font=("Arial", 11, "bold"),
-        width=width,
-        bd=bd,
-        relief=relief,
-    )
-    section.grid(row=row, column=0, sticky="ew", pady=(0, 10))
-    return section
-
-
-def make_labeled_entry(parent, label, value, row, width=ENTRY_WIDTH):
-    tk.Label(parent, text=label + ":").grid(
-        row=row, column=0, sticky="e", padx=(0, 12), pady=6
-    )
-    entry = tk.Entry(parent, width=width)
-    entry.grid(row=row, column=1, sticky="w", pady=6)
-    entry.insert(0, str(value))
-    return entry
-
-
-# ------------------------------
-# Tabs for different sections
-# ------------------------------
-
-
-def on_tab_click(selected_frame, all_frames):
-    for frame in all_frames:
-        frame.grid_remove()
-    selected_frame.grid()
-
-
-tab_frame = tk.Frame(content_frame)
-tab_frame.grid(row=0, column=0, columnspan=2, pady=(0, 20))
-
-tabs = ["Base Station", "Receiver"]
-tab_buttons = []
-tab_frames = []
-
-for i, tab_name in enumerate(tabs):
-    btn = tk.Button(
-        tab_frame,
-        text=tab_name,
-        width=40,
-        command=lambda idx=i: on_tab_click(tab_frames[idx], tab_frames),
-    )
-    btn.grid(row=0, column=i, padx=4)
-    tab_buttons.append(btn)
-
-    frame = tk.Frame(content_frame)
-    frame.grid(row=2, column=0, columnspan=2, sticky="n")
-    tab_frames.append(frame)
-
-on_tab_click(tab_frames[0], tab_frames)  # Show first tab by default
 
 # ---------------------------------------------------------
-# Separator
+# App
 # ---------------------------------------------------------
-ttk.Separator(content_frame, orient="horizontal").grid(
-    row=1, column=0, columnspan=2, sticky="ew", pady=(0, 20)
-)
-
-# ---------------------------------------------------------
-# Tab 1 content
-# ---------------------------------------------------------
-
-# ------------------------------
-# Instructions for base station
-# ------------------------------
-instructions_frame = make_section(
-    tab_frames[0], "Instructions", 0, width=1000, border=True
-)
-instructions = (
-    "1. Fill in the device information and settings on this page.\n"
-    "2. Click 'Build & Flash' to compile the firmware and flash it to your STM32 device.\n"
-    "3. Follow the instructions on the Receiver tab to set up the receiving device and software.\n\n"
-    "⚠️ Warning: Make sure to select frequencies that are supported by your hardware and do not cause interference."
-)
-tk.Label(
-    instructions_frame,
-    text=instructions,
-    fg="gray",
-    justify="left",
-    wraplength=1000,
-).grid(row=0, column=0, sticky="w")
-
-# ------------------------------
-# Input fields
-# ------------------------------
-input_frame = make_section(tab_frames[0], "Device Information", 1, width=1000)
-root.user_string_field = make_labeled_entry(
-    input_frame, "User String", read_user_config_value("USER_STRING"), 0, width=50
-)
-
-# ------------------------------
-# Interval controls
-# ------------------------------
-interval_frame = make_section(tab_frames[0], "Interval Settings", 2, width=1000)
-
-root.default_interval_var = tk.IntVar(value=1)
-
-tk.Label(interval_frame, text="Interval (minutes):").grid(
-    row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
-)
-
-interval_row = tk.Frame(interval_frame)
-interval_row.grid(row=1, column=0, sticky="w")
-
-default_interval_cb = tk.Checkbutton(
-    interval_row,
-    text="Use default interval (1)",
-    variable=root.default_interval_var,
-)
-default_interval_cb.grid(row=0, column=0, sticky="w")
-
-root.interval_var = tk.IntVar(
-    value=int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
-)
-
-root.interval_field = tk.Spinbox(
-    interval_row,
-    from_=1,
-    to=1440,
-    width=SMALL_ENTRY_WIDTH,
-    textvariable=root.interval_var,
-)
-root.interval_field.grid(row=0, column=1, padx=(16, 0), sticky="w")
-
-# -------------------------------
-# Delay initial timestamp setting
-# -------------------------------
-delay_frame = make_section(tab_frames[0], "Initial Delay Settings", 3, width=1000)
-
-root.default_delay_var = tk.IntVar(value=0)
-
-tk.Label(delay_frame, text="Initial Delay (minutes):").grid(
-    row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
-)
-
-delay_row = tk.Frame(delay_frame)
-delay_row.grid(row=1, column=0, sticky="w")
-
-default_delay_cb = tk.Checkbutton(
-    delay_row,
-    text="Start at a specific minute (0-59)",
-    variable=root.default_delay_var,
-)
-default_delay_cb.grid(row=0, column=0, sticky="w")
-
-root.delay_var = tk.IntVar(value=int(read_user_config_value("STARTING_MINUTE")))
-
-root.delay_field = tk.Spinbox(
-    delay_row,
-    from_=0,
-    to=59,
-    width=SMALL_ENTRY_WIDTH,
-    textvariable=root.delay_var,
-)
-root.delay_field.grid(row=0, column=1, padx=(16, 0), sticky="w")
-# ------------------------------
-# Input fields
-# ------------------------------
-# input_frame = make_section(left_col, "Device Information", 0)
-
-# root.user_string_field = make_labeled_entry(
-#     input_frame, "User String", read_user_config_value("USER_STRING"), 0
-# )
-# root.device_id_field = make_labeled_entry(
-#     input_frame, "Device ID", int(read_user_config_value("DEVICE_ID")), 1
-# )
-# root.location_field = make_labeled_entry(
-#     input_frame, "Location", read_user_config_value("LOCATION"), 2
-# )
-
-# ------------------------------
-# Include checkboxes
-# ------------------------------
-# include_frame = make_section(right_col, "Include in Watermark", 0)
-
-# checkbox_grid = tk.Frame(include_frame)
-# checkbox_grid.grid(row=0, column=0, sticky="w", pady=(4, 0))
-
-# root.include_user_string_var = tk.IntVar(value=1)
-# root.include_device_id_var = tk.IntVar(value=1)
-# root.include_location_var = tk.IntVar(value=1)
-# root.include_temperature_var = tk.IntVar(value=1)
-# root.include_time_var = tk.IntVar(value=1)
-
-# tk.Checkbutton(
-#     checkbox_grid, text="User String", variable=root.include_user_string_var
-# ).grid(row=0, column=0, sticky="w", padx=(0, 30), pady=4)
-
-# tk.Checkbutton(
-#     checkbox_grid, text="Temperature", variable=root.include_temperature_var
-# ).grid(row=0, column=1, sticky="w", pady=4)
-
-# tk.Checkbutton(
-#     checkbox_grid, text="Device ID", variable=root.include_device_id_var
-# ).grid(row=1, column=0, sticky="w", padx=(0, 30), pady=4)
-
-# tk.Checkbutton(checkbox_grid, text="Timestamp", variable=root.include_time_var).grid(
-#     row=1, column=1, sticky="w", pady=4
-# )
-
-# tk.Checkbutton(checkbox_grid, text="Location", variable=root.include_location_var).grid(
-#     row=2, column=0, sticky="w", padx=(0, 30), pady=4
-# )
-
-
-# ------------------------------
-# Transmission Settings
-# ------------------------------
-# root.transmission_var = tk.StringVar(value="cable")
-
-# transmission_frame = make_section(left_col, "Transmission Settings", 2)
-
-# tk.Radiobutton(
-#     transmission_frame,
-#     text="Use Cable Transmission",
-#     variable=root.transmission_var,
-#     value="cable",
-# ).grid(row=0, column=0, sticky="w", pady=4)
-
-# tk.Radiobutton(
-#     transmission_frame,
-#     text="Use Speaker Transmission",
-#     variable=root.transmission_var,
-#     value="speaker",
-# ).grid(row=1, column=0, sticky="w", pady=4)
-
-# ------------------------------
-# Frequency Settings
-# ------------------------------
-# frequency_frame = make_section(right_col, "FSK Parameters", 2)
-
-# tk.Label(
-#     frequency_frame,
-#     text="Select a pair of frequencies to use for FSK modulation (1000–24000 Hz):",
-#     fg="gray",
-#     wraplength=430,
-#     justify="left",
-# ).grid(row=0, column=0, sticky="w", pady=(0, 10))
-
-# root.frequency_low_var = tk.IntVar(
-#     value=int(read_user_config_value("FSK_LOWER_FREQUENCY"))
-# )
-# root.frequency_high_var = tk.IntVar(
-#     value=int(read_user_config_value("FSK_HIGHER_FREQUENCY"))
-# )
-
-# freq_row = tk.Frame(frequency_frame)
-# freq_row.grid(row=1, column=0, sticky="w")
-
-# tk.Label(freq_row, text="Low (Hz):").grid(row=0, column=0, sticky="w")
-# root.frequency_low_field = tk.Entry(
-#     freq_row,
-#     width=SMALL_ENTRY_WIDTH,
-#     textvariable=root.frequency_low_var,
-# )
-# root.frequency_low_field.grid(row=0, column=1, sticky="w", padx=(8, 26))
-
-# tk.Label(freq_row, text="High (Hz):").grid(row=0, column=2, sticky="w")
-# root.frequency_high_field = tk.Entry(
-#     freq_row,
-#     width=SMALL_ENTRY_WIDTH,
-#     textvariable=root.frequency_high_var,
-# )
-# root.frequency_high_field.grid(row=0, column=3, sticky="w", padx=(8, 0))
-
-# ------------------------------
-# Attenuation settings
-# ------------------------------
-# attunent_frame = make_section(left_col, "Attenuation Settings", 3)
-
-# root.attenuation_var = tk.IntVar(
-#     value=int(read_user_config_value("SIGNAL_ATTENUATION"))
-# )
-
-# tk.Label(
-#     attunent_frame,
-#     text="Enter a value between 100 % (loudest) and 0 % (most attenuated)",
-#     fg="gray",
-#     wraplength=430,
-#     justify="left",
-# ).grid(row=0, column=0, sticky="w", pady=(0, 8))
-
-# attenuation_input_frame = tk.Frame(attunent_frame)
-# attenuation_input_frame.grid(row=1, column=0, sticky="w")
-
-# tk.Label(attenuation_input_frame, text="Attenuation:").grid(row=0, column=0, sticky="w")
-# root.attenuation_field = tk.Spinbox(
-#     attenuation_input_frame,
-#     from_=0,
-#     to=100,
-#     width=SMALL_ENTRY_WIDTH,
-#     textvariable=root.attenuation_var,
-# )
-# root.attenuation_field.grid(row=0, column=1, padx=(10, 0), sticky="w")
-
-# root.attenuation_db_label = tk.Label(
-#     attunent_frame,
-#     text="",
-#     fg="gray",
-#     justify="left",
-# )
-# root.attenuation_db_label.grid(row=2, column=0, sticky="w", pady=(8, 0))
-
-
-# def calculate_attenuation_db(x: int) -> str:
-#     try:
-#         value = 0.2 * float(x) / 100.0
-#         if value <= 0:
-#             return "-∞ dB"
-#         db = 20.0 * math.log10(value)
-#         return f"{db:.2f} dB"
-#     except Exception:
-#         return "Invalid value"
-
-
-# def update_attenuation_db_label(*args):
-#     try:
-#         x = int(root.attenuation_var.get())
-#     except Exception:
-#         root.attenuation_db_label.config(text="dB value: Invalid value")
-#         return
-
-#     db_text = calculate_attenuation_db(x)
-#     root.attenuation_db_label.config(text=f"dB value: {db_text}")
-
-
-# root.attenuation_var.trace_add("write", update_attenuation_db_label)
-# root.attenuation_field.bind("<KeyRelease>", update_attenuation_db_label)
-# root.attenuation_field.bind("<FocusOut>", update_attenuation_db_label)
-# update_attenuation_db_label()
-
-# ------------------------------
-# Debug settings
-# ------------------------------
-# show_log_frame = make_section(right_col, "Debug Settings", 3)
-
-# show_log_var = tk.IntVar(value=0)
-# tk.Checkbutton(show_log_frame, text="Show build log", variable=show_log_var).grid(
-#     row=0, column=0, sticky="w", pady=4
-# )
-
-# # ------------------------------
-# # Frequency helpers
-# # ------------------------------
-# FS_HZ = 960000
-# MIN_BIT_US = 3000
-# FREQ_MIN = 1000
-# FREQ_MAX = 24000
-# BIT_SAMPLE_TOLERANCE_PERCENT = 1
-
-
-# def tolerance_samples(
-#     target_samples: int, tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT
-# ) -> int:
-#     return int(round(target_samples * tolerance_percent / 100.0))
-
-
-# def total_samples_within_tolerance(
-#     total_samples: int,
-#     target_samples: int,
-#     tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT,
-# ) -> bool:
-#     tol = tolerance_samples(target_samples, tolerance_percent)
-#     return (target_samples - tol) <= total_samples <= (target_samples + tol)
-
-
-# def rounded_min_bit_samples(fs: int) -> int:
-#     return ((fs * MIN_BIT_US) + 500000) // 1000000
-
-
-# def quantized_freq_from_samples(fs: int, samples_per_period: int) -> int:
-#     if samples_per_period <= 0:
-#         return 0
-#     return int(math.floor(fs / samples_per_period))
-
-
-# def period_count_from_samples(min_bit_samples: int, samples_per_period: int) -> int:
-#     return int(round(min_bit_samples / samples_per_period))
-
-
-# def freq_diff_u16(a: int, b: int) -> int:
-#     return abs(a - b)
-
-
-# def min_required_diff_hz(lower_freq: int) -> int:
-#     return 300 + (400000 // lower_freq)
-
-
-# def quantized_params(freq: float, fs: int = FS_HZ):
-#     samples_per_period = max(1, int(math.floor(fs / freq)))
-#     min_bit_samples = rounded_min_bit_samples(fs)
-#     period_count = period_count_from_samples(min_bit_samples, samples_per_period)
-#     quantized_freq = quantized_freq_from_samples(fs, samples_per_period)
-#     total_samples = samples_per_period * period_count
-#     return quantized_freq, samples_per_period, period_count, total_samples
-
-
-# def adjust_low_frequency_to_valid(low_freq: float, high_freq: float):
-#     """
-#     Keep high fixed.
-#     Adjust only low downward until:
-#       - low/high period counts differ
-#       - spacing satisfies min_required_diff_hz(lower_freq)
-#       - both low and high total samples are within tolerance of target bit length
-#     """
-#     min_bit_samples = rounded_min_bit_samples(FS_HZ)
-
-#     low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-#     high_n = max(1, int(math.floor(FS_HZ / high_freq)))
-
-#     high_q = quantized_freq_from_samples(FS_HZ, high_n)
-#     high_p = period_count_from_samples(min_bit_samples, high_n)
-#     high_total = high_n * high_p
-
-#     while True:
-#         low_q = quantized_freq_from_samples(FS_HZ, low_n)
-#         low_p = period_count_from_samples(min_bit_samples, low_n)
-#         low_total = low_n * low_p
-
-#         same_periods = low_p == high_p
-#         enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
-#         low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
-#         high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
-
-#         if (
-#             (not same_periods)
-#             and enough_diff
-#             and low_q < high_q
-#             and low_timing_ok
-#             and high_timing_ok
-#         ):
-#             break
-
-#         candidate_low_n = low_n + 1
-#         candidate_low_q = quantized_freq_from_samples(FS_HZ, candidate_low_n)
-
-#         if candidate_low_q < FREQ_MIN:
-#             break
-
-#         low_n = candidate_low_n
-
-#     low_q = quantized_freq_from_samples(FS_HZ, low_n)
-#     low_p = period_count_from_samples(min_bit_samples, low_n)
-#     low_total = low_n * low_p
-
-#     return low_q, low_n, low_p, low_total
-
-
-# def adjust_high_frequency_to_valid(low_freq: float, high_freq: float):
-#     """
-#     Keep low fixed.
-#     Adjust only high upward until:
-#       - low/high period counts differ
-#       - spacing satisfies min_required_diff_hz(lower_freq)
-#       - both low and high total samples are within tolerance of target bit length
-#     """
-#     min_bit_samples = rounded_min_bit_samples(FS_HZ)
-
-#     low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-#     high_n = max(1, int(math.floor(FS_HZ / high_freq)))
-
-#     low_q = quantized_freq_from_samples(FS_HZ, low_n)
-#     low_p = period_count_from_samples(min_bit_samples, low_n)
-#     low_total = low_n * low_p
-
-#     while True:
-#         high_q = quantized_freq_from_samples(FS_HZ, high_n)
-#         high_p = period_count_from_samples(min_bit_samples, high_n)
-#         high_total = high_n * high_p
-
-#         same_periods = low_p == high_p
-#         enough_diff = freq_diff_u16(high_q, low_q) >= min_required_diff_hz(low_q)
-#         low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
-#         high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
-
-#         if (
-#             (not same_periods)
-#             and enough_diff
-#             and high_q > low_q
-#             and low_timing_ok
-#             and high_timing_ok
-#         ):
-#             break
-
-#         if high_n <= 1:
-#             break
-
-#         candidate_high_n = high_n - 1
-#         candidate_high_q = quantized_freq_from_samples(FS_HZ, candidate_high_n)
-
-#         if candidate_high_q > FREQ_MAX:
-#             break
-
-#         high_n = candidate_high_n
-
-#     high_q = quantized_freq_from_samples(FS_HZ, high_n)
-#     high_p = period_count_from_samples(min_bit_samples, high_n)
-#     high_total = high_n * high_p
-
-#     return high_q, high_n, high_p, high_total
-
-
-# def update_low_frequency():
-#     try:
-#         low = float(root.frequency_low_var.get())
-#         high = float(root.frequency_high_var.get())
-#     except Exception:
-#         return
-
-#     low = max(FREQ_MIN, min(FREQ_MAX, low))
-#     high = max(FREQ_MIN, min(FREQ_MAX, high))
-
-#     if low >= high:
-#         low = high - 1
-
-#     if low < FREQ_MIN:
-#         low = FREQ_MIN
-
-#     new_low, _, _, _ = adjust_low_frequency_to_valid(low, high)
-#     root.frequency_low_var.set(int(new_low))
-
-
-# def update_high_frequency():
-#     try:
-#         low = float(root.frequency_low_var.get())
-#         high = float(root.frequency_high_var.get())
-#     except Exception:
-#         return
-
-#     low = max(FREQ_MIN, min(FREQ_MAX, low))
-#     high = max(FREQ_MIN, min(FREQ_MAX, high))
-
-#     if high <= low:
-#         high = low + 1
-
-#     if high > FREQ_MAX:
-#         high = FREQ_MAX
-
-#     new_high, _, _, _ = adjust_high_frequency_to_valid(low, high)
-#     root.frequency_high_var.set(int(new_high))
-
-
-# root.frequency_low_field.bind("<FocusOut>", lambda e: update_low_frequency())
-# root.frequency_low_field.bind("<Return>", lambda e: update_low_frequency())
-
-# root.frequency_high_field.bind("<FocusOut>", lambda e: update_high_frequency())
-# root.frequency_high_field.bind("<Return>", lambda e: update_high_frequency())
-
-# update_low_frequency()
-# update_high_frequency()
-
-
-# # ------------------------------
-# # Field enabling/disabling logic
-# # ------------------------------
-# def toggle_interval_field():
-#     root.interval_field.config(
-#         state="disabled" if root.default_interval_var.get() else "normal"
-#     )
-
-
-# def toggle_delay_field():
-#     root.delay_field.config(
-#         state="disabled" if not root.default_delay_var.get() else "normal"
-#     )
-
-
-# root.default_interval_var.trace_add("write", lambda *args: toggle_interval_field())
-# toggle_interval_field()
-
-# root.default_delay_var.trace_add("write", lambda *args: toggle_delay_field())
-# toggle_delay_field()
-
-
-# # ------------------------------
-# # Global click to defocus entries
-# # ------------------------------
-# def defocus_all(event):
-#     w = event.widget
-#     if isinstance(w, (tk.Entry, tk.Spinbox, ttk.Entry)):
-#         return
-#     root.focus_set()
-
-
-# root.bind_all("<Button-1>", defocus_all, add="+")
-
-
-# # ------------------------------
-# # Validation logic
-# # ------------------------------
-# def is_field_valid(field, var_type, min_val=None, max_val=None):
-#     val = field.get().strip()
-#     if not val:
-#         return False
-
-#     try:
-#         if var_type == int:
-#             val = int(val)
-#         elif var_type == float:
-#             val = float(val)
-#         elif var_type == str:
-#             if not val:
-#                 return False
-#             elif field == root.user_string_field and len(val.strip('"')) > 48:
-#                 return False
-#             elif field == root.location_field and len(val.strip('"')) > 18:
-#                 return False
-#             return True
-#     except ValueError:
-#         return False
-
-#     if min_val is not None and val < min_val:
-#         return False
-#     if max_val is not None and val > max_val:
-#         return False
-
-#     return True
-
-
-# def validate_all_fields():
-#     invalid_fields = []
-
-#     if not is_field_valid(root.user_string_field, str):
-#         invalid_fields.append("User String must be 1-48 characters")
-
-#     if not is_field_valid(root.device_id_field, int, 0, 99):
-#         invalid_fields.append("Device ID must be an integer between 0 and 99")
-
-#     if not is_field_valid(root.location_field, str):
-#         invalid_fields.append("Location must be 1-18 characters")
-
-#     if (
-#         not is_field_valid(root.interval_field, int, 1, 1440)
-#         and not root.default_interval_var.get()
-#     ):
-#         invalid_fields.append("Interval must be an integer between 1 and 1440 minutes")
-
-#     if (
-#         not is_field_valid(root.delay_field, int, 0, 59)
-#         and root.default_delay_var.get()
-#     ):
-#         invalid_fields.append(
-#             "Initial Delay must be an integer between 0 and 59 minutes"
-#         )
-
-#     if not is_field_valid(root.frequency_low_field, int, 1000, 24000):
-#         invalid_fields.append(
-#             "Lower Frequency must be an integer between 1000 and 24000 Hz"
-#         )
-
-#     if not is_field_valid(root.frequency_high_field, int, 1000, 24000):
-#         invalid_fields.append(
-#             "Higher Frequency must be an integer between 1000 and 24000 Hz"
-#         )
-
-#     if is_field_valid(root.frequency_low_field, int, 1000, 24000) and is_field_valid(
-#         root.frequency_high_field, int, 1000, 24000
-#     ):
-#         low = int(root.frequency_low_field.get().strip())
-#         high = int(root.frequency_high_field.get().strip())
-#         if low >= high:
-#             invalid_fields.append("Lower Frequency must be less than Higher Frequency")
-
-#         min_bit_samples = rounded_min_bit_samples(FS_HZ)
-
-#         q_low_from_low, low_n, low_p, low_total = adjust_low_frequency_to_valid(
-#             low, high
-#         )
-#         q_high_from_high, high_n, high_p, high_total = adjust_high_frequency_to_valid(
-#             low, high
-#         )
-
-#         min_diff_low = min_required_diff_hz(q_low_from_low)
-#         actual_diff_low = freq_diff_u16(high, q_low_from_low)
-
-#         min_diff_high = min_required_diff_hz(low)
-#         actual_diff_high = freq_diff_u16(q_high_from_high, low)
-
-#         low_timing_ok = total_samples_within_tolerance(low_total, min_bit_samples)
-#         high_timing_ok = total_samples_within_tolerance(high_total, min_bit_samples)
-
-#         if q_low_from_low >= high:
-#             invalid_fields.append("Lower Frequency becomes invalid after adjustment")
-
-#         if q_high_from_high <= low:
-#             invalid_fields.append("Higher Frequency becomes invalid after adjustment")
-
-#         if actual_diff_low < min_diff_low and actual_diff_high < min_diff_high:
-#             invalid_fields.append(
-#                 "Frequency difference is too small after quantization/adjustment"
-#             )
-
-#         if not low_timing_ok:
-#             invalid_fields.append(
-#                 f"Lower Frequency total samples are not within ±{BIT_SAMPLE_TOLERANCE_PERCENT}% of 3000 µs"
-#             )
-
-#         if not high_timing_ok:
-#             invalid_fields.append(
-#                 f"Higher Frequency total samples are not within ±{BIT_SAMPLE_TOLERANCE_PERCENT}% of 3000 µs"
-#             )
-
-#         if low_p == high_p:
-#             invalid_fields.append(
-#                 "Lower and Higher Frequency result in the same period count after quantization"
-#             )
-
-#     if not is_field_valid(root.attenuation_field, int, 0, 100):
-#         invalid_fields.append("Attenuation must be an integer between 0 and 100")
-
-#     if invalid_fields:
-#         formatted = "\n".join(f"• {msg}" for msg in invalid_fields)
-#         messagebox.showwarning(
-#             "Invalid Input",
-#             f"⚠️ Please correct the following fields:\n\n{formatted}",
-#         )
-#         return False
-
-#     return True
-
-
-# # ------------------------------
-# # Build button, progress bar, and status
-# # ------------------------------
-# build_section = tk.Frame(main_frame)
-# build_section.grid(row=2, column=0, columnspan=2, pady=(10, 0))
-
-# build_btn = tk.Button(
-#     build_section,
-#     text="Build & Flash",
-#     width=24,
-#     font=("Arial", 12, "bold"),
-#     command=lambda: start_dual_flash_thread(),
-# )
-# build_btn.pack(pady=(0, 10))
-
-# ttk.Separator(build_section, orient="horizontal").pack(fill="x", padx=8, pady=(0, 10))
-
-# progress_bar = ttk.Progressbar(
-#     build_section,
-#     mode="indeterminate",
-#     length=900,
-# )
-# progress_bar.pack(fill="x", padx=8)
-
-# status_label = tk.Label(
-#     build_section,
-#     text="Idle",
-#     font=("Arial", 12, "italic"),
-# )
-# status_label.pack(pady=(10, 0))
-
-
-# # ------------------------------
-# # Background build logic
-# # ------------------------------
-# def start_dual_flash_thread():
-#     if not validate_all_fields():
-#         return
-
-#     build_btn.config(state="disabled")
-#     status_label.config(text="Building...")
-#     progress_bar.start(12)
-
-#     threading.Thread(target=dual_build_flash_call, daemon=True).start()
-
-
-# def dual_build_flash_call():
-#     try:
-#         if not dual_build_flash(
-#             root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET
-#         ):
-#             root.after(0, lambda: progress_bar.stop())
-#             root.after(0, lambda: status_label.config(text="❌ Build failed"))
-#             return
-
-#         root.after(
-#             0,
-#             lambda: [
-#                 progress_bar.stop(),
-#                 status_label.config(text="✅ Build & Flash completed successfully!"),
-#                 messagebox.showinfo(
-#                     "Build & Flash", "Build and Flash completed successfully!"
-#                 ),
-#             ],
-#         )
-#     except Exception as e:
-#         root.after(
-#             0,
-#             lambda: [
-#                 progress_bar.stop(),
-#                 status_label.config(text="❌ Build failed"),
-#                 messagebox.showerror("Error", f"❌ {e}"),
-#             ],
-#         )
-#     finally:
-#         root.after(0, lambda: build_btn.config(state="normal"))
-#         root.after(4000, lambda: status_label.config(text="Idle"))
-
-
-root.mainloop()
+class FlashToolApp(tk.Tk):
+    def __init__(self):
+        super().__init__()
+
+        self.title(APP_TITLE)
+        self.geometry(WINDOW_SIZE)
+        self.resizable(False, False)
+
+        self.vars = {}
+        self.widgets = {}
+
+        self._setup_style()
+        self._build_ui()
+        self._bind_events()
+        self._init_dynamic_state()
+
+        self.after(100, self.bring_to_front)
+
+    # -----------------------------------------------------
+    # Styling
+    # -----------------------------------------------------
+
+    def _setup_style(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+
+        # --------------------------------------------------
+        # Modern dark palette
+        # --------------------------------------------------
+
+        self.colors = {
+            "bg": "#181a1f",
+            "surface": "#181a1f",
+            "surface_2": "#2a2e36",
+            "surface_3": "#313641",
+            "border": "#3a404c",
+            "text": "#ffffff",
+            "muted": "#a7afbd",
+            "accent": "#4f8cff",
+            "accent_hover": "#6aa0ff",
+            "accent_pressed": "#3d79e6",
+            "input_bg": "#1f2329",
+            "disabled_bg": "#2a2d33",
+            "disabled_text": "#7d8592",
+            "success": "#00ffcc",
+        }
+
+        c = self.colors
+
+        # Root background
+        self.configure(bg=c["bg"])
+
+        # Generic backgrounds
+        style.configure(".", background=c["bg"], foreground=c["text"])
+
+        style.configure(
+            "TFrame",
+            background=c["bg"],
+        )
+
+        style.configure(
+            "Card.TFrame",
+            background=c["surface"],
+            relief="flat",
+            borderwidth=0,
+        )
+
+        style.configure(
+            "TLabel",
+            background=c["bg"],
+            foreground=c["text"],
+            font=("SF Pro Display", 12),
+        )
+
+        style.configure(
+            "Title.TLabel",
+            background=c["bg"],
+            foreground=c["text"],
+            font=("SF Pro Display", 24, "bold"),
+        )
+
+        style.configure(
+            "Muted.TLabel",
+            background=c["surface"],
+            foreground=c["muted"],
+            font=("SF Pro Display", 11),
+        )
+
+        style.configure(
+            "SectionTitle.TLabel",
+            background=c["surface"],
+            foreground=c["text"],
+            font=("SF Pro Display", 12, "bold"),
+        )
+
+        # --------------------------------------------------
+        # Notebook
+        # --------------------------------------------------
+        style.configure(
+            "TNotebook",
+            background=c["bg"],
+            borderwidth=0,
+            tabmargins=(0, 0, 0, 0),
+        )
+
+        style.configure(
+            "TNotebook.Tab",
+            background=c["surface_2"],
+            foreground=c["muted"],
+            padding=(30, 10),
+            font=("SF Pro Display", 11, "bold"),
+            borderwidth=0,
+        )
+
+        style.map(
+            "TNotebook.Tab",
+            background=[
+                ("selected", c["surface"]),
+                ("active", c["surface_3"]),
+            ],
+            foreground=[
+                ("selected", c["text"]),
+                ("active", c["text"]),
+            ],
+        )
+
+        # --------------------------------------------------
+        # Labelframe as modern card
+        # --------------------------------------------------
+        style.configure(
+            "Section.TLabelframe",
+            background=c["surface"],
+            bordercolor=c["border"],
+            borderwidth=1,
+            relief="solid",
+            padding=10,
+        )
+
+        style.configure(
+            "Section.TLabelframe.Label",
+            background=c["surface"],
+            foreground=c["text"],
+            font=("SF Pro Display", 11, "bold"),
+        )
+
+        # --------------------------------------------------
+        # Entry / Spinbox / Combobox
+        # --------------------------------------------------
+        style.configure(
+            "TEntry",
+            fieldbackground=c["input_bg"],
+            background=c["input_bg"],
+            foreground=c["text"],
+            bordercolor=c["border"],
+            lightcolor=c["border"],
+            darkcolor=c["border"],
+            insertcolor=c["text"],
+            padding=8,
+            relief="flat",
+        )
+
+        style.map(
+            "TEntry",
+            bordercolor=[
+                ("focus", c["accent"]),
+            ],
+            lightcolor=[
+                ("focus", c["accent"]),
+            ],
+            darkcolor=[
+                ("focus", c["accent"]),
+            ],
+        )
+
+        style.configure(
+            "TSpinbox",
+            fieldbackground=c["input_bg"],
+            background=c["input_bg"],
+            foreground=c["text"],
+            bordercolor=c["border"],
+            lightcolor=c["border"],
+            darkcolor=c["border"],
+            arrowsize=12,
+            padding=6,
+            relief="solid",
+        )
+
+        style.map(
+            "TSpinbox",
+            bordercolor=[("focus", c["accent"])],
+            lightcolor=[("focus", c["accent"])],
+            darkcolor=[("focus", c["accent"])],
+        )
+
+        # --------------------------------------------------
+        # Checkbuttons / Radiobuttons
+        # --------------------------------------------------
+        style.configure(
+            "TCheckbutton",
+            background=c["surface"],
+            foreground=c["text"],
+            font=("SF Pro Display", 11),
+        )
+
+        style.map(
+            "TCheckbutton",
+            background=[("active", c["surface"])],
+            foreground=[("disabled", c["disabled_text"])],
+        )
+
+        style.configure(
+            "TRadiobutton",
+            background=c["surface"],
+            foreground=c["text"],
+            font=("SF Pro Display", 11),
+        )
+
+        style.map(
+            "TRadiobutton",
+            background=[("active", c["surface"])],
+            foreground=[("disabled", c["disabled_text"])],
+        )
+
+        # --------------------------------------------------
+        # Primary button
+        # --------------------------------------------------
+        style.configure(
+            "Primary.TButton",
+            background=c["accent"],
+            foreground="white",
+            borderwidth=0,
+            focusthickness=0,
+            focuscolor=c["accent"],
+            padding=(40, 10),
+            font=("SF Pro Display", 12, "bold"),
+            relief="flat",
+        )
+
+        style.map(
+            "Primary.TButton",
+            background=[
+                ("pressed", c["accent_pressed"]),
+                ("active", c["accent_hover"]),
+                ("disabled", c["disabled_bg"]),
+            ],
+            foreground=[
+                ("disabled", c["disabled_text"]),
+            ],
+        )
+
+        # Secondary button if needed later
+        style.configure(
+            "Secondary.TButton",
+            background=c["surface_2"],
+            foreground=c["text"],
+            borderwidth=0,
+            padding=(18, 10),
+            font=("SF Pro Display", 11, "bold"),
+            relief="flat",
+        )
+
+        style.map(
+            "Secondary.TButton",
+            background=[
+                ("pressed", c["surface_3"]),
+                ("active", c["surface_3"]),
+            ],
+        )
+
+        # --------------------------------------------------
+        # Progressbar
+        # --------------------------------------------------
+        style.configure(
+            "Horizontal.TProgressbar",
+            background=c["accent"],
+            troughcolor=c["surface_2"],
+            bordercolor=c["border"],
+            lightcolor=c["accent"],
+            darkcolor=c["accent"],
+            thickness=10,
+        )
+
+        # --------------------------------------------------
+        # Separator
+        # --------------------------------------------------
+        style.configure(
+            "TSeparator",
+            background=c["border"],
+        )
+
+        self.style = style
+
+    # -----------------------------------------------------
+    # Main UI
+    # -----------------------------------------------------
+    def _build_ui(self):
+        outer = ttk.Frame(self, padding=24)
+        outer.pack(fill="both", expand=True)
+
+        ttk.Label(outer, text=APP_TITLE, style="Title.TLabel").pack(pady=(0, 18))
+
+        self.notebook = ttk.Notebook(outer)
+        self.notebook.pack(fill="both", expand=True)
+
+        self.base_tab = ttk.Frame(self.notebook, padding=10)
+        self.receiver_tab = ttk.Frame(self.notebook, padding=10)
+
+        self.notebook.add(self.base_tab, text="Base Station")
+        self.notebook.add(self.receiver_tab, text="Receiver")
+
+        self.notebook.select(self.receiver_tab)
+
+        self._build_base_tab()
+        self._build_receiver_tab()
+        self._build_bottom_bar(outer)
+
+    # -----------------------------------------------------
+    # Helpers
+    # -----------------------------------------------------
+
+    def on_tab_changed(self, event=None):
+        current = self.notebook.select()
+
+        if current == str(self.base_tab):
+            self.vars["rx_mode"].set(0)
+            self.after(10, lambda: self.widgets["base_user_string"].focus_set())
+
+        elif current == str(self.receiver_tab):
+            self.vars["rx_mode"].set(1)
+            self.after(10, lambda: self.widgets["receiver_user_string"].focus_set())
+
+    def bring_to_front(self):
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+        # Optional: remove always-on-top after focus
+        self.attributes("-topmost", True)
+        self.after(200, lambda: self.attributes("-topmost", False))
+
+    def section(
+        self, parent, title, row, column=0, colspan=1, sticky="ew", pady=(0, 10)
+    ):
+        frame = ttk.LabelFrame(parent, text=title, style="Section.TLabelframe")
+        frame.grid(
+            row=row, column=column, columnspan=colspan, sticky=sticky, pady=pady, padx=4
+        )
+        return frame
+
+    def entry_row(self, parent, row, label, var, width=ENTRY_WIDTH):
+        ttk.Label(parent, text=f"{label}:").grid(
+            row=row, column=0, sticky="e", padx=(0, 12), pady=6
+        )
+        entry = ttk.Entry(parent, textvariable=var, width=width)
+        entry.grid(row=row, column=1, sticky="w", pady=6)
+        return entry
+
+    def checkbox(self, parent, row, column, text, var, padx=(0, 20)):
+        cb = tk.Checkbutton(
+            parent,
+            text=text,
+            variable=var,
+            bg=self.colors["surface"],
+            fg=self.colors["text"],
+            activebackground=self.colors["surface"],
+            activeforeground=self.colors["text"],
+            selectcolor=self.colors["accent"],
+            indicatoron=True,
+            offrelief="flat",
+            overrelief="flat",
+            highlightthickness=0,
+            borderwidth=0,
+            font=("SF Pro Display", 11),
+        )
+        cb.grid(row=row, column=column, sticky="w", padx=padx, pady=4)
+        return cb
+
+    def muted_label(self, parent, text, row, wrap=420, column=0, pady=(0, 8)):
+        lbl = ttk.Label(
+            parent, text=text, style="Muted.TLabel", wraplength=wrap, justify="left"
+        )
+        lbl.grid(row=row, column=column, sticky="w", pady=pady)
+        return lbl
+
+    # -----------------------------------------------------
+    # Variables
+    # -----------------------------------------------------
+    def _create_shared_vars(self):
+        self.vars["user_string"] = tk.StringVar(
+            value=read_user_config_value("USER_STRING")
+        )
+        self.vars["device_id"] = tk.StringVar(
+            value=str(read_user_config_value("DEVICE_ID"))
+        )
+        self.vars["location"] = tk.StringVar(value=read_user_config_value("LOCATION"))
+
+        self.vars["include_user_string"] = tk.IntVar(value=1)
+        self.vars["include_temperature"] = tk.IntVar(value=1)
+        self.vars["include_device_id"] = tk.IntVar(value=1)
+        self.vars["include_time"] = tk.IntVar(value=1)
+        self.vars["include_location"] = tk.IntVar(value=1)
+
+        self.vars["default_interval"] = tk.IntVar(value=1)
+        self.vars["interval"] = tk.IntVar(
+            value=int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
+        )
+
+        self.vars["use_start_minute"] = tk.IntVar(value=0)
+        self.vars["start_minute"] = tk.IntVar(
+            value=int(read_user_config_value("STARTING_MINUTE"))
+        )
+
+        self.vars["transmission"] = tk.StringVar(value="cable")
+
+        self.vars["frequency_low"] = tk.IntVar(
+            value=int(read_user_config_value("FSK_LOWER_FREQUENCY"))
+        )
+        self.vars["frequency_high"] = tk.IntVar(
+            value=int(read_user_config_value("FSK_HIGHER_FREQUENCY"))
+        )
+
+        self.vars["attenuation"] = tk.IntVar(
+            value=int(read_user_config_value("SIGNAL_ATTENUATION"))
+        )
+
+        self.vars["ecc_level"] = tk.IntVar(
+            value=int(read_user_config_value("RS_ERROR_CORRECTION_SYMBOLS"))
+        )
+
+        self.vars["rx_mode"] = tk.IntVar(value=0)
+
+        self.vars["show_log"] = tk.IntVar(value=0)
+
+    # -----------------------------------------------------
+    # Base tab
+    # -----------------------------------------------------
+    def _build_base_tab(self):
+        self._create_shared_vars()
+        c = self.colors
+
+        self.base_tab.grid_columnconfigure(0, weight=1, uniform="base_cols")
+        self.base_tab.grid_columnconfigure(1, weight=1, uniform="base_cols")
+
+        instructions = self.section(self.base_tab, "Instructions", 0, colspan=2)
+        ttk.Label(
+            instructions,
+            text=(
+                "1. Choose what data should be common for all devices\n"
+                "2. Choose how often the data should be transmitted\n"
+                "3. Build & Flash the firmware to your base station"
+            ),
+            style="Muted.TLabel",
+            justify="left",
+            wraplength=900,
+        ).grid(row=0, column=0, sticky="w")
+
+        left = ttk.Frame(self.base_tab)
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left.grid_columnconfigure(0, weight=1)
+
+        right = ttk.Frame(self.base_tab)
+        right.grid(row=1, column=1, sticky="nsew", padx=(8, 0))
+        right.grid_columnconfigure(0, weight=1)
+
+        device = self.section(left, "Device Information", 0)
+        device.grid_columnconfigure(1, weight=1)
+        self.widgets["base_user_string"] = self.entry_row(
+            device, 0, "User String", self.vars["user_string"]
+        )
+
+        interval = self.section(left, "Interval Settings", 1)
+        row = ttk.Frame(interval)
+        row.grid(row=0, column=0, sticky="ew")
+        row.grid_columnconfigure(0, weight=1)
+
+        self.checkbox(
+            row,
+            0,
+            0,
+            "Use Default Interval (1 minute)",
+            self.vars["default_interval"],
+        ).grid(row=0, column=0, sticky="w")
+
+        tk.Label(
+            row,
+            text="Minutes:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).grid(row=0, column=1, padx=(16, 6))
+
+        self.widgets["interval"] = tk.Spinbox(
+            row,
+            from_=1,
+            to=1440,
+            width=6,
+            textvariable=self.vars["interval"],
+            bg=c["surface"],
+            fg=c["text"],
+            buttonbackground=c["surface_2"],
+            insertbackground=c["text"],
+            highlightbackground=c["surface_2"],
+            highlightcolor=c["accent"],
+            highlightthickness=1,
+            relief="solid",
+            bd=1,
+        )
+        self.widgets["interval"].grid(row=0, column=2, sticky="w")
+
+        include = self.section(right, "Include in Watermark", 0)
+        grid = tk.Frame(include, bg=self.colors["surface"])
+        grid.grid(row=0, column=0, sticky="w")
+
+        self.checkbox(grid, 0, 0, "User String", self.vars["include_user_string"])
+        self.checkbox(grid, 0, 1, "Timestamp", self.vars["include_time"])
+
+        delay = self.section(right, "Initial Delay", 1)
+        row = ttk.Frame(delay)
+        row.grid(row=0, column=0, sticky="ew")
+        row.grid_columnconfigure(0, weight=1)
+
+        self.checkbox(
+            row,
+            0,
+            0,
+            "Use Starting Minute",
+            self.vars["use_start_minute"],
+        )
+
+        tk.Label(row, text="Min:").grid(row=0, column=1, padx=(16, 6))
+
+        self.widgets["start_minute"] = ttk.Spinbox(
+            row,
+            from_=0,
+            to=59,
+            width=6,
+            textvariable=self.vars["start_minute"],
+        )
+        self.widgets["start_minute"].grid(row=0, column=2, sticky="w")
+
+    # -----------------------------------------------------
+    # Receiver tab
+    # -----------------------------------------------------
+    def _build_receiver_tab(self):
+        self.receiver_tab.grid_columnconfigure(0, weight=1, uniform="recv_cols")
+        self.receiver_tab.grid_columnconfigure(1, weight=1, uniform="recv_cols")
+
+        # Instructions
+        instructions = self.section(self.receiver_tab, "Instructions", 0, colspan=2)
+        ttk.Label(
+            instructions,
+            text=(
+                "1. Choose what data should be included in the watermarks\n"
+                "2. Select the frequencies used in the FSK transmission\n"
+                "3. Select the method of transmission"
+            ),
+            style="Muted.TLabel",
+            justify="left",
+            wraplength=900,
+        ).grid(row=0, column=0, sticky="w")
+
+        left = ttk.Frame(self.receiver_tab)
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left.grid_columnconfigure(0, weight=1)
+
+        right = ttk.Frame(self.receiver_tab)
+        right.grid(row=1, column=1, sticky="nsew", padx=(8, 0))
+        right.grid_columnconfigure(0, weight=1)
+
+        # Device info
+        device = self.section(left, "Device Information", 0)
+        device.grid_columnconfigure(1, weight=1)
+        self.widgets["receiver_user_string"] = self.entry_row(
+            device, 0, "User String", self.vars["user_string"]
+        )
+        self.widgets["device_id"] = self.entry_row(
+            device, 1, "Device ID", self.vars["device_id"]
+        )
+        self.widgets["location"] = self.entry_row(
+            device, 2, "Location", self.vars["location"]
+        )
+
+        # Include settings
+        include = self.section(left, "Include in Watermark", 1)
+        grid = tk.Frame(include, bg=self.colors["surface"])
+        grid.grid(row=0, column=0, sticky="w")
+        self.checkbox(grid, 0, 0, "User String", self.vars["include_user_string"])
+        self.checkbox(grid, 0, 1, "Device ID", self.vars["include_device_id"])
+        self.checkbox(grid, 0, 2, "Location", self.vars["include_location"])
+        self.checkbox(grid, 1, 0, "Temperature", self.vars["include_temperature"])
+        self.checkbox(grid, 1, 1, "Timestamp", self.vars["include_time"])
+
+        # Transmission settings
+        tx = self.section(right, "Transmission Settings", 0)
+        ttk.Radiobutton(
+            tx,
+            text="Use Cable Transmission",
+            variable=self.vars["transmission"],
+            value="cable",
+        ).grid(row=0, column=0, sticky="w", pady=4)
+        ttk.Radiobutton(
+            tx,
+            text="Use Speaker Transmission",
+            variable=self.vars["transmission"],
+            value="speaker",
+        ).grid(row=1, column=0, sticky="w", pady=4)
+
+        # FSK settings
+        fsk = self.section(right, "FSK Parameters", 1)
+        self.muted_label(
+            fsk,
+            "Select a pair of frequencies to use for FSK modulation (2000–24000 Hz):",
+            0,
+        )
+
+        row = ttk.Frame(fsk)
+        row.grid(row=1, column=0, sticky="w")
+
+        ttk.Label(row, text="Low (Hz):").grid(row=0, column=0, sticky="w")
+        self.widgets["frequency_low"] = ttk.Entry(
+            row, width=8, textvariable=self.vars["frequency_low"]
+        )
+        self.widgets["frequency_low"].grid(row=0, column=1, padx=(8, 20), sticky="w")
+
+        ttk.Label(row, text="High (Hz):").grid(row=0, column=2, sticky="w")
+        self.widgets["frequency_high"] = ttk.Entry(
+            row, width=8, textvariable=self.vars["frequency_high"]
+        )
+        self.widgets["frequency_high"].grid(row=0, column=3, padx=(8, 0), sticky="w")
+
+        # Attenuation settings
+        attenuation = self.section(right, "Attenuation", 2)
+        self.muted_label(
+            attenuation,
+            "Enter a value between 100 % (loudest) and 0 % (most attenuated)",
+            0,
+        )
+
+        row = ttk.Frame(attenuation)
+        row.grid(row=1, column=0, sticky="w")
+
+        ttk.Label(row, text="Level:").grid(row=0, column=0, sticky="w")
+
+        self.widgets["attenuation"] = ttk.Spinbox(
+            row,
+            from_=0,
+            to=100,
+            width=6,
+            textvariable=self.vars["attenuation"],
+        )
+        self.widgets["attenuation"].grid(row=0, column=1, padx=(8, 4), sticky="w")
+
+        ttk.Label(row, text="%").grid(row=0, column=2, sticky="w", padx=(0, 12))
+
+        self.widgets["attenuation_db_label"] = ttk.Label(
+            row,
+            text="",
+            style="Muted.TLabel",
+        )
+        self.widgets["attenuation_db_label"].grid(row=0, column=3, sticky="w")
+
+        # ECC Settings
+        ecc = self.section(left, "ECC Settings", 2)
+
+        ttk.Label(ecc, text="ECC Bytes (0-100):").grid(
+            row=1, column=0, sticky="w", pady=(8, 4)
+        )
+        self.widgets["ecc_level"] = ttk.Spinbox(
+            ecc,
+            from_=0,
+            to=100,
+            width=6,
+            textvariable=self.vars["ecc_level"],
+        )
+        self.widgets["ecc_level"].grid(row=1, column=1, padx=(8, 0), sticky="w")
+
+    # -----------------------------------------------------
+    # Bottom bar
+    # -----------------------------------------------------
+    def _build_bottom_bar(self, parent):
+        ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(12, 10))
+
+        bottom = ttk.Frame(parent)
+        bottom.pack(fill="x", padx=8)
+
+        # Row for checkbox + button
+        row = ttk.Frame(bottom)
+        row.pack(fill="x")
+
+        # Left side: debug toggle
+        ttk.Checkbutton(
+            row,
+            text="Show build log",
+            variable=self.vars["show_log"],
+        ).pack(side="left")
+
+        # Right side: build button
+        self.widgets["build_btn"] = ttk.Button(
+            row,
+            text="Build & Flash",
+            style="Primary.TButton",
+            command=self.start_build_thread,
+        )
+        self.widgets["build_btn"].pack(side="right")
+
+        # Progress bar
+        self.widgets["progress"] = ttk.Progressbar(bottom, mode="indeterminate")
+        self.widgets["progress"].pack(fill="x", pady=(10, 0))
+
+        # Status
+        self.widgets["status"] = ttk.Label(bottom, text="Idle")
+        self.widgets["status"].pack(pady=(8, 0))
+
+    # -----------------------------------------------------
+    # Events / dynamic state
+    # -----------------------------------------------------
+    def _bind_events(self):
+        self.vars["default_interval"].trace_add(
+            "write", lambda *_: self.toggle_interval_field()
+        )
+        self.vars["use_start_minute"].trace_add(
+            "write", lambda *_: self.toggle_delay_field()
+        )
+        self.vars["attenuation"].trace_add(
+            "write", lambda *_: self.update_attenuation_db_label()
+        )
+
+        self.widgets["frequency_low"].bind(
+            "<FocusOut>", lambda e: self.update_low_frequency()
+        )
+        self.widgets["frequency_low"].bind(
+            "<Return>", lambda e: self.update_low_frequency()
+        )
+        self.widgets["frequency_high"].bind(
+            "<FocusOut>", lambda e: self.update_high_frequency()
+        )
+        self.widgets["frequency_high"].bind(
+            "<Return>", lambda e: self.update_high_frequency()
+        )
+
+        self.bind_all("<Button-1>", self.defocus_all, add="+")
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+
+    def _init_dynamic_state(self):
+        self.toggle_interval_field()
+        self.toggle_delay_field()
+        self.update_low_frequency()
+        self.update_high_frequency()
+        self.update_attenuation_db_label()
+        self.on_tab_changed()
+
+    def toggle_interval_field(self):
+        state = "disabled" if self.vars["default_interval"].get() else "normal"
+        self.widgets["interval"].config(state=state)
+
+    def toggle_delay_field(self):
+        state = "normal" if self.vars["use_start_minute"].get() else "disabled"
+        self.widgets["start_minute"].config(state=state)
+
+    def defocus_all(self, event):
+        if isinstance(
+            event.widget,
+            (
+                tk.Entry,
+                tk.Spinbox,
+                ttk.Entry,
+                ttk.Spinbox,
+                tk.Checkbutton,
+                tk.Radiobutton,
+                ttk.Checkbutton,
+                ttk.Radiobutton,
+                ttk.Notebook,
+            ),
+        ):
+            return
+        self.focus_set()
+
+    # -----------------------------------------------------
+    # Frequency helpers
+    # -----------------------------------------------------
+    def calculate_attenuation_db(self, x: int) -> str:
+        try:
+            value = 0.2 * float(x) / 100.0
+            if value <= 0:
+                return "-∞ dB"
+            db = 20.0 * math.log10(value)
+            return f"{db:.2f} dB"
+        except Exception:
+            return "Invalid value"
+
+    def update_attenuation_db_label(self):
+        try:
+            x = int(self.vars["attenuation"].get())
+            text = f"dB value: {self.calculate_attenuation_db(x)}"
+        except Exception:
+            text = "dB value: Invalid value"
+        self.widgets["attenuation_db_label"].config(text=text)
+
+    def tolerance_samples(
+        self, target_samples: int, tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT
+    ) -> int:
+        return int(round(target_samples * tolerance_percent / 100.0))
+
+    def total_samples_within_tolerance(
+        self,
+        total_samples: int,
+        target_samples: int,
+        tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT,
+    ) -> bool:
+        tol = self.tolerance_samples(target_samples, tolerance_percent)
+        return (target_samples - tol) <= total_samples <= (target_samples + tol)
+
+    def rounded_min_bit_samples(self, fs: int) -> int:
+        return ((fs * MIN_BIT_US) + 500000) // 1000000
+
+    def quantized_freq_from_samples(self, fs: int, samples_per_period: int) -> int:
+        return (
+            0 if samples_per_period <= 0 else int(math.floor(fs / samples_per_period))
+        )
+
+    def period_count_from_samples(
+        self, min_bit_samples: int, samples_per_period: int
+    ) -> int:
+        return int(round(min_bit_samples / samples_per_period))
+
+    def freq_diff_u16(self, a: int, b: int) -> int:
+        return abs(a - b)
+
+    def min_required_diff_hz(self, lower_freq: int) -> int:
+        return 300 + (400000 // lower_freq)
+
+    def adjust_low_frequency_to_valid(self, low_freq: float, high_freq: float):
+        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+
+        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_p = self.period_count_from_samples(min_bit_samples, high_n)
+        high_total = high_n * high_p
+
+        while True:
+            low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+            low_p = self.period_count_from_samples(min_bit_samples, low_n)
+            low_total = low_n * low_p
+
+            same_periods = low_p == high_p
+            enough_diff = self.freq_diff_u16(
+                high_q, low_q
+            ) >= self.min_required_diff_hz(low_q)
+            low_timing_ok = self.total_samples_within_tolerance(
+                low_total, min_bit_samples
+            )
+            high_timing_ok = self.total_samples_within_tolerance(
+                high_total, min_bit_samples
+            )
+
+            if (
+                (not same_periods)
+                and enough_diff
+                and low_q < high_q
+                and low_timing_ok
+                and high_timing_ok
+            ):
+                break
+
+            candidate_low_n = low_n + 1
+            candidate_low_q = self.quantized_freq_from_samples(FS_HZ, candidate_low_n)
+            if candidate_low_q < FREQ_MIN:
+                break
+            low_n = candidate_low_n
+
+        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_p = self.period_count_from_samples(min_bit_samples, low_n)
+        low_total = low_n * low_p
+        return low_q, low_n, low_p, low_total
+
+    def adjust_high_frequency_to_valid(self, low_freq: float, high_freq: float):
+        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+
+        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
+        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+
+        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_p = self.period_count_from_samples(min_bit_samples, low_n)
+        low_total = low_n * low_p
+
+        while True:
+            high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+            high_p = self.period_count_from_samples(min_bit_samples, high_n)
+            high_total = high_n * high_p
+
+            same_periods = low_p == high_p
+            enough_diff = self.freq_diff_u16(
+                high_q, low_q
+            ) >= self.min_required_diff_hz(low_q)
+            low_timing_ok = self.total_samples_within_tolerance(
+                low_total, min_bit_samples
+            )
+            high_timing_ok = self.total_samples_within_tolerance(
+                high_total, min_bit_samples
+            )
+
+            if (
+                (not same_periods)
+                and enough_diff
+                and high_q > low_q
+                and low_timing_ok
+                and high_timing_ok
+            ):
+                break
+
+            if high_n <= 1:
+                break
+
+            candidate_high_n = high_n - 1
+            candidate_high_q = self.quantized_freq_from_samples(FS_HZ, candidate_high_n)
+            if candidate_high_q > FREQ_MAX:
+                break
+            high_n = candidate_high_n
+
+        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_p = self.period_count_from_samples(min_bit_samples, high_n)
+        high_total = high_n * high_p
+        return high_q, high_n, high_p, high_total
+
+    def update_low_frequency(self):
+        try:
+            low = float(self.vars["frequency_low"].get())
+            high = float(self.vars["frequency_high"].get())
+        except Exception:
+            return
+
+        low = max(FREQ_MIN, min(FREQ_MAX, low))
+        high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+        if low >= high:
+            low = high - 1
+        if low < FREQ_MIN:
+            low = FREQ_MIN
+
+        new_low, _, _, _ = self.adjust_low_frequency_to_valid(low, high)
+        self.vars["frequency_low"].set(int(new_low))
+
+    def update_high_frequency(self):
+        try:
+            low = float(self.vars["frequency_low"].get())
+            high = float(self.vars["frequency_high"].get())
+        except Exception:
+            return
+
+        low = max(FREQ_MIN, min(FREQ_MAX, low))
+        high = max(FREQ_MIN, min(FREQ_MAX, high))
+
+        if high <= low:
+            high = low + 1
+        if high > FREQ_MAX:
+            high = FREQ_MAX
+
+        new_high, _, _, _ = self.adjust_high_frequency_to_valid(low, high)
+        self.vars["frequency_high"].set(int(new_high))
+
+    # -----------------------------------------------------
+    # Validation
+    # -----------------------------------------------------
+    def valid_text(self, value: str, min_len=1, max_len=None):
+        value = value.strip()
+        if len(value) < min_len:
+            return False
+        if max_len is not None and len(value.strip('"')) > max_len:
+            return False
+        return True
+
+    def valid_int(self, value, min_val=None, max_val=None):
+        try:
+            x = int(str(value).strip())
+        except Exception:
+            return False
+        if min_val is not None and x < min_val:
+            return False
+        if max_val is not None and x > max_val:
+            return False
+        return True
+
+    def validate_all_fields(self):
+        errors = []
+
+        if not self.valid_text(self.vars["user_string"].get(), max_len=48):
+            errors.append("User String must be 1–48 characters")
+
+        if not self.valid_int(self.vars["device_id"].get(), 0, 99):
+            errors.append("Device ID must be an integer between 0 and 99")
+
+        if not self.valid_text(self.vars["location"].get(), max_len=18):
+            errors.append("Location must be 1–18 characters")
+
+        if not self.vars["default_interval"].get():
+            if not self.valid_int(self.vars["interval"].get(), 1, 1440):
+                errors.append("Interval must be an integer between 1 and 1440 minutes")
+
+        if self.vars["use_start_minute"].get():
+            if not self.valid_int(self.vars["start_minute"].get(), 0, 59):
+                errors.append(
+                    "Initial Delay must be an integer between 0 and 59 minutes"
+                )
+
+        low = self.vars["frequency_low"].get()
+        high = self.vars["frequency_high"].get()
+
+        if not self.valid_int(low, FREQ_MIN, FREQ_MAX):
+            errors.append(
+                f"Lower Frequency must be an integer between {FREQ_MIN} and {FREQ_MAX} Hz"
+            )
+
+        if not self.valid_int(high, FREQ_MIN, FREQ_MAX):
+            errors.append(
+                f"Higher Frequency must be an integer between {FREQ_MIN} and {FREQ_MAX} Hz"
+            )
+
+        if self.valid_int(low, FREQ_MIN, FREQ_MAX) and self.valid_int(
+            high, FREQ_MIN, FREQ_MAX
+        ):
+            low = int(low)
+            high = int(high)
+
+            if low >= high:
+                errors.append("Lower Frequency must be less than Higher Frequency")
+
+        if not self.valid_int(self.vars["attenuation"].get(), 0, 100):
+            errors.append("Attenuation must be an integer between 0 and 100")
+
+        if errors:
+            messagebox.showwarning(
+                "Invalid Input",
+                "⚠️ Please correct the following fields:\n\n"
+                + "\n".join(f"• {e}" for e in errors),
+            )
+            return False
+
+        return True
+
+    # -----------------------------------------------------
+    # Build
+    # -----------------------------------------------------
+    def start_build_thread(self):
+        if not self.validate_all_fields():
+            return
+
+        self.widgets["build_btn"].config(state="disabled")
+        self.widgets["status"].config(text="Building...")
+        self.widgets["progress"].start(12)
+
+        threading.Thread(target=self._run_build, daemon=True).start()
+
+    def _run_build(self):
+        try:
+            ok = dual_build_flash(
+                self,
+                self.vars["show_log"],
+                self.widgets["build_btn"],
+                OPENOCD_INTERFACE,
+                OPENOCD_TARGET,
+            )
+
+            if not ok:
+                self.after(0, lambda: self._finish_build(False, "❌ Build failed"))
+                return
+
+            self.after(
+                0,
+                lambda: self._finish_build(
+                    True,
+                    "✅ Build & Flash completed successfully!",
+                    show_popup=True,
+                ),
+            )
+
+        except Exception as e:
+            self.after(
+                0,
+                lambda: self._finish_build(False, "❌ Build failed", error=str(e)),
+            )
+
+    def _finish_build(self, success, status_text, show_popup=False, error=None):
+        self.widgets["progress"].stop()
+        self.widgets["status"].config(text=status_text)
+        self.widgets["build_btn"].config(state="normal")
+
+        if show_popup:
+            messagebox.showinfo(
+                "Build & Flash", "Build and Flash completed successfully!"
+            )
+
+        if error:
+            messagebox.showerror("Error", f"❌ {error}")
+
+        self.after(4000, lambda: self.widgets["status"].config(text="Idle"))
+
+
+if __name__ == "__main__":
+    app = FlashToolApp()
+    app.mainloop()
