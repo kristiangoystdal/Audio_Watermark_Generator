@@ -45,6 +45,7 @@ def find_likely_fsk_region(
     hop_duration=0.1,
     band_width_hz=150.0,
     threshold_sigma=3.0,
+    progress_callback=None,
 ):
     """
     Find the time region most likely to contain the FSK signal.
@@ -93,6 +94,8 @@ def find_likely_fsk_region(
             f"\rFinding active FSK region [{bar}] {fraction * 100:5.1f}%"
         )
         sys.stdout.flush()
+        if progress_callback is not None:
+            progress_callback(fraction, "Finding active FSK region")
 
     print_progress(0)
     for batch_start in range(0, total_windows, batch_size):
@@ -317,18 +320,21 @@ def generate_mask(th0, th1, scores):
     return (scores > th1) | (scores < th0)
 
 def print_message(message, start_time, end_time, debug, labels):
-    """Write decoded message info to debug and labels streams."""
+    """Write decoded message info to debug and labels streams.
+
+    Returns True if the message was valid and written to labels.
+    """
     debug.write("Decoded Message: \"" + message + "\"\n")
     debug.write(f"{len(message)} characters\n")
     if len(message) < 5:
         debug.write("Warning: Message too short\n")
-        return
+        return False
     elif message[0] != "/":
         debug.write("Warning: Message might be corrupted (missing '/' preamble)\n")
-        return
+        return False
     elif message[-1] != "/":
         debug.write("Warning: Message might be corrupted (missing '/' termination)\n")
-        return
+        return False
     else:
         labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
 
@@ -348,6 +354,7 @@ def print_message(message, start_time, end_time, debug, labels):
                 labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}")
         debug.write("\n")
         labels.write("\n")
+        return True
 
 def seconds_to_hms(total_seconds):
     """Convert seconds to a human-readable hours/minutes/seconds string."""
@@ -583,6 +590,7 @@ def select_best_symbol_timing_and_offset(
     n_true_step=0.1,
     stepsize=25,
     region_info=None,
+    progress_callback=None,
 ):
     """Jointly search N and symbol offset while keeping refined_f0 fixed."""
     if n_true_search_radius < 0:
@@ -594,7 +602,7 @@ def select_best_symbol_timing_and_offset(
 
     if region_info is None:
         print("Locating likely FSK-active region for timing/offset sweep...")
-        region_info = find_likely_fsk_region(x, fs, refined_f0, f1=f1)
+        region_info = find_likely_fsk_region(x, fs, refined_f0, f1=f1, progress_callback=progress_callback)
     region_start = max(0, int(round(region_info["start_time"] * fs)))
     region_end = min(len(x), int(round(region_info["end_time"] * fs)))
     region_x = x[region_start:region_end]
@@ -631,6 +639,8 @@ def select_best_symbol_timing_and_offset(
             f"\rFinding best timing/offset [{bar}] {fraction * 100:5.1f}%"
         )
         sys.stdout.flush()
+        if progress_callback is not None:
+            progress_callback(fraction, "Finding best timing/offset")
 
     def score_offset(N: int, N_err: float, offset: int):
         if len(region_x) < N:
@@ -722,13 +732,14 @@ def select_best_symbol_timing_and_offset(
 
     return best_setup
 
-def decode_fsk(input_filename: str, 
-               f0: float = 20833.33, 
+def decode_fsk(input_filename: str,
+               f0: float = 20833.33,
                f1: float = 22222.22,
                generate_debug: bool = False,
                minutes_per_segment: int = -1,
                use_ecc: bool = True,
-               ecc_nsym: int = DEFAULT_ECC_NSYM):
+               ecc_nsym: int = DEFAULT_ECC_NSYM,
+               progress_callback=None):
     """
     Demodulate an FSK-modulated WAV file and create message labels/debug text files.
 
@@ -746,10 +757,24 @@ def decode_fsk(input_filename: str,
         Enable Reed-Solomon error correction on each decoded message segment.
     ecc_nsym : int
         Number of RS parity bytes to use when ECC is enabled.
+    progress_callback : callable, optional
+        Called with (fraction: float, message: str) to report progress.
+        fraction is in [0, 1].
+
+    Returns
+    -------
+    int
+        Number of successfully decoded messages.
     """
 
     if use_ecc and (ecc_nsym <= 0 or ecc_nsym >= 255):
         raise ValueError("ecc_nsym must be in range [1, 254] when ECC is enabled")
+
+    def report(fraction, message=""):
+        if progress_callback is not None:
+            progress_callback(fraction, message)
+
+    message_count = 0
     user_f0 = f0
     p0 = compute_p0(user_f0)
     base, _ = os.path.splitext(input_filename)
@@ -774,13 +799,19 @@ def decode_fsk(input_filename: str,
             rsc = build_codec_with_nsym(ecc_nsym)
             decode_codeword_fn = decode_codeword
             rs_error_type = ReedSolomonError
+        report(0.0, "Reading audio file")
         print(f"Reading audio from {input_filename}...")
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         audio = (audio - np.mean(audio))
+        report(0.05, "Finding active FSK region")
         print("Locating likely FSK-active region...")
-        region_info = find_likely_fsk_region(audio, fs, f0, f1=f1)
+
+        def _region_progress(frac, msg):
+            report(0.05 + frac * 0.20, msg)
+
+        region_info = find_likely_fsk_region(audio, fs, f0, f1=f1, progress_callback=_region_progress)
 
         if DEBUG_PLOTS:
             #plot audio and highlight detected region for debugging
@@ -799,6 +830,7 @@ def decode_fsk(input_filename: str,
         active_audio = audio[region_start:region_end]
         if len(active_audio) == 0:
             active_audio = audio
+        report(0.25, "Refining FSK tones")
         print("Refining FSK tones from detected active region...")
         f0, f1 = refine_fsk_tones_fft(active_audio, fs, f0, f1)
         f0 = float(f0)
@@ -813,12 +845,20 @@ def decode_fsk(input_filename: str,
         seg_len = int(round(minutes_per_segment * 60 * fs))
         n = audio.shape[0]
         segments = [(i, audio[i : i + seg_len]) for i in range(0, n, seg_len)]
+        report(0.30, "Processing audio segments")
         print(f"Processing {len(segments)} audio segment(s) for demodulation...")
+        num_segments = len(segments)
         segmentindex = 0
         for segment_start_sample, audio in segments:
+            seg_base = 0.30 + (segmentindex / num_segments) * 0.70
+            seg_span = 0.70 / num_segments
             print(f"\nProcessing segment {segmentindex}...")
             print(f"Finding the best timing/offset for segment {segmentindex}...")
-            best_setup = select_best_symbol_timing_and_offset(audio, fs, f0, f1, p0)
+
+            def _timing_progress(frac, msg, _base=seg_base, _span=seg_span):
+                report(_base + frac * _span * 0.85, msg)
+
+            best_setup = select_best_symbol_timing_and_offset(audio, fs, f0, f1, p0, progress_callback=_timing_progress)
             N = best_setup["N"]
             N_err = best_setup["N_err"]
             best_offset = best_setup["offset"]
@@ -828,6 +868,7 @@ def decode_fsk(input_filename: str,
                 f"(avg separation {best_offset_score:.6f})..."
             )
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
+            report(seg_base + seg_span * 0.95, "Decoding messages")
 
             if DEBUG_PLOTS:
                 plt.scatter(range(len(scores)), scores, s=10)
@@ -910,9 +951,13 @@ def decode_fsk(input_filename: str,
                         continue
 
                 message = decoded_payload.decode("ascii", errors="replace")
-                print_message(message, start_time, end_time, debug, labels)
+                if print_message(message, start_time, end_time, debug, labels):
+                    message_count += 1
 
             segmentindex += 1
+
+        report(1.0, "Done")
+        return message_count
 
 
 
