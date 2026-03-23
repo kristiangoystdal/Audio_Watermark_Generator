@@ -465,7 +465,9 @@ class App(tk.Tk):
         )
         self.progress = ttk.Progressbar(self.frame, mode="indeterminate")
         self.progress.pack(fill="x", padx=12)
-        tk.Label(self.frame, textvariable=self.status).pack(pady=(4, 8))
+        tk.Label(self.frame, textvariable=self.status, wraplength=460).pack(
+            pady=(4, 8)
+        )
 
         # Initial toggle state
         self._toggle_seg_controls()
@@ -817,26 +819,20 @@ class App(tk.Tk):
                     msg = "Some files failed:\n\n" + "\n".join(
                         f"- {Path(p).name}: {err}" for p, err in errors
                     )
-                    if sync_error:
-                        msg += f"\n\nAutomatic synchronization failed:\n{sync_error}"
-                    elif sync_result is not None:
-                        msg += f"\n\n{sync_result.message}"
                     show_dialog("showerror", "Completed with errors", msg)
-                elif sync_error:
-                    show_dialog(
-                        "showerror",
-                        "Automatic synchronization failed",
-                        sync_error,
-                    )
-                elif sync_result is not None:
-                    show_dialog("showinfo", "Automatic synchronization", sync_result.message)
 
-                if errors:
+                if errors and sync_error:
+                    set_status(f"Done ({len(errors)} errors). Sync failed: {sync_error}")
+                elif errors and sync_result is not None:
+                    set_status(f"Done ({len(errors)} errors). {sync_result.message}")
+                elif errors:
                     set_status(f"Done ({len(errors)} errors)")
                 elif sync_error:
-                    set_status("Done (sync failed)")
+                    set_status(f"Done. Sync failed: {sync_error}")
                 elif sync_result is not None and sync_result.outputs:
-                    set_status(f"Done ({len(sync_result.outputs)} synced)")
+                    set_status(f"Done. {sync_result.message}")
+                elif sync_result is not None:
+                    set_status(f"Done. {sync_result.message}")
                 else:
                     set_status("Done")
             finally:
@@ -847,7 +843,7 @@ class App(tk.Tk):
                     self.status.set("")
                     self.progress["value"] = 0
 
-                self.after(4000, reset_ui)
+                self.after(10000, reset_ui)
 
         threading.Thread(target=worker, daemon=True).start()
 
