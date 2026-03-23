@@ -463,7 +463,7 @@ class App(tk.Tk):
         ttk.Separator(self.frame, orient="horizontal").pack(
             fill="x", padx=12, pady=(0, 6)
         )
-        self.progress = ttk.Progressbar(self.frame, mode="indeterminate")
+        self.progress = ttk.Progressbar(self.frame, mode="determinate", maximum=100)
         self.progress.pack(fill="x", padx=12)
         tk.Label(self.frame, textvariable=self.status, wraplength=460).pack(
             pady=(4, 8)
@@ -759,7 +759,7 @@ class App(tk.Tk):
             return
 
         self.run_btn.config(state="disabled")
-        self.progress.start(12)
+        self.progress["value"] = 0
         self.status.set("Running...")
 
         def worker():
@@ -767,9 +767,13 @@ class App(tk.Tk):
             sync_result: SyncResult | None = None
             sync_error: str | None = None
             failed_paths = set()
+            total_messages = 0
 
             def set_status(text: str):
                 self.after(0, lambda value=text: self.status.set(value))
+
+            def set_progress(value: float):
+                self.after(0, lambda v=value: self.progress.configure(value=v))
 
             def show_dialog(kind: str, title: str, text: str):
                 dialog = getattr(messagebox, kind)
@@ -779,9 +783,19 @@ class App(tk.Tk):
                 total = len(self.selected_files)
                 for i, wav_path in enumerate(self.selected_files, start=1):
                     name = Path(wav_path).name
-                    set_status(f"Processing {i}/{total}: {name}")
+
+                    # Progress callback: maps per-file [0,1] to overall progress
+                    def make_progress_cb(file_idx, file_total, file_name):
+                        def cb(fraction, message):
+                            overall = ((file_idx - 1) + fraction) / file_total * 100
+                            set_progress(overall)
+                            set_status(f"[{file_idx}/{file_total}] {file_name}: {message}")
+                        return cb
+
+                    progress_cb = make_progress_cb(i, total, name)
+                    progress_cb(0.0, "Starting")
                     try:
-                        decode_fsk(
+                        msg_count = decode_fsk(
                             wav_path,
                             f0=f0,
                             f1=f1,
@@ -789,7 +803,9 @@ class App(tk.Tk):
                             minutes_per_segment=seg_minutes,
                             use_ecc=use_ecc,
                             ecc_nsym=parity_bytes,
+                            progress_callback=progress_cb,
                         )
+                        total_messages += msg_count if msg_count else 0
                     except Exception as e:
                         errors.append((wav_path, str(e)))
                         failed_paths.add(wav_path)
@@ -821,22 +837,27 @@ class App(tk.Tk):
                     )
                     show_dialog("showerror", "Completed with errors", msg)
 
+                msg_summary = (
+                    f"Found {total_messages} "
+                    f"{'message' if total_messages == 1 else 'messages'}."
+                )
+
                 if errors and sync_error:
-                    set_status(f"Done ({len(errors)} errors). Sync failed: {sync_error}")
+                    set_status(f"Done ({len(errors)} errors). {msg_summary} Sync failed: {sync_error}")
                 elif errors and sync_result is not None:
-                    set_status(f"Done ({len(errors)} errors). {sync_result.message}")
+                    set_status(f"Done ({len(errors)} errors). {msg_summary} {sync_result.message}")
                 elif errors:
-                    set_status(f"Done ({len(errors)} errors)")
+                    set_status(f"Done ({len(errors)} errors). {msg_summary}")
                 elif sync_error:
-                    set_status(f"Done. Sync failed: {sync_error}")
+                    set_status(f"Done. {msg_summary} Sync failed: {sync_error}")
                 elif sync_result is not None and sync_result.outputs:
-                    set_status(f"Done. {sync_result.message}")
+                    set_status(f"Done. {msg_summary} {sync_result.message}")
                 elif sync_result is not None:
-                    set_status(f"Done. {sync_result.message}")
+                    set_status(f"Done. {msg_summary} {sync_result.message}")
                 else:
-                    set_status("Done")
+                    set_status(f"Done. {msg_summary}")
             finally:
-                self.after(0, self.progress.stop)
+                set_progress(100)
                 self.after(0, lambda: self.run_btn.config(state="normal"))
 
                 def reset_ui():
