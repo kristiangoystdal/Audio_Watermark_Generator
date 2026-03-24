@@ -109,6 +109,8 @@ DMA_HandleTypeDef hdma_dac1_ch1;
 
 I2C_HandleTypeDef hi2c2;
 
+RTC_HandleTypeDef hrtc;
+
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim2;
@@ -140,9 +142,6 @@ static uint32_t *dc_mid = NULL;
 
 // Pulse Calculation Variables
 uint32_t fs = 0;
-uint32_t cable_speaker_delay_ms = 0;
-float f_0_bit_duration = 0.0f;
-float f_1_bit_duration = 0.0f;
 float total_time = 0.0;
 
 // FSK
@@ -156,14 +155,9 @@ __ALIGN_BEGIN uint32_t output_buffer[BUFFER_SIZE] __ALIGN_END;
 
 volatile bool tx_active = true;
 volatile size_t current_bitstream_index = 0;
-volatile uint8_t current_bit = 0;
-volatile uint8_t next_bit = 0;
 volatile size_t current_sine_period = 0;
 volatile size_t current_sine_index = 0;
-volatile bool moved_to_next_bit = false;
 FillResult result;
-
-bool RX = true; // set to false for TX mode, true for RX mode
 
 uint8_t transmission[256] = {0};
 int dBm_value = 0;
@@ -185,6 +179,7 @@ static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 
 void EnterStopMode(void);
@@ -197,6 +192,7 @@ void get_sineval_low(void);
 void get_sineval_high(void);
 void get_dc_mid(void);
 uint32_t get_dac_sample_rate_hz(void);
+static void RTC_SetWakeupTimer(uint32_t seconds);
 
 static void TX_Start(void);
 static void TX_Stop(void);
@@ -259,6 +255,7 @@ int main(void) {
   MX_TIM2_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
   //-----------------------------------------------------------------------------//
@@ -328,22 +325,21 @@ int main(void) {
   // Initialize RTC
   //-----------------------------------------------------------------------------//
 
-  // DS3231_PowerOn();
-  // if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
-  //   DS3231_Init();
-  //   Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
-  //   INITIAL_DOM,
-  //            INITIAL_MONTH, INITIAL_YEAR);
-  // }
-  // Get_Time(&now);
-  // LOGF("-------------------------\r\n");
+  DS3231_PowerOn();
+  if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
+    DS3231_Init();
+    Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
+             INITIAL_MONTH, INITIAL_YEAR);
+  }
+  Get_Time(&now);
+  LOGF("-------------------------\r\n");
 
   //-----------------------------------------------------------------------------//
   // Initialize radio
   //-----------------------------------------------------------------------------//
 
   HAL_Delay(20);
-  int8_t init_result = init_radio(RX);
+  int8_t init_result = init_radio(RX_MODE);
   if (init_result != 0) {
     LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
          init_result);
@@ -352,10 +348,10 @@ int main(void) {
   }
 
   //-----------------------------------------------------------------------------//
-  // If RX, set relay to mixing mode
+  // Configure RX or TX mode
   //-----------------------------------------------------------------------------//
 
-  if (RX) {
+  if (RX_MODE) {
     turn_off_relay();
   }
 
@@ -367,10 +363,6 @@ int main(void) {
 
   while (1) {
 
-    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
-    LOGF("Entering STOP mode...\r\n");
-    // EnterStopMode();
-
     // // 2) Debounce button
     // while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
     // }
@@ -378,12 +370,16 @@ int main(void) {
 
     // For testing without button: just delay for a few seconds to simulate
     // sleep
-    HAL_Delay(5000);
+    HAL_Delay(15000);
+
+    uint32_t wake_tick = HAL_GetTick();
 
     LOGF("Woke up!\r\n");
 
+    Get_Time(&now);
+
     // 3) Check state and either start RX or TX
-    if (RX) {
+    if (RX_MODE) {
       // RX mode: read from radio and store in string
       read_RX(transmission, sizeof(transmission));
       LOGF("Received transmission: ");
@@ -400,7 +396,7 @@ int main(void) {
       LOGF("dBm value: %d\r\n", dBm_value);
 
       // Create output string based on received data and dBm value (e.g.
-      // "/STR.../DID.../LOC.../TMP.../TIM...")
+      // "/TIM.../STR.../DID.../LOC.../TMP...")
       uint8_t output_str[256] = {0};
       create_string_from_received_data(transmission, dBm_value, output_str,
                                        sizeof(output_str));
@@ -489,14 +485,57 @@ int main(void) {
     } else {
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
-      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       start_TX();
     }
 
     // 4) Check battery voltage and go back to sleep if low
     is_battery_low(&hadc1);
 
-    LOGF("Going back to sleep...\r\n");
+    if (!RX_MODE) {
+
+      uint32_t target_interval_s;
+
+      if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
+        target_interval_s = 60;
+      } else {
+        target_interval_s = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
+      }
+
+      uint32_t elapsed_ms = HAL_GetTick() - wake_tick;
+      uint32_t elapsed_s = elapsed_ms / 1000;
+
+      uint32_t sleep_seconds;
+      if (elapsed_s >= target_interval_s) {
+        sleep_seconds = 1;
+      } else {
+        uint32_t remainder_ms = elapsed_ms % 1000;
+
+        if (remainder_ms != 0) {
+          HAL_Delay(1000 - remainder_ms);
+        }
+
+        static uint32_t cycle_count = 0;
+        cycle_count++;
+
+        if ((cycle_count % 4) == 0) {
+          sleep_seconds = target_interval_s - elapsed_s - 2;
+        } else {
+          sleep_seconds = target_interval_s - elapsed_s - 3;
+        }
+      }
+
+      LOGF("Elapsed awake time: %lu ms\r\n", (unsigned long)elapsed_ms);
+      LOGF("Sleeping for %lu s\r\n", (unsigned long)sleep_seconds);
+
+      LOGF("Going back to sleep...\r\n");
+
+      RTC_SetWakeupTimer(sleep_seconds);
+    }
+
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    LOGF("Entering STOP mode...\r\n");
+    EnterStopMode();
 
     /* USER CODE END WHILE */
 
@@ -520,9 +559,11 @@ void SystemClock_Config(void) {
   /** Initializes the RCC Oscillators according to the specified parameters
    * in the RCC_OscInitTypeDef structure.
    */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType =
+      RCC_OSCILLATORTYPE_HSI | RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV1;
@@ -695,6 +736,50 @@ static void MX_I2C2_Init(void) {
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+}
+
+/**
+ * @brief RTC Initialization Function
+ * @param None
+ * @retval None
+ */
+static void MX_RTC_Init(void) {
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+   */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutRemap = RTC_OUTPUT_REMAP_NONE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK) {
+    Error_Handler();
+  }
+
+  /** Enable the WakeUp
+   */
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 59, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) !=
+      HAL_OK) {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  // Stop the RTC wakeup timer for now - we'll start it when we go to sleep
+  HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+
+  /* USER CODE END RTC_Init 2 */
 }
 
 /**
@@ -1127,24 +1212,23 @@ void calculate_active_duration_ms(size_t bitstream_len) {
   float f_0 = (float)fs / (float)freq_pair.lower_freq_samples;
   float f_1 = (float)fs / (float)freq_pair.higher_freq_samples;
 
-  f_0_bit_duration = (float)freq_pair.lower_freq_periods / f_0;
-  f_1_bit_duration = (float)freq_pair.higher_freq_periods / f_1;
+  float f_0_bit_duration = (float)freq_pair.lower_freq_periods / f_0;
+  float f_1_bit_duration = (float)freq_pair.higher_freq_periods / f_1;
 
   // Exact bitstream time
   total_time = 0.0f;
   for (int i = 0; i < bitstream_len; ++i) {
     if (bitstream[i] == 0) {
-      total_time += ((float)freq_pair.lower_freq_periods) / f_0;
+      total_time += f_0_bit_duration;
     } else if (bitstream[i] == 1) {
-      total_time += (float)freq_pair.higher_freq_periods / f_1;
+      total_time += f_1_bit_duration;
     } else {
-      total_time += ((float)freq_pair.lower_freq_periods) / f_0; // silence
+      total_time += f_0_bit_duration; // silence
     }
   }
 
   // Add silence time
   // total_time *= 1.05f;                            // 5% margin
-  // total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
 }
 
 static inline FillResult
@@ -1416,22 +1500,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   // variable length, separated by '/'
   for (char *tok = strtok((char *)buf, "/"); tok != NULL;
        tok = strtok(NULL, "/")) {
-
-    if (strncmp(tok, "STR", 3) == 0) {
-      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
-      user_string[sizeof(user_string) - 1] = '\0';
-
-    } else if (strncmp(tok, "DID", 3) == 0) {
-      device_id = atoi(tok + 3);
-
-    } else if (strncmp(tok, "LOC", 3) == 0) {
-      strncpy(location, tok + 3, sizeof(location) - 1);
-      location[sizeof(location) - 1] = '\0';
-
-    } else if (strncmp(tok, "TMP", 3) == 0) {
-      temperature = atoi(tok + 3);
-
-    } else if (strncmp(tok, "TIM", 3) == 0) {
+    if (strncmp(tok, "TIM", 3) == 0) {
       const char *p = tok + 3;
       if (strlen(p) >= 16) {
         char t[3] = {0};
@@ -1458,6 +1527,19 @@ void create_string_from_received_data(const uint8_t *transmission,
         char y[5] = {p[12], p[13], p[14], p[15], 0};
         time_val.year = (uint16_t)atoi(y);
       }
+    } else if (strncmp(tok, "STR", 3) == 0) {
+      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
+      user_string[sizeof(user_string) - 1] = '\0';
+
+    } else if (strncmp(tok, "DID", 3) == 0) {
+      device_id = atoi(tok + 3);
+
+    } else if (strncmp(tok, "LOC", 3) == 0) {
+      strncpy(location, tok + 3, sizeof(location) - 1);
+      location[sizeof(location) - 1] = '\0';
+
+    } else if (strncmp(tok, "TMP", 3) == 0) {
+      temperature = atoi(tok + 3);
     }
   }
 
@@ -1469,6 +1551,17 @@ void create_string_from_received_data(const uint8_t *transmission,
   int n = 0;
 
   output_str[0] = '\0';
+
+  if (INCLUDE_TIME) {
+    n = snprintf(&temp_buf[offset], remaining,
+                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
+                 time_val.hours, time_val.minutes, time_val.seconds,
+                 time_val.day, time_val.date, time_val.month, time_val.year);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
 
   if (INCLUDE_USER_STRING) {
     n = snprintf(&temp_buf[offset], remaining, "/STR%s", user_string);
@@ -1499,17 +1592,6 @@ void create_string_from_received_data(const uint8_t *transmission,
   if (INCLUDE_TEMPERATURE) {
     n = snprintf(&temp_buf[offset], remaining, "%s/TMP%d",
                  (offset > 0) ? "" : "", temperature);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-
-  if (INCLUDE_TIME) {
-    n = snprintf(&temp_buf[offset], remaining,
-                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
-                 time_val.hours, time_val.minutes, time_val.seconds,
-                 time_val.day, time_val.date, time_val.month, time_val.year);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
@@ -1575,6 +1657,20 @@ int _write(int file, char *ptr, int len) {
   (void)file;
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
   return len;
+}
+
+static void RTC_SetWakeupTimer(uint32_t seconds) {
+  HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+
+  if (seconds == 0) {
+    seconds = 1;
+  }
+
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, seconds - 1,
+                                  RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK) {
+    Error_Handler_Code(STATUS_CODE_UNKNOWN_ERROR);
+  }
 }
 
 /* USER CODE END 4 */
