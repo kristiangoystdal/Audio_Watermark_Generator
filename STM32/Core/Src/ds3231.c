@@ -1,7 +1,9 @@
 #include "ds3231.h"
-#include "main.h" // for I2C handle
-#include "stm32g4xx_hal.h"
-#include "stm32g4xx_hal_gpio.h"
+#include "log.h"
+#include "main.h"
+
+#include <stm32g4xx_hal.h>
+#include <stm32g4xx_hal_gpio.h>
 
 extern I2C_HandleTypeDef hi2c2; // defined in i2c.c
 
@@ -13,12 +15,12 @@ extern I2C_HandleTypeDef hi2c2; // defined in i2c.c
 
 void DS3231_PowerOn(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-  printf("DS3231 Power ON\r\n");
+  LOGF("DS3231 Power ON\r\n");
 }
 
 void DS3231_PowerOff(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-  printf("DS3231 Power OFF\r\n");
+  LOGF("DS3231 Power OFF\r\n");
 }
 
 static void ds3231_write8(uint8_t reg, uint8_t val) {
@@ -61,8 +63,8 @@ void Set_Time(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow, uint8_t dom,
 
   HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time,
                     7, HAL_MAX_DELAY);
-  printf("RTC Time Set: %02d:%02d:%02d %02d/%02d/%04d\r\n", hour, min, sec, dom,
-         month, year);
+  LOGF("RTC Time Set: %02d:%02d:%02d %02d/%02d/%04d\r\n", hour, min, sec, dom,
+       month, year);
 }
 
 // Read time/date from DS3231
@@ -88,8 +90,8 @@ void Get_Time(rtc_time_t *time) {
   time->month = bcdToDec(get_time[5] & 0x1F);
   time->year = 2000 + bcdToDec(get_time[6]);
 
-  printf("Current Time: %02d:%02d:%02d %02d/%02d/%04d\r\n", time->hours,
-         time->minutes, time->seconds, time->date, time->month, time->year);
+  LOGF("Current Time: %02d:%02d:%02d %02d/%02d/%04d\r\n", time->hours,
+       time->minutes, time->seconds, time->date, time->month, time->year);
 
   return;
 }

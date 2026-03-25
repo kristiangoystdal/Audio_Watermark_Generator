@@ -14,11 +14,92 @@ from scripts.paths import *
 from scripts.user_config import *
 
 active_src = PROJECT_SRC  # default path
+active_build_dir = BUILD_DIR
 
 os.environ["PATH"] = (
     f"{os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'tools', 'ninja'))}:"
     + os.environ.get("PATH", "")
 )
+
+
+def prepare_build(log_text, safe_log):
+    global active_src
+
+    safe_log("[DEBUG] Ensuring writable copy of source...")
+    ensure_writable_copy(safe_log)
+
+    os.makedirs(active_build_dir, exist_ok=True)
+
+    safe_log("[STEP] Running CMake configure (only if needed)...")
+
+    os.environ["PATH"] = f"{os.path.dirname(NINJA)}:" + os.environ.get("PATH", "")
+
+    if (
+        run_with_log(
+            [
+                CMAKE,
+                "-S",
+                active_src,
+                "-B",
+                active_build_dir,
+                "-G",
+                "Ninja",
+                f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
+                f"-DCMAKE_MAKE_PROGRAM={NINJA}",
+                "-DCMAKE_BUILD_TYPE=MinSizeRel",
+            ],
+            log_text,
+        )
+        != 0
+    ):
+        raise subprocess.CalledProcessError(1, "cmake configure")
+
+
+def build_only(log_text, safe_log):
+    safe_log("\n[STEP] Building firmware (incremental)...")
+
+    if (
+        run_with_log(
+            [CMAKE, "--build", active_build_dir, "--parallel"],
+            log_text,
+        )
+        != 0
+    ):
+        raise subprocess.CalledProcessError(1, "cmake build")
+
+
+def flash_only(log_text, safe_log, OPENOCD_INTERFACE, OPENOCD_TARGET):
+    elf_file = find_elf()
+    if not elf_file:
+        messagebox.showerror("Flash", "❌ No ELF file found after build.")
+        return False
+
+    safe_log(f"\n[DEBUG] Built ELF: {elf_file}")
+    safe_log("\n[STEP] Flashing device...")
+
+    flash_cmd = [
+        OPENOCD,
+        "-s",
+        os.path.join(TOOLS_DIR, "openocd", "share", "openocd", "scripts"),
+        "-f",
+        OPENOCD_INTERFACE,
+        "-f",
+        OPENOCD_TARGET,
+        "-c",
+        "transport select hla_swd",
+        "-c",
+        "adapter speed 4000",
+        "-c",
+        "reset_config srst_only srst_nogate connect_assert_srst",
+        "-c",
+        f"program {elf_file} verify reset exit",
+    ]
+
+    if run_with_log(flash_cmd, log_text) != 0:
+        raise subprocess.CalledProcessError(1, "openocd")
+
+    safe_log("\n[SUCCESS] Flash complete!")
+    return True
 
 
 def run_with_log(cmd, log_text=None):
@@ -66,10 +147,10 @@ def find_elf():
     global active_src
 
     search_paths = [
-        BUILD_DIR,
-        os.path.join(BUILD_DIR, "build"),
-        os.path.join(BUILD_DIR, "build", "Debug"),
-        os.path.join(BUILD_DIR, "build", "Release"),
+        active_build_dir,
+        os.path.join(active_build_dir, "build"),
+        os.path.join(active_build_dir, "build", "Debug"),
+        os.path.join(active_build_dir, "build", "Release"),
         active_src,
         os.path.join(active_src, "build"),
         os.path.join(active_src, "build", "Debug"),
@@ -85,31 +166,13 @@ def find_elf():
     return None
 
 
-def cleanup_old_builds(safe_log):
-
-    temp_dir = tempfile.gettempdir()
-    pattern = os.path.join(temp_dir, "stm32_build*")
-    found = glob.glob(pattern)
-
-    if not found:
-        safe_log("[DEBUG] No old temp builds found.")
-        return
-
-    safe_log(f"[DEBUG] Cleaning {len(found)} old stm32_build folders...")
-    for folder in found:
-        try:
-            shutil.rmtree(folder)
-            safe_log(f"[DEBUG] Deleted: {folder}")
-        except Exception as e:
-            safe_log(f"[WARN] Could not delete {folder}: {e}")
-    safe_log("[DEBUG] Old stm32_build folders cleaned up.")
-
-
 def ensure_writable_copy(safe_log):
-    global active_src
+    global active_src, active_build_dir
 
     if getattr(sys, "frozen", False) and sys.platform == "darwin":
-        temp_copy_dir = os.path.join(tempfile.gettempdir(), "stm32_src")
+        temp_root = tempfile.gettempdir()
+        temp_copy_dir = os.path.join(temp_root, "stm32_src")
+        temp_build_dir = os.path.join(temp_root, "stm32_build")
 
         app_resources = os.path.abspath(
             os.path.join(os.path.dirname(sys.executable), "..", "Resources", "STM32")
@@ -117,9 +180,12 @@ def ensure_writable_copy(safe_log):
 
         safe_log(f"[DEBUG] Copying from bundle resources: {app_resources}")
         safe_log(f"[DEBUG] Copy destination: {temp_copy_dir}")
+        safe_log(f"[DEBUG] Build directory: {temp_build_dir}")
 
         if os.path.exists(temp_copy_dir):
             shutil.rmtree(temp_copy_dir, ignore_errors=True)
+        if os.path.exists(temp_build_dir):
+            shutil.rmtree(temp_build_dir, ignore_errors=True)
 
         shutil.copytree(app_resources, temp_copy_dir, dirs_exist_ok=True)
 
@@ -127,28 +193,25 @@ def ensure_writable_copy(safe_log):
             safe_log("[ERROR] Temp STM32 copy appears empty — copy failed!")
 
         active_src = temp_copy_dir
+        active_build_dir = temp_build_dir
     else:
         active_src = PROJECT_SRC
+        active_build_dir = BUILD_DIR
 
 
-def build_and_flash(
-    root,
-    show_log_var,
-    OPENOCD_INTERFACE,
-    OPENOCD_TARGET,
-    set_initial_time,
-    build_btn=None,
-):
-    global active_src
+def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET):
+    global set_initial_time
 
-    # Create log window if enabled
+    build_btn.config(state="disabled")
+    root.update_idletasks()
+
     log_text = None
     if show_log_var.get():
         log_win = tk.Toplevel(root)
         log_win.title("Build Log")
         log_text = st.ScrolledText(log_win, width=100, height=30)
         log_text.pack(padx=10, pady=10)
-        log_text.insert(tk.END, "Starting build...\n")
+        log_text.insert(tk.END, "Starting dual build...\n")
 
     def safe_log(msg):
         print(msg.strip())
@@ -157,172 +220,41 @@ def build_and_flash(
             log_text.see(tk.END)
             log_text.update_idletasks()
 
-    safe_log("[DEBUG] Cleaning build directories to force recompilation...")
-    cleanup_old_builds(safe_log)
-
-    safe_log("[DEBUG] Ensuring writable copy of source...")
-    ensure_writable_copy(safe_log)
-
-    if os.path.exists(BUILD_DIR):
-        shutil.rmtree(BUILD_DIR, ignore_errors=True)
-    os.makedirs(BUILD_DIR, exist_ok=True)
-
-    internal_build_dir = os.path.join(PROJECT_SRC, "build")
-    if os.path.exists(internal_build_dir):
-        shutil.rmtree(internal_build_dir, ignore_errors=True)
-        safe_log(f"[DEBUG] Removed stale internal build: {internal_build_dir}")
-    else:
-        safe_log(f"[DEBUG] No internal build directory to remove.")
-
     try:
-        # Debug info
-        safe_log(f"[DEBUG] PROJECT_SRC = {PROJECT_SRC}")
-        safe_log(f"[DEBUG] TOOLS_DIR   = {TOOLS_DIR}")
-        safe_log(f"[DEBUG] BUILD_DIR   = {BUILD_DIR}")
-        safe_log(f"[DEBUG] TOOLCHAIN   = {TOOLCHAIN}")
-        safe_log(f"[DEBUG] CMAKE       = {CMAKE}")
-        safe_log(f"[DEBUG] NINJA       = {NINJA}")
-        safe_log(f"[DEBUG] OPENOCD     = {OPENOCD}")
-        safe_log(f"[DEBUG] TOOLCHAIN_FILE = {TOOLCHAIN_FILE}")
-        safe_log(f"[DEBUG] Using user_config.h at: {ensure_user_config(True)}\n")
+        # Configure once
+        prepare_build(log_text, safe_log)
 
-        # Remove any stale CMake artifacts from the copied source
-        for stale in ["CMakeCache.txt", "CMakeFiles", "build"]:
-            stale_path = os.path.join(active_src, stale)
-            if os.path.exists(stale_path):
-                (
-                    shutil.rmtree(stale_path, ignore_errors=True)
-                    if os.path.isdir(stale_path)
-                    else os.remove(stale_path)
-                )
-                safe_log(f"[DEBUG] Removed stale CMake file/folder: {stale_path}")
-            else:
-                safe_log(f"[DEBUG] No stale CMake file/folder to remove: {stale_path}")
-
-        # # Delete any old CMake cache
-        # cache_path = os.path.join(BUILD_DIR, "CMakeCache.txt")
-        # if os.path.exists(cache_path):
-        #     os.remove(cache_path)
-        #     safe_log("[DEBUG] Removed CMakeCache.txt for a clean configure.")
+        # ---------------------------
+        # FIRST BUILD (set RTC time)
+        # ---------------------------
+        safe_log("\n========== PASS 1: SET INITIAL TIME ==========")
+        set_initial_time = 1
 
         if not change_user_config(root, set_initial_time, safe_log):
-            safe_log("[DEBUG] change_user_config() returned False — aborting build.")
-            build_btn.config(state="normal")
-            return
-        safe_log("[DEBUG] change_user_config() completed successfully.")
+            raise Exception("Failed to update user_config")
 
-        # Preview user_config.h
-        safe_log("[DEBUG] --- user_config.h preview ---")
-        try:
-            with open(ensure_user_config(True, safe_log), "r") as f:
-                for i, line in enumerate(f.readlines()):
-                    if i >= 20:
-                        break
-                    safe_log(line.strip())
-        except Exception as e:
-            safe_log(f"[WARN] Could not preview user_config.h: {e}")
-        safe_log("[DEBUG] --- end preview ---\n")
+        build_only(log_text, safe_log)
+        flash_only(log_text, safe_log, OPENOCD_INTERFACE, OPENOCD_TARGET)
 
-        # --- Run CMake configure ---
-        safe_log("[STEP] Running CMake configure...")
+        # ---------------------------
+        # SECOND BUILD (normal mode)
+        # ---------------------------
+        safe_log("\n========== PASS 2: NORMAL MODE ==========")
+        set_initial_time = 0
 
-        # ensure PATH includes our bundled ninja
-        os.environ["PATH"] = f"{os.path.dirname(NINJA)}:" + os.environ.get("PATH", "")
+        if not change_user_config(root, set_initial_time, safe_log):
+            raise Exception("Failed to update user_config")
 
-        if (
-            run_with_log(
-                [
-                    CMAKE,
-                    "-S",
-                    active_src,
-                    "-B",
-                    BUILD_DIR,
-                    "-G",
-                    "Ninja",
-                    f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
-                    f"-DCMAKE_MAKE_PROGRAM={NINJA}",
-                    "-DCMAKE_BUILD_TYPE=Release",
-                ],
-                log_text,
-            )
-            != 0
-        ):
-            raise subprocess.CalledProcessError(1, "cmake configure")
+        build_only(log_text, safe_log)
+        flash_only(log_text, safe_log, OPENOCD_INTERFACE, OPENOCD_TARGET)
 
-        # --- Run build ---
-        safe_log("\n[STEP] Building firmware...")
-        if run_with_log([CMAKE, "--build", BUILD_DIR], log_text) != 0:
-            raise subprocess.CalledProcessError(1, "cmake build")
+        safe_log("\n[SUCCESS] ✅ Dual build & flash complete!")
 
-        # --- Find ELF ---
-        elf_file = find_elf()
-        if not elf_file:
-            messagebox.showerror("Flash", "❌ No ELF file found after build.")
-            return
-        safe_log(f"\n[DEBUG] Built ELF: {elf_file}")
-
-        # --- Flash device ---
-        safe_log("\n[STEP] Flashing device...")
-        flash_cmd = [
-            OPENOCD,
-            "-s",
-            os.path.join(TOOLS_DIR, "openocd", "share", "openocd", "scripts"),
-            "-f",
-            OPENOCD_INTERFACE,
-            "-f",
-            OPENOCD_TARGET,
-            "-c",
-            "transport select hla_swd",
-            "-c",
-            "adapter speed 100",
-            "-c",
-            "reset_config srst_only srst_nogate connect_assert_srst",
-            "-c",
-            f"program {elf_file} verify reset exit",
-        ]
-        safe_log(f"[DEBUG] Flash command:\n{' '.join(flash_cmd)}\n")
-
-        if run_with_log(flash_cmd, log_text) != 0:
-            raise subprocess.CalledProcessError(1, "openocd")
-
-        safe_log("\n[SUCCESS] ✅ Build and flash complete!")
-
-    except subprocess.CalledProcessError as e:
-        safe_log(
-            f"\n[ERROR] ❌ Command failed: {e}\n[DEBUG] Exception details: {e.args}"
-        )
-        safe_log("[ERROR] Build/flash process terminated.")
-        messagebox.showerror("Error", f"❌ Failed during build/flash: {e}")
-
-
-def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET):
-    global set_initial_time
-    build_btn.config(state="disabled")
-    root.update_idletasks()
-
-    set_initial_time = 1
-
-    build_and_flash(
-        root,
-        show_log_var,
-        OPENOCD_INTERFACE,
-        OPENOCD_TARGET,
-        set_initial_time,
-        build_btn,
-    )
-    root.update_idletasks()
-
-    set_initial_time = 0
-
-    build_and_flash(
-        root,
-        show_log_var,
-        OPENOCD_INTERFACE,
-        OPENOCD_TARGET,
-        set_initial_time,
-        build_btn,
-    )
-
-    root.update_idletasks()
+    except Exception as e:
+        safe_log(f"\n[ERROR] ❌ {e}")
+        messagebox.showerror("Error", f"Build/flash failed: {e}")
+        build_btn.config(state="normal")
+        return False
 
     build_btn.config(state="normal")
+    return True

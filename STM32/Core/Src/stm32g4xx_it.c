@@ -57,6 +57,7 @@
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_dac1_ch1;
 extern DAC_HandleTypeDef hdac1;
+extern RTC_HandleTypeDef hrtc;
 extern TIM_HandleTypeDef htim6;
 /* USER CODE BEGIN EV */
 
@@ -200,17 +201,17 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI line1 interrupt.
+  * @brief This function handles RTC wake-up interrupt through EXTI line 20.
   */
-void EXTI1_IRQHandler(void)
+void RTC_WKUP_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI1_IRQn 0 */
+  /* USER CODE BEGIN RTC_WKUP_IRQn 0 */
 
-  /* USER CODE END EXTI1_IRQn 0 */
-  HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_1);
-  /* USER CODE BEGIN EXTI1_IRQn 1 */
+  /* USER CODE END RTC_WKUP_IRQn 0 */
+  HAL_RTCEx_WakeUpTimerIRQHandler(&hrtc);
+  /* USER CODE BEGIN RTC_WKUP_IRQn 1 */
 
-  /* USER CODE END EXTI1_IRQn 1 */
+  /* USER CODE END RTC_WKUP_IRQn 1 */
 }
 
 /**
@@ -243,14 +244,4 @@ void TIM6_DAC_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
-void DMAMUX_OVR_IRQHandler(void) {
-  // Clear all DMAMUX request generator overrun flags
-  DMAMUX1_RequestGenStatus->RGCFR = 0xFFFFFFFFu;
-
-  // If you want, also clear any leftover DMA flags for ch1:
-  DMA1->IFCR =
-      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
-}
-
 /* USER CODE END 1 */
