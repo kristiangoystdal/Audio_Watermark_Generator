@@ -1,12 +1,12 @@
 %TF.GenerationSoftware,KiCad,Pcbnew,9.0.6*%
-%TF.CreationDate,2026-03-25T17:50:45+01:00*%
+%TF.CreationDate,2026-03-25T20:04:04+01:00*%
 %TF.ProjectId,Audio_watermark_generator,41756469-6f5f-4776-9174-65726d61726b,1.0*%
 %TF.SameCoordinates,Original*%
 %TF.FileFunction,Copper,L1,Top*%
 %TF.FilePolarity,Positive*%
 %FSLAX46Y46*%
 G04 Gerber Fmt 4.6, Leading zero omitted, Abs format (unit mm)*
-G04 Created by KiCad (PCBNEW 9.0.6) date 2026-03-25 17:50:45*
+G04 Created by KiCad (PCBNEW 9.0.6) date 2026-03-25 20:04:04*
 %MOMM*%
 %LPD*%
 G01*
@@ -1518,8 +1518,6 @@ X28000000Y-54929800D01*
 D67*
 X42934000Y-37111000D02*
 X42934000Y-36597521D01*
-X42925000Y-35100000D02*
-X42425000Y-34600000D01*
 D68*
 X68851000Y-41024000D02*
 X69475000Y-40400000D01*

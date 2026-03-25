@@ -5,7 +5,7 @@
       "Application": "Pcbnew",
       "Version": "9.0.6"
     },
-    "CreationDate": "2026-03-25T17:50:45+01:00"
+    "CreationDate": "2026-03-25T20:04:04+01:00"
   },
   "GeneralSpecs": {
     "ProjectId": {
@@ -91,6 +91,11 @@
     },
     {
       "Path": "Audio_watermark_generator-User_Eco1.gbr",
+      "FileFunction": "Other,User",
+      "FilePolarity": "Positive"
+    },
+    {
+      "Path": "Audio_watermark_generator-User_Eco2.gbr",
       "FileFunction": "Other,User",
       "FilePolarity": "Positive"
     },
