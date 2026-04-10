@@ -1090,8 +1090,6 @@ class FlashToolApp(tk.Tk):
                 self,
                 self.vars["show_log"],
                 self.widgets["build_btn"],
-                OPENOCD_INTERFACE,
-                OPENOCD_TARGET,
             )
 
             if not ok:

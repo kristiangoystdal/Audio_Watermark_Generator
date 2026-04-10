@@ -28,7 +28,7 @@ if getattr(sys, "frozen", False):
 else:
     # Running from source
     BASE = os.path.dirname(__file__)
-    PROJECT_SRC = os.path.abspath(os.path.join(BASE, "../../../STM32"))  # two levels up
+    PROJECT_SRC = os.path.abspath(os.path.join(BASE, "../../../STM32"))
     TOOLS_DIR = os.path.join(BASE, "..", "tools")
 
 
@@ -37,22 +37,17 @@ BUILD_DIR = os.path.join(tempfile.gettempdir(), "stm32_build")
 TOOLCHAIN = os.path.join(TOOLS_DIR, "arm-none-eabi-gcc")
 
 cmake_root = os.path.join(TOOLS_DIR, "cmake")
-cmake_versions = [
-    d for d in os.listdir(cmake_root) if os.path.isdir(os.path.join(cmake_root, d))
-]
-if cmake_versions:
-    cmake_version_dir = cmake_versions[0]
+if os.path.exists(cmake_root):
+    cmake_versions = [
+        d
+        for d in os.listdir(cmake_root)
+        if os.path.isdir(os.path.join(cmake_root, d)) and d != "arm-gcc-toolchain.cmake"
+    ]
+    cmake_version_dir = cmake_versions[0] if cmake_versions else "4.1.2"
 else:
     cmake_version_dir = "4.1.2"
 
 CMAKE = os.path.join(cmake_root, cmake_version_dir, "bin", "cmake")
 TOOLCHAIN_FILE = os.path.join(TOOLS_DIR, "cmake", "arm-gcc-toolchain.cmake")
 NINJA = os.path.join(TOOLS_DIR, "ninja", "ninja")
-OPENOCD = os.path.join(TOOLS_DIR, "openocd", "bin", "openocd")
-
-OPENOCD_INTERFACE = os.path.join(
-    TOOLS_DIR, "openocd", "share", "openocd", "scripts", "interface", "stlink.cfg"
-)
-OPENOCD_TARGET = os.path.join(
-    TOOLS_DIR, "openocd", "share", "openocd", "scripts", "target", "stm32g4x.cfg"
-)
+DFU_UTIL = os.path.join(TOOLS_DIR, "dfu-util", "dfu-util")
