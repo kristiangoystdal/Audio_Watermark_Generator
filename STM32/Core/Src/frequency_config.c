@@ -57,6 +57,7 @@ freq_pair_t find_frequency_pair(uint32_t fs) {
   LOGF("Target bit samples: %u, tolerance: +/- %u samples (%u%%)\r\n",
        (unsigned int)min_bit_samples, (unsigned int)tolerance_samples,
        (unsigned int)BIT_SAMPLE_TOLERANCE_PERCENT);
+  LOGF("\r\n");
 
   uint16_t lower_samples_per_period =
       (uint16_t)floor((double)fs / (double)lower_freq);
@@ -168,6 +169,7 @@ freq_pair_t find_frequency_pair(uint32_t fs) {
   LOGF("Higher freq samples: %u, periods: %u, total samples: %u\r\n",
        (unsigned int)higher_samples_per_period,
        (unsigned int)higher_period_count, (unsigned int)higher_total_samples);
+  LOGF("\r\n");
 
   result.lower_freq = lower_freq;
   result.higher_freq = higher_freq;
