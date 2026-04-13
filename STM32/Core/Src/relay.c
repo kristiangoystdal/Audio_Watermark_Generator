@@ -4,8 +4,8 @@
 #include <stm32g4xx_hal.h>
 
 #define RELAY_GPIO_Port GPIOA
-#define RELAY_PIN_ON GPIO_PIN_5
-#define RELAY_PIN_OFF GPIO_PIN_6
+#define RELAY_PIN_ON GPIO_PIN_6
+#define RELAY_PIN_OFF GPIO_PIN_5
 #define RELAY_TOGGLE_DELAY_MS 100
 
 void turn_off_both_relays(void) {
