@@ -91,7 +91,7 @@
 #define DIV_FLOOR(n, d) ((uint32_t)((n) / (d)))
 #define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d)))
 
-#define OUTPUT_SEGMENT 1000
+#define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
 /* USER CODE END PD */
@@ -136,9 +136,9 @@ rtc_time_t now = {.seconds = 0,
 
 int temp_int = 25;
 
-static uint32_t *sine_val_low = NULL;
-static uint32_t *sine_val_high = NULL;
-static uint32_t *dc_mid = NULL;
+static uint32_t sine_val_low[LUT_LOW_SAMPLES];
+static uint32_t sine_val_high[LUT_HIGH_SAMPLES];
+static uint32_t dc_mid[LUT_LOW_SAMPLES];
 
 // Pulse Calculation Variables
 uint32_t fs = 0;
@@ -289,6 +289,7 @@ int main(void) {
 
   uint32_t dac_sample_rate = get_dac_sample_rate_hz();
   LOGF("DAC sample rate: %lu Hz\r\n", (unsigned long)dac_sample_rate);
+  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Indicate boot complete with LED blinks
@@ -306,6 +307,7 @@ int main(void) {
   LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
        (unsigned int)freq_pair.lower_freq, (unsigned int)freq_pair.higher_freq);
   LOGF("--------------------------\r\n");
+  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
@@ -333,6 +335,7 @@ int main(void) {
   }
   Get_Time(&now);
   LOGF("-------------------------\r\n");
+  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Initialize radio
@@ -344,6 +347,7 @@ int main(void) {
     LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
          init_result);
     LOGF("--------------------------\r\n");
+    LOGF("\r\n");
     // Error_Handler_Code(init_result);
   }
 
@@ -358,8 +362,9 @@ int main(void) {
   //-----------------------------------------------------------------------------//
   // Main loop
   //-----------------------------------------------------------------------------//
-
+  LOGF("\r\n");
   LOGF("Entering main loop...\r\n");
+  LOGF("\r\n");
 
   while (1) {
 
@@ -370,7 +375,7 @@ int main(void) {
 
     // For testing without button: just delay for a few seconds to simulate
     // sleep
-    HAL_Delay(15000);
+    HAL_Delay(2000);
 
     uint32_t wake_tick = HAL_GetTick();
 
@@ -387,6 +392,7 @@ int main(void) {
         LOGF("%02X ", transmission[i]);
       }
       LOGF("\r\n");
+      LOGF("\r\n");
 
       // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
       // etc.)
@@ -394,6 +400,7 @@ int main(void) {
 
       LOGF("Processed transmission into %s\r\n", transmission);
       LOGF("dBm value: %d\r\n", dBm_value);
+      LOGF("\r\n");
 
       // Create output string based on received data and dBm value (e.g.
       // "/TIM.../STR.../DID.../LOC.../TMP...")
@@ -405,6 +412,7 @@ int main(void) {
       size_t payload_len = strlen((char *)output_str);
       LOGF("Output string length: %lu characters\r\n",
            (unsigned long)payload_len);
+      LOGF("\r\n");
 
       if (USE_REED_SOLOMON_ERROR_CORRECTION) {
         // Prepare buffer for Reed-Solomon codeword (message + parity)
@@ -419,6 +427,7 @@ int main(void) {
         for (size_t i = 0; i < payload_len + RS_ERROR_CORRECTION_SYMBOLS; i++) {
           LOGF("%02X ", codeword[i]);
         }
+        LOGF("\r\n");
         LOGF("\r\n");
 
         // Set output_str to the codeword for transmission (truncated to fit if
@@ -440,25 +449,29 @@ int main(void) {
       LOGF("Output string length: %lu characters\r\n",
            (unsigned long)payload_len);
 
+      LOGF("\r\n");
+
       // Calculate active duration based on bitstream length and bit durations
       size_t bitstream_len = 1u + payload_len * 8u + 8u;
-      // LOGF("Bitstream: ");
-      // for (size_t i = 0; i < bitstream_len; i++) {
-      //   LOGF("%u", bitstream[i]);
-      // }
-      // LOGF("\r\n");
+      LOGF("Bitstream: ");
+      for (size_t i = 0; i < bitstream_len; i++) {
+        LOGF("%u", bitstream[i]);
+      }
+      LOGF("\r\n");
       calculate_active_duration_ms(bitstream_len);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
       LOGF("Calculated active duration for response: %lu ms\r\n",
            (unsigned long)total_ms);
+      LOGF("\r\n");
 
       HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
 
       // Send transmission over audio
       LOGF("Starting transmission of response over audio...\r\n");
+      LOGF("\r\n");
 
       Turn_On_Opamps(&hdac1);
-      // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       turn_on_relay();
 
       TX_Start();
@@ -1624,25 +1637,8 @@ void create_string_from_received_data(const uint8_t *transmission,
 }
 
 static int init_luts_from_freqpair(void) {
-  // frigjør hvis de finnes fra før
-  free(sine_val_low);
-  sine_val_low = NULL;
-  free(sine_val_high);
-  sine_val_high = NULL;
-  free(dc_mid);
-  dc_mid = NULL;
-
-  sine_val_low = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
-  sine_val_high = malloc(freq_pair.higher_freq_samples * sizeof(uint32_t));
-  dc_mid = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
-
-  if (!sine_val_low || !sine_val_high || !dc_mid) {
-    free(sine_val_low);
-    sine_val_low = NULL;
-    free(sine_val_high);
-    sine_val_high = NULL;
-    free(dc_mid);
-    dc_mid = NULL;
+  if (freq_pair.lower_freq_samples > LUT_LOW_SAMPLES ||
+      freq_pair.higher_freq_samples > LUT_HIGH_SAMPLES) {
     return -1;
   }
   return 0;
