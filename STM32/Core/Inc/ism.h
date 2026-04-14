@@ -61,8 +61,6 @@ typedef struct {
 } ism_reg_t;
 
 typedef struct {
-  SPI_HandleTypeDef *hspi;
-
   GPIO_TypeDef *cs_port;
   uint16_t cs_pin;
 

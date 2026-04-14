@@ -106,14 +106,6 @@ static void ism_dbg_pins(const char *where, ism_handle_t *h) {
 #endif
 }
 
-static void ism_print_spi_error(SPI_HandleTypeDef *hspi, const char *where) {
-  if (!hspi)
-    return;
-  uint32_t e = HAL_SPI_GetError(hspi);
-  if (e != HAL_SPI_ERROR_NONE) {
-    LOGF("[ISM] %s: HAL_SPI_GetError=0x%08lX\r\n", where, (unsigned long)e);
-  }
-}
 #else
 static void ism_dump_hex(const char *tag, const uint8_t *buf, uint16_t len) {
   (void)tag;
@@ -123,10 +115,6 @@ static void ism_dump_hex(const char *tag, const uint8_t *buf, uint16_t len) {
 static void ism_dbg_pins(const char *where, ism_handle_t *h) {
   (void)where;
   (void)h;
-}
-static void ism_print_spi_error(SPI_HandleTypeDef *hspi, const char *where) {
-  (void)hspi;
-  (void)where;
 }
 #endif
 
@@ -189,46 +177,14 @@ static ism_status_t ism_wait_miso_ready(ism_handle_t *h) {
 /* =========================
  * Low-level SPI transfer
  * ========================= */
+/* SPI is now handled directly in cc1101.c via bit-banging. */
 static ism_status_t ism_spi_trx(ism_handle_t *h, const uint8_t *tx, uint8_t *rx,
                                 uint16_t len) {
-  if (!h || !h->hspi || (!tx && !rx) || len == 0)
-    return ISM_ERR_PARAM;
-
-#if ISM_DEBUG
-  LOGF("[ISM] SPI %s len=%u t=%lu\r\n", (tx && rx) ? "TRX" : (tx ? "TX" : "RX"),
-       (unsigned)len, (unsigned long)HAL_GetTick());
-  if (tx)
-    ism_dump_hex("  TX", tx, len);
-#endif
-
-  HAL_StatusTypeDef st = HAL_OK;
-
-  if (tx && rx) {
-    st = HAL_SPI_TransmitReceive(h->hspi, (uint8_t *)tx, rx, len,
-                                 h->spi_timeout_ms);
-  } else if (tx) {
-    st = HAL_SPI_Transmit(h->hspi, (uint8_t *)tx, len, h->spi_timeout_ms);
-  } else { // rx only: clock with 0xFF
-    uint8_t dummy = 0xFF;
-    for (uint16_t i = 0; i < len; i++) {
-      st = HAL_SPI_TransmitReceive(h->hspi, &dummy, &rx[i], 1,
-                                   h->spi_timeout_ms);
-      if (st != HAL_OK)
-        break;
-    }
-  }
-
-#if ISM_DEBUG
-  if (rx)
-    ism_dump_hex("  RX", rx, len);
-  if (st != HAL_OK) {
-    LOGF("[ISM] SPI HAL status=%d timeout=%ums\r\n", (int)st,
-         (unsigned)h->spi_timeout_ms);
-    ism_print_spi_error(h->hspi, "ism_spi_trx");
-  }
-#endif
-
-  return (st == HAL_OK) ? ISM_OK : ISM_ERR_HAL;
+  (void)h;
+  (void)tx;
+  (void)rx;
+  (void)len;
+  return ISM_ERR_HAL;
 }
 
 /* =========================
@@ -284,7 +240,7 @@ static ism_status_t cc1101_xfer(ism_handle_t *h, const uint8_t *tx, uint8_t *rx,
  * Public API
  * ========================= */
 ism_status_t ism_init(ism_handle_t *h) {
-  if (!h || !h->hspi || !h->cs_port)
+  if (!h || !h->cs_port)
     return ISM_ERR_PARAM;
 
   if (h->spi_timeout_ms == 0)

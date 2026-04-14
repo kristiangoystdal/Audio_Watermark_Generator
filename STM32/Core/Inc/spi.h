@@ -12,8 +12,6 @@ extern "C" {
 // ---------------------------
 // Public handle
 // ---------------------------
-extern SPI_HandleTypeDef hspi1;
-
 // ---------------------------
 // Config (edit as needed)
 // ---------------------------
