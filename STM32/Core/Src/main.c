@@ -454,31 +454,33 @@ int main(void) {
       // Calculate active duration based on bitstream length and bit durations
       size_t bitstream_len = 1u + payload_len * 8u + 8u;
       LOGF("Bitstream: ");
-      for (size_t i = 0; i < bitstream_len; i++) {
+      for (size_t i = 0; i < BITSTREAM_LENGTH; i++) {
         LOGF("%u", bitstream[i]);
       }
       LOGF("\r\n");
-      calculate_active_duration_ms(bitstream_len);
+      calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
       LOGF("Calculated active duration for response: %lu ms\r\n",
            (unsigned long)total_ms);
       LOGF("\r\n");
 
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-
       // Send transmission over audio
       LOGF("Starting transmission of response over audio...\r\n");
+      if (USE_CABLE_TRANSMISSION) {
+        LOGF("Using cable transmission\r\n");
+        Turn_On_Opamps(&hdac1);
+        turn_on_relay();
+      } else {
+        LOGF("Using speaker transmission\r\n");
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+      }
       LOGF("\r\n");
-
-      Turn_On_Opamps(&hdac1);
-      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
-      turn_on_relay();
 
       TX_Start();
 
       // Wait for active window to complete (enters low-power sleep while
       // waiting)
-      StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+      StartActiveWindowMs((uint32_t)(total_ms));
 
       uint32_t last_toggle = HAL_GetTick();
       while (!active_done) {
@@ -593,11 +595,11 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                 RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -852,7 +854,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 49;
+  htim2.Init.Period = 249;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
