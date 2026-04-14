@@ -67,7 +67,7 @@ def build_only(log_text, safe_log):
         raise subprocess.CalledProcessError(1, "cmake build")
 
 
-def flash_only(log_text, safe_log):
+def flash_only(log_text, safe_log, leave=True):
     elf_file = find_elf()
     if not elf_file:
         messagebox.showerror("Flash", "❌ No ELF file found after build.")
@@ -91,9 +91,12 @@ def flash_only(log_text, safe_log):
     safe_log(f"\n[STEP] Flashing via USB DFU using {dfu_util}...")
     safe_log("[INFO] Make sure BOOT0 is HIGH and device is in DFU mode")
 
+    start_addr = "0x08000000:leave" if leave else "0x08000000"
     if (
         run_with_log(
-            [dfu_util, "-a", "0", "-s", "0x08000000:leave", "-D", bin_file], log_text
+            [dfu_util, "-a", "0", "-s", start_addr, "-D", bin_file],
+            log_text,
+            success_if_output_contains="File downloaded successfully",
         )
         != 0
     ):
@@ -103,7 +106,7 @@ def flash_only(log_text, safe_log):
     return True
 
 
-def run_with_log(cmd, log_text=None):
+def run_with_log(cmd, log_text=None, success_if_output_contains=None):
     try:
         process = subprocess.Popen(
             cmd,
@@ -123,7 +126,14 @@ def run_with_log(cmd, log_text=None):
             print(line, end="")
 
         process.wait()
+        combined_output = "".join(output)
+
         if process.returncode != 0:
+            if (
+                success_if_output_contains
+                and success_if_output_contains in combined_output
+            ):
+                return 0
             err_msg = (
                 f"\n[ERROR] Command failed ({cmd[0]} exited with {process.returncode})\n"
                 + "".join(output[-50:])
@@ -229,10 +239,7 @@ def dual_build_flash(root, show_log_var, build_btn):
         if not change_user_config(root, set_initial_time, safe_log):
             raise Exception("Failed to update user_config")
         build_only(log_text, safe_log)
-        flash_only(log_text, safe_log)
-
-        safe_log("\n[INFO] Waiting for device to re-enumerate...")
-        time.sleep(3)
+        flash_only(log_text, safe_log, leave=False)
 
         # PASS 2 — normal mode
         safe_log("\n========== PASS 2: NORMAL MODE ==========")
@@ -240,7 +247,7 @@ def dual_build_flash(root, show_log_var, build_btn):
         if not change_user_config(root, set_initial_time, safe_log):
             raise Exception("Failed to update user_config")
         build_only(log_text, safe_log)
-        flash_only(log_text, safe_log)
+        flash_only(log_text, safe_log, leave=True)
 
         safe_log("\n[SUCCESS] ✅ Dual build & flash complete!")
 
