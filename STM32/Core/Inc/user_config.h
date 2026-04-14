@@ -37,8 +37,8 @@
 // Configuration for FSK frequencies (in Hz) - these will be adjusted by the
 // algorithm if they don't meet the sample count requirements, but should be set
 // close to the desired frequencies to minimize adjustments
-#define FSK_LOWER_FREQUENCY 18461
-#define FSK_HIGHER_FREQUENCY 19200
+#define FSK_LOWER_FREQUENCY 2000
+#define FSK_HIGHER_FREQUENCY 3000
 
 // Configuration for attenuation of the signal in percent (0-100), where 100 is
 // no attenuation and 0 is maximum attenuation (silence)
@@ -53,7 +53,7 @@
 
 // Configuration for whether to start in RX mode (listening for incoming
 // signals) or TX mode (transmitting signals)
-#define RX_MODE true
+#define RX_MODE false
 
 // Configuration for base station transmission intervals and timing
 // If delayed start is enabled, the device will wait until the specified
@@ -65,10 +65,7 @@
 #define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
 #define INTERVAL_BETWEEN_REPEATS_MINUTES 10
 
-#define FSK_LOWER_FREQUENCY 20884
-#define FSK_HIGHER_FREQUENCY 22222
-
-#define FSK_LOWER_FREQUENCY 20884
-#define FSK_HIGHER_FREQUENCY 22222
+#define LUT_LOW_SAMPLES (1920000u / FSK_LOWER_FREQUENCY)
+#define LUT_HIGH_SAMPLES (1920000u / FSK_HIGHER_FREQUENCY)
 
 #endif // USER_CONFIG_H

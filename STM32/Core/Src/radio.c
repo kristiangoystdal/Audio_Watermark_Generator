@@ -73,6 +73,7 @@ int8_t init_radio(bool RX) {
   const uint32_t delays_ms[] = {5, 20, 50};
 
   LOGF("Initializing radio...\r\n");
+  HAL_Delay(500); // let CC1101 fully power cycle between STM32 resets
 
   uint8_t status = 0;
   uint8_t part = 0, ver = 0;
@@ -88,12 +89,13 @@ int8_t init_radio(bool RX) {
       // return STATUS_CODE_RADIO_INIT_FAIL;
     }
 
-    // Read PARTNUM + VERSION
-    CC1101_ReadReg(0xF1, &part, &status);
-    CC1101_ReadReg(0x00, &ver, &status);
+    HAL_Delay(10); // Add this
+
+    CC1101_ReadReg(0xF0, &part, &status); // PARTNUM → 0x00
+    CC1101_ReadReg(0xF1, &ver, &status);  // VERSION  → 0x14
 
     LOGF("CC1101 PARTNUM=0x%02X VERSION=0x%02X\r\n", part, ver);
-    if (part != 0x14 || ver != 0x29) {
+    if (part != 0x00 || ver != 0x14) {
       LOGF("Unexpected CC1101 part/version, check wiring and power.\r\n");
       // return STATUS_CODE_RADIO_VERSION_ERROR;
       continue; // retry

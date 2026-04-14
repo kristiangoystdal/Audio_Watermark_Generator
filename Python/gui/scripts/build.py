@@ -2,18 +2,17 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import tkinter as tk
 from tkinter import messagebox
 import tkinter.scrolledtext as st
 import tempfile
 import pathlib
-import glob
 
-# Import paths
 from scripts.paths import *
 from scripts.user_config import *
 
-active_src = PROJECT_SRC  # default path
+active_src = PROJECT_SRC
 active_build_dir = BUILD_DIR
 
 os.environ["PATH"] = (
@@ -68,41 +67,46 @@ def build_only(log_text, safe_log):
         raise subprocess.CalledProcessError(1, "cmake build")
 
 
-def flash_only(log_text, safe_log, OPENOCD_INTERFACE, OPENOCD_TARGET):
+def flash_only(log_text, safe_log, leave=True):
     elf_file = find_elf()
     if not elf_file:
         messagebox.showerror("Flash", "❌ No ELF file found after build.")
         return False
 
     safe_log(f"\n[DEBUG] Built ELF: {elf_file}")
-    safe_log("\n[STEP] Flashing device...")
 
-    flash_cmd = [
-        OPENOCD,
-        "-s",
-        os.path.join(TOOLS_DIR, "openocd", "share", "openocd", "scripts"),
-        "-f",
-        OPENOCD_INTERFACE,
-        "-f",
-        OPENOCD_TARGET,
-        "-c",
-        "transport select hla_swd",
-        "-c",
-        "adapter speed 4000",
-        "-c",
-        "reset_config srst_only srst_nogate connect_assert_srst",
-        "-c",
-        f"program {elf_file} verify reset exit",
-    ]
+    # Convert ELF to BIN
+    bin_file = elf_file.replace(".elf", ".bin")
+    safe_log("\n[STEP] Converting ELF to BIN...")
 
-    if run_with_log(flash_cmd, log_text) != 0:
-        raise subprocess.CalledProcessError(1, "openocd")
+    objcopy = os.path.join(TOOLCHAIN, "bin", "arm-none-eabi-objcopy")
+    if not os.path.exists(objcopy):
+        objcopy = "arm-none-eabi-objcopy"
+
+    if run_with_log([objcopy, "-O", "binary", elf_file, bin_file], log_text) != 0:
+        raise subprocess.CalledProcessError(1, "objcopy")
+
+    # Use bundled dfu-util, fall back to system
+    dfu_util = DFU_UTIL if os.path.exists(DFU_UTIL) else "dfu-util"
+    safe_log(f"\n[STEP] Flashing via USB DFU using {dfu_util}...")
+    safe_log("[INFO] Make sure BOOT0 is HIGH and device is in DFU mode")
+
+    start_addr = "0x08000000:leave" if leave else "0x08000000"
+    if (
+        run_with_log(
+            [dfu_util, "-a", "0", "-s", start_addr, "-D", bin_file],
+            log_text,
+            success_if_output_contains="File downloaded successfully",
+        )
+        != 0
+    ):
+        raise subprocess.CalledProcessError(1, "dfu-util")
 
     safe_log("\n[SUCCESS] Flash complete!")
     return True
 
 
-def run_with_log(cmd, log_text=None):
+def run_with_log(cmd, log_text=None, success_if_output_contains=None):
     try:
         process = subprocess.Popen(
             cmd,
@@ -112,21 +116,27 @@ def run_with_log(cmd, log_text=None):
             bufsize=1,
         )
 
-        output = []  # collect all lines for error reporting
+        output = []
         for line in process.stdout:
             output.append(line)
             if log_text:
                 log_text.insert(tk.END, line)
                 log_text.see(tk.END)
                 log_text.update_idletasks()
-            print(line, end="")  # also print to console
+            print(line, end="")
 
         process.wait()
+        combined_output = "".join(output)
+
         if process.returncode != 0:
-            # show captured output when a command fails
+            if (
+                success_if_output_contains
+                and success_if_output_contains in combined_output
+            ):
+                return 0
             err_msg = (
                 f"\n[ERROR] Command failed ({cmd[0]} exited with {process.returncode})\n"
-                + "".join(output[-50:])  # last 50 lines of output
+                + "".join(output[-50:])
             )
             if log_text:
                 log_text.insert(tk.END, err_msg + "\n")
@@ -199,7 +209,7 @@ def ensure_writable_copy(safe_log):
         active_build_dir = BUILD_DIR
 
 
-def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_TARGET):
+def dual_build_flash(root, show_log_var, build_btn):
     global set_initial_time
 
     build_btn.config(state="disabled")
@@ -221,32 +231,23 @@ def dual_build_flash(root, show_log_var, build_btn, OPENOCD_INTERFACE, OPENOCD_T
             log_text.update_idletasks()
 
     try:
-        # Configure once
         prepare_build(log_text, safe_log)
 
-        # ---------------------------
-        # FIRST BUILD (set RTC time)
-        # ---------------------------
+        # PASS 1 — set RTC time
         safe_log("\n========== PASS 1: SET INITIAL TIME ==========")
         set_initial_time = 1
-
         if not change_user_config(root, set_initial_time, safe_log):
             raise Exception("Failed to update user_config")
-
         build_only(log_text, safe_log)
-        flash_only(log_text, safe_log, OPENOCD_INTERFACE, OPENOCD_TARGET)
+        flash_only(log_text, safe_log, leave=False)
 
-        # ---------------------------
-        # SECOND BUILD (normal mode)
-        # ---------------------------
+        # PASS 2 — normal mode
         safe_log("\n========== PASS 2: NORMAL MODE ==========")
         set_initial_time = 0
-
         if not change_user_config(root, set_initial_time, safe_log):
             raise Exception("Failed to update user_config")
-
         build_only(log_text, safe_log)
-        flash_only(log_text, safe_log, OPENOCD_INTERFACE, OPENOCD_TARGET)
+        flash_only(log_text, safe_log, leave=True)
 
         safe_log("\n[SUCCESS] ✅ Dual build & flash complete!")
 

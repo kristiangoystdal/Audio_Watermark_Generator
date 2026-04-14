@@ -12,10 +12,11 @@ from scripts.build import *
 # Constants
 # ---------------------------------------------------------
 APP_TITLE = "Audio Watermark Flash Tool"
-WINDOW_SIZE = "1000x760"
+WINDOW_SIZE = "960x620"
+WINDOW_MIN_SIZE = (860, 560)
 
 SECTION_WIDTH = 460
-ENTRY_WIDTH = 40
+ENTRY_WIDTH = 28
 SMALL_ENTRY_WIDTH = 12
 
 FS_HZ = 960000
@@ -23,6 +24,47 @@ MIN_BIT_US = 3000
 FREQ_MIN = 2000
 FREQ_MAX = 24000
 BIT_SAMPLE_TOLERANCE_PERCENT = 1
+
+
+# ---------------------------------------------------------
+# Tooltip
+# ---------------------------------------------------------
+class ToolTip:
+    def __init__(self, widget, text, colors):
+        self.widget = widget
+        self.text = text
+        self.colors = colors
+        self.tip_window = None
+        widget.bind("<Enter>", self._show)
+        widget.bind("<Leave>", self._hide)
+
+    def _show(self, _=None):
+        if self.tip_window or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 20
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        lbl = tk.Label(
+            tw,
+            text=self.text,
+            background=self.colors["surface_2"],
+            foreground=self.colors["muted"],
+            relief="flat",
+            borderwidth=0,
+            font=("SF Pro Display", 10),
+            wraplength=300,
+            justify="left",
+            padx=10,
+            pady=6,
+        )
+        lbl.pack()
+
+    def _hide(self, _=None):
+        if self.tip_window:
+            self.tip_window.destroy()
+            self.tip_window = None
 
 
 # ---------------------------------------------------------
@@ -35,6 +77,7 @@ class FlashToolApp(tk.Tk):
         self.title(APP_TITLE)
         self.geometry(WINDOW_SIZE)
         self.resizable(False, False)
+        self.minsize(*WINDOW_MIN_SIZE)
 
         self.vars = {}
         self.widgets = {}
@@ -45,6 +88,7 @@ class FlashToolApp(tk.Tk):
         self._init_dynamic_state()
 
         self.after(100, self.bring_to_front)
+        self.after(50, self._init_tab_render)
 
     # -----------------------------------------------------
     # Styling
@@ -103,6 +147,13 @@ class FlashToolApp(tk.Tk):
         )
 
         style.configure(
+            "Subtitle.TLabel",
+            background=c["bg"],
+            foreground=c["muted"],
+            font=("SF Pro Display", 12),
+        )
+
+        style.configure(
             "Title.TLabel",
             background=c["bg"],
             foreground=c["text"],
@@ -137,7 +188,7 @@ class FlashToolApp(tk.Tk):
             "TNotebook.Tab",
             background=c["surface_2"],
             foreground=c["muted"],
-            padding=(30, 10),
+            padding=(22, 8),
             font=("SF Pro Display", 11, "bold"),
             borderwidth=0,
         )
@@ -163,7 +214,7 @@ class FlashToolApp(tk.Tk):
             bordercolor=c["border"],
             borderwidth=1,
             relief="solid",
-            padding=10,
+            padding=7,
         )
 
         style.configure(
@@ -185,7 +236,7 @@ class FlashToolApp(tk.Tk):
             lightcolor=c["border"],
             darkcolor=c["border"],
             insertcolor=c["text"],
-            padding=8,
+            padding=5,
             relief="flat",
         )
 
@@ -211,7 +262,7 @@ class FlashToolApp(tk.Tk):
             lightcolor=c["border"],
             darkcolor=c["border"],
             arrowsize=12,
-            padding=6,
+            padding=4,
             relief="solid",
         )
 
@@ -261,7 +312,7 @@ class FlashToolApp(tk.Tk):
             borderwidth=0,
             focusthickness=0,
             focuscolor=c["accent"],
-            padding=(40, 10),
+            padding=(28, 8),
             font=("SF Pro Display", 12, "bold"),
             relief="flat",
         )
@@ -324,21 +375,21 @@ class FlashToolApp(tk.Tk):
     # Main UI
     # -----------------------------------------------------
     def _build_ui(self):
-        outer = ttk.Frame(self, padding=24)
+        outer = ttk.Frame(self, padding=12)
         outer.pack(fill="both", expand=True)
 
-        ttk.Label(outer, text=APP_TITLE, style="Title.TLabel").pack(pady=(0, 18))
+        ttk.Label(outer, text=APP_TITLE, style="Title.TLabel").pack(pady=(0, 8))
 
         self.notebook = ttk.Notebook(outer)
         self.notebook.pack(fill="both", expand=True)
 
-        self.base_tab = ttk.Frame(self.notebook, padding=10)
-        self.receiver_tab = ttk.Frame(self.notebook, padding=10)
+        self.base_tab = ttk.Frame(self.notebook, padding=8)
+        self.receiver_tab = ttk.Frame(self.notebook, padding=8)
 
         self.notebook.add(self.base_tab, text="Base Station")
         self.notebook.add(self.receiver_tab, text="Receiver")
 
-        self.notebook.select(self.receiver_tab)
+        self.notebook.select(self.base_tab)
 
         self._build_base_tab()
         self._build_receiver_tab()
@@ -354,10 +405,17 @@ class FlashToolApp(tk.Tk):
         if current == str(self.base_tab):
             self.vars["rx_mode"].set(0)
             self.after(10, lambda: self.widgets["base_user_string"].focus_set())
+            self.notebook.select(self.base_tab)
 
         elif current == str(self.receiver_tab):
             self.vars["rx_mode"].set(1)
             self.after(10, lambda: self.widgets["receiver_user_string"].focus_set())
+            self.notebook.select(self.receiver_tab)
+
+    def _init_tab_render(self):
+        self.notebook.select(self.receiver_tab)
+        self.update_idletasks()
+        self.notebook.select(self.base_tab)
 
     def bring_to_front(self):
         self.deiconify()
@@ -369,7 +427,7 @@ class FlashToolApp(tk.Tk):
         self.after(200, lambda: self.attributes("-topmost", False))
 
     def section(
-        self, parent, title, row, column=0, colspan=1, sticky="ew", pady=(0, 10)
+        self, parent, title, row, column=0, colspan=1, sticky="ew", pady=(0, 6)
     ):
         frame = ttk.LabelFrame(parent, text=title, style="Section.TLabelframe")
         frame.grid(
@@ -379,10 +437,10 @@ class FlashToolApp(tk.Tk):
 
     def entry_row(self, parent, row, label, var, width=ENTRY_WIDTH):
         ttk.Label(parent, text=f"{label}:").grid(
-            row=row, column=0, sticky="e", padx=(0, 12), pady=6
+            row=row, column=0, sticky="e", padx=(0, 10), pady=4
         )
         entry = ttk.Entry(parent, textvariable=var, width=width)
-        entry.grid(row=row, column=1, sticky="w", pady=6)
+        entry.grid(row=row, column=1, sticky="w", pady=4)
         return entry
 
     def checkbox(self, parent, row, column, text, var, padx=(0, 20)):
@@ -396,16 +454,17 @@ class FlashToolApp(tk.Tk):
             activeforeground=self.colors["text"],
             selectcolor=self.colors["accent"],
             indicatoron=True,
+            relief="flat",
             offrelief="flat",
             overrelief="flat",
             highlightthickness=0,
             borderwidth=0,
             font=("SF Pro Display", 11),
         )
-        cb.grid(row=row, column=column, sticky="w", padx=padx, pady=4)
+        cb.grid(row=row, column=column, sticky="w", padx=padx, pady=2)
         return cb
 
-    def muted_label(self, parent, text, row, wrap=420, column=0, pady=(0, 8)):
+    def muted_label(self, parent, text, row, wrap=420, column=0, pady=(0, 4)):
         lbl = ttk.Label(
             parent, text=text, style="Muted.TLabel", wraplength=wrap, justify="left"
         )
@@ -453,6 +512,7 @@ class FlashToolApp(tk.Tk):
             value=int(read_user_config_value("SIGNAL_ATTENUATION"))
         )
 
+        self.vars["ecc_enabled"] = tk.IntVar(value=1)
         self.vars["ecc_level"] = tk.IntVar(
             value=int(read_user_config_value("RS_ERROR_CORRECTION_SYMBOLS"))
         )
@@ -471,25 +531,18 @@ class FlashToolApp(tk.Tk):
         self.base_tab.grid_columnconfigure(0, weight=1, uniform="base_cols")
         self.base_tab.grid_columnconfigure(1, weight=1, uniform="base_cols")
 
-        instructions = self.section(self.base_tab, "Instructions", 0, colspan=2)
         ttk.Label(
-            instructions,
-            text=(
-                "1. Choose what data should be common for all devices\n"
-                "2. Choose how often the data should be transmitted\n"
-                "3. Build & Flash the firmware to your base station"
-            ),
+            self.base_tab,
+            text="Configure common data and transmission interval, then build & flash.",
             style="Muted.TLabel",
-            justify="left",
-            wraplength=900,
-        ).grid(row=0, column=0, sticky="w")
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         left = ttk.Frame(self.base_tab)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
         left.grid_columnconfigure(0, weight=1)
 
         right = ttk.Frame(self.base_tab)
-        right.grid(row=1, column=1, sticky="nsew", padx=(8, 0))
+        right.grid(row=1, column=1, sticky="nsew", padx=(6, 0))
         right.grid_columnconfigure(0, weight=1)
 
         device = self.section(left, "Device Information", 0)
@@ -499,7 +552,7 @@ class FlashToolApp(tk.Tk):
         )
 
         interval = self.section(left, "Interval Settings", 1)
-        row = ttk.Frame(interval)
+        row = tk.Frame(interval, bg=c["surface"])
         row.grid(row=0, column=0, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
 
@@ -544,7 +597,7 @@ class FlashToolApp(tk.Tk):
         self.checkbox(grid, 0, 1, "Timestamp", self.vars["include_time"])
 
         delay = self.section(right, "Initial Delay", 1)
-        row = ttk.Frame(delay)
+        row = tk.Frame(delay, bg=c["surface"])
         row.grid(row=0, column=0, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
 
@@ -556,8 +609,6 @@ class FlashToolApp(tk.Tk):
             self.vars["use_start_minute"],
         )
 
-        tk.Label(row, text="Min:").grid(row=0, column=1, padx=(16, 6))
-
         self.widgets["start_minute"] = ttk.Spinbox(
             row,
             from_=0,
@@ -565,7 +616,7 @@ class FlashToolApp(tk.Tk):
             width=6,
             textvariable=self.vars["start_minute"],
         )
-        self.widgets["start_minute"].grid(row=0, column=2, sticky="w")
+        self.widgets["start_minute"].grid(row=0, column=1, sticky="w")
 
     # -----------------------------------------------------
     # Receiver tab
@@ -574,26 +625,18 @@ class FlashToolApp(tk.Tk):
         self.receiver_tab.grid_columnconfigure(0, weight=1, uniform="recv_cols")
         self.receiver_tab.grid_columnconfigure(1, weight=1, uniform="recv_cols")
 
-        # Instructions
-        instructions = self.section(self.receiver_tab, "Instructions", 0, colspan=2)
         ttk.Label(
-            instructions,
-            text=(
-                "1. Choose what data should be included in the watermarks\n"
-                "2. Select the frequencies used in the FSK transmission\n"
-                "3. Select the method of transmission"
-            ),
+            self.receiver_tab,
+            text="Configure watermark data, FSK frequencies, and transmission method.",
             style="Muted.TLabel",
-            justify="left",
-            wraplength=900,
-        ).grid(row=0, column=0, sticky="w")
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         left = ttk.Frame(self.receiver_tab)
-        left.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
         left.grid_columnconfigure(0, weight=1)
 
         right = ttk.Frame(self.receiver_tab)
-        right.grid(row=1, column=1, sticky="nsew", padx=(8, 0))
+        right.grid(row=1, column=1, sticky="nsew", padx=(6, 0))
         right.grid_columnconfigure(0, weight=1)
 
         # Device info
@@ -626,24 +669,19 @@ class FlashToolApp(tk.Tk):
             text="Use Cable Transmission",
             variable=self.vars["transmission"],
             value="cable",
-        ).grid(row=0, column=0, sticky="w", pady=4)
+        ).grid(row=0, column=0, sticky="w", pady=2)
         ttk.Radiobutton(
             tx,
             text="Use Speaker Transmission",
             variable=self.vars["transmission"],
             value="speaker",
-        ).grid(row=1, column=0, sticky="w", pady=4)
+        ).grid(row=1, column=0, sticky="w", pady=2)
 
         # FSK settings
         fsk = self.section(right, "FSK Parameters", 1)
-        self.muted_label(
-            fsk,
-            "Select a pair of frequencies to use for FSK modulation (2000–24000 Hz):",
-            0,
-        )
 
         row = ttk.Frame(fsk)
-        row.grid(row=1, column=0, sticky="w")
+        row.grid(row=0, column=0, sticky="w")
 
         ttk.Label(row, text="Low (Hz):").grid(row=0, column=0, sticky="w")
         self.widgets["frequency_low"] = ttk.Entry(
@@ -657,16 +695,25 @@ class FlashToolApp(tk.Tk):
         )
         self.widgets["frequency_high"].grid(row=0, column=3, padx=(8, 0), sticky="w")
 
-        # Attenuation settings
-        attenuation = self.section(right, "Attenuation", 2)
-        self.muted_label(
-            attenuation,
-            "Enter a value between 100 % (loudest) and 0 % (most attenuated)",
-            0,
+        ToolTip(
+            self.widgets["frequency_low"],
+            "Lower FSK frequency (Hz). Must be < High frequency.\nValid range: 2000–24000 Hz.",
+            self.colors,
+        )
+        ToolTip(
+            self.widgets["frequency_high"],
+            "Higher FSK frequency (Hz). Must be > Low frequency.\nValid range: 2000–24000 Hz.",
+            self.colors,
         )
 
+        self.widgets["freq_gap_label"] = ttk.Label(fsk, text="", style="Muted.TLabel")
+        self.widgets["freq_gap_label"].grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        # Attenuation settings
+        attenuation = self.section(left, "Attenuation", 2)
+
         row = ttk.Frame(attenuation)
-        row.grid(row=1, column=0, sticky="w")
+        row.grid(row=0, column=0, sticky="w")
 
         ttk.Label(row, text="Level:").grid(row=0, column=0, sticky="w")
 
@@ -688,26 +735,60 @@ class FlashToolApp(tk.Tk):
         )
         self.widgets["attenuation_db_label"].grid(row=0, column=3, sticky="w")
 
-        # ECC Settings
-        ecc = self.section(left, "ECC Settings", 2)
-
-        ttk.Label(ecc, text="ECC Bytes (0-100):").grid(
-            row=1, column=0, sticky="w", pady=(8, 4)
+        c = self.colors
+        self.widgets["attenuation_slider"] = tk.Scale(
+            attenuation,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            variable=self.vars["attenuation"],
+            bg=c["surface"],
+            fg=c["muted"],
+            troughcolor=c["surface_2"],
+            activebackground=c["accent"],
+            highlightthickness=0,
+            relief="flat",
+            showvalue=False,
+            length=220,
+            bd=0,
         )
+        self.widgets["attenuation_slider"].grid(
+            row=1, column=0, columnspan=4, sticky="w", pady=(2, 0)
+        )
+
+        # ECC Settings
+        ecc = self.section(right, "ECC Settings", 2)
+
+        row = ttk.Frame(ecc)
+        row.grid(row=0, column=0, sticky="w")
+
+        self.checkbox(
+            row,
+            0,
+            0,
+            "Enable ECC (Recommended)",
+            self.vars["ecc_enabled"],
+        ).grid(row=0, column=0, sticky="w")
+
         self.widgets["ecc_level"] = ttk.Spinbox(
-            ecc,
+            row,
             from_=0,
             to=100,
             width=6,
             textvariable=self.vars["ecc_level"],
         )
-        self.widgets["ecc_level"].grid(row=1, column=1, padx=(8, 0), sticky="w")
+        self.widgets["ecc_level"].grid(row=0, column=1, padx=(8, 0), sticky="w")
+        ToolTip(
+            self.widgets["ecc_level"],
+            "Number of Reed-Solomon error-correction symbols (0–100).\nHigher = more robust, but longer transmissions.",
+            self.colors,
+        )
 
     # -----------------------------------------------------
     # Bottom bar
     # -----------------------------------------------------
     def _build_bottom_bar(self, parent):
-        ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(12, 10))
+        ttk.Separator(parent, orient="horizontal").pack(fill="x", pady=(8, 6))
 
         bottom = ttk.Frame(parent)
         bottom.pack(fill="x", padx=8)
@@ -737,11 +818,23 @@ class FlashToolApp(tk.Tk):
 
         # Progress bar
         self.widgets["progress"] = ttk.Progressbar(bottom, mode="indeterminate")
-        self.widgets["progress"].pack(fill="x", pady=(10, 0))
+        self.widgets["progress"].pack(fill="x", pady=(6, 0))
 
-        # Status
-        self.widgets["status"] = ttk.Label(bottom, text="Idle")
-        self.widgets["status"].pack(pady=(8, 0))
+        # Status row with dot indicator
+        status_row = ttk.Frame(bottom)
+        status_row.pack(pady=(4, 0))
+
+        c = self.colors
+        self.widgets["status_dot"] = tk.Canvas(
+            status_row, width=12, height=12, bg=c["bg"], highlightthickness=0
+        )
+        self.widgets["status_dot"].pack(side="left", padx=(0, 6))
+        self.widgets["status_dot_id"] = self.widgets["status_dot"].create_oval(
+            2, 2, 10, 10, fill=c["muted"], outline=""
+        )
+
+        self.widgets["status"] = ttk.Label(status_row, text="Idle")
+        self.widgets["status"].pack(side="left")
 
     # -----------------------------------------------------
     # Events / dynamic state
@@ -755,6 +848,9 @@ class FlashToolApp(tk.Tk):
         )
         self.vars["attenuation"].trace_add(
             "write", lambda *_: self.update_attenuation_db_label()
+        )
+        self.vars["ecc_enabled"].trace_add(
+            "write", lambda *_: self.toggle_ecc_level_field()
         )
 
         self.widgets["frequency_low"].bind(
@@ -776,6 +872,7 @@ class FlashToolApp(tk.Tk):
     def _init_dynamic_state(self):
         self.toggle_interval_field()
         self.toggle_delay_field()
+        self.toggle_ecc_level_field()
         self.update_low_frequency()
         self.update_high_frequency()
         self.update_attenuation_db_label()
@@ -788,6 +885,10 @@ class FlashToolApp(tk.Tk):
     def toggle_delay_field(self):
         state = "normal" if self.vars["use_start_minute"].get() else "disabled"
         self.widgets["start_minute"].config(state=state)
+
+    def toggle_ecc_level_field(self):
+        state = "normal" if self.vars["ecc_enabled"].get() else "disabled"
+        self.widgets["ecc_level"].config(state=state)
 
     def defocus_all(self, event):
         if isinstance(
@@ -861,39 +962,21 @@ class FlashToolApp(tk.Tk):
     def min_required_diff_hz(self, lower_freq: int) -> int:
         return 300 + (400000 // lower_freq)
 
-    def adjust_low_frequency_to_valid(self, low_freq: float, high_freq: float):
+    def adjust_low_frequency_to_valid(self, low_freq: float):
         min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
 
         low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
-
-        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
-        high_p = self.period_count_from_samples(min_bit_samples, high_n)
-        high_total = high_n * high_p
 
         while True:
             low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
             low_p = self.period_count_from_samples(min_bit_samples, low_n)
             low_total = low_n * low_p
 
-            same_periods = low_p == high_p
-            enough_diff = self.freq_diff_u16(
-                high_q, low_q
-            ) >= self.min_required_diff_hz(low_q)
             low_timing_ok = self.total_samples_within_tolerance(
                 low_total, min_bit_samples
             )
-            high_timing_ok = self.total_samples_within_tolerance(
-                high_total, min_bit_samples
-            )
 
-            if (
-                (not same_periods)
-                and enough_diff
-                and low_q < high_q
-                and low_timing_ok
-                and high_timing_ok
-            ):
+            if low_timing_ok:
                 break
 
             candidate_low_n = low_n + 1
@@ -907,39 +990,21 @@ class FlashToolApp(tk.Tk):
         low_total = low_n * low_p
         return low_q, low_n, low_p, low_total
 
-    def adjust_high_frequency_to_valid(self, low_freq: float, high_freq: float):
+    def adjust_high_frequency_to_valid(self, high_freq: float):
         min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
 
-        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
         high_n = max(1, int(math.floor(FS_HZ / high_freq)))
-
-        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
-        low_p = self.period_count_from_samples(min_bit_samples, low_n)
-        low_total = low_n * low_p
 
         while True:
             high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
             high_p = self.period_count_from_samples(min_bit_samples, high_n)
             high_total = high_n * high_p
 
-            same_periods = low_p == high_p
-            enough_diff = self.freq_diff_u16(
-                high_q, low_q
-            ) >= self.min_required_diff_hz(low_q)
-            low_timing_ok = self.total_samples_within_tolerance(
-                low_total, min_bit_samples
-            )
             high_timing_ok = self.total_samples_within_tolerance(
                 high_total, min_bit_samples
             )
 
-            if (
-                (not same_periods)
-                and enough_diff
-                and high_q > low_q
-                and low_timing_ok
-                and high_timing_ok
-            ):
+            if high_timing_ok:
                 break
 
             if high_n <= 1:
@@ -956,41 +1021,51 @@ class FlashToolApp(tk.Tk):
         high_total = high_n * high_p
         return high_q, high_n, high_p, high_total
 
+    def _update_freq_gap_label(self):
+        try:
+            low = int(self.vars["frequency_low"].get())
+            high = int(self.vars["frequency_high"].get())
+            gap = high - low
+            if gap > 0:
+                text = f"Gap: {gap:,} Hz  ({low:,} Hz \u2192 {high:,} Hz)"
+            else:
+                text = "Gap: — (High must be greater than Low)"
+            self.widgets["freq_gap_label"].config(text=text)
+        except Exception:
+            pass
+
     def update_low_frequency(self):
         try:
             low = float(self.vars["frequency_low"].get())
-            high = float(self.vars["frequency_high"].get())
         except Exception:
             return
 
-        low = max(FREQ_MIN, min(FREQ_MAX, low))
-        high = max(FREQ_MIN, min(FREQ_MAX, high))
-
-        if low >= high:
-            low = high - 1
         if low < FREQ_MIN:
             low = FREQ_MIN
 
-        new_low, _, _, _ = self.adjust_low_frequency_to_valid(low, high)
+        new_low, _, _, _ = self.adjust_low_frequency_to_valid(low)
         self.vars["frequency_low"].set(int(new_low))
+        self._update_freq_gap_label()
 
     def update_high_frequency(self):
         try:
-            low = float(self.vars["frequency_low"].get())
             high = float(self.vars["frequency_high"].get())
         except Exception:
             return
 
-        low = max(FREQ_MIN, min(FREQ_MAX, low))
-        high = max(FREQ_MIN, min(FREQ_MAX, high))
-
-        if high <= low:
-            high = low + 1
         if high > FREQ_MAX:
             high = FREQ_MAX
 
-        new_high, _, _, _ = self.adjust_high_frequency_to_valid(low, high)
+        new_high, _, _, _ = self.adjust_high_frequency_to_valid(high)
         self.vars["frequency_high"].set(int(new_high))
+        self._update_freq_gap_label()
+
+    def _set_status(self, text, dot_color=None):
+        self.widgets["status"].config(text=text)
+        if dot_color and "status_dot" in self.widgets:
+            self.widgets["status_dot"].itemconfig(
+                self.widgets["status_dot_id"], fill=dot_color
+            )
 
     # -----------------------------------------------------
     # Validation
@@ -1079,7 +1154,7 @@ class FlashToolApp(tk.Tk):
             return
 
         self.widgets["build_btn"].config(state="disabled")
-        self.widgets["status"].config(text="Building...")
+        self._set_status("Building...", dot_color=self.colors["accent"])
         self.widgets["progress"].start(12)
 
         threading.Thread(target=self._run_build, daemon=True).start()
@@ -1090,8 +1165,6 @@ class FlashToolApp(tk.Tk):
                 self,
                 self.vars["show_log"],
                 self.widgets["build_btn"],
-                OPENOCD_INTERFACE,
-                OPENOCD_TARGET,
             )
 
             if not ok:
@@ -1115,7 +1188,8 @@ class FlashToolApp(tk.Tk):
 
     def _finish_build(self, success, status_text, show_popup=False, error=None):
         self.widgets["progress"].stop()
-        self.widgets["status"].config(text=status_text)
+        dot = self.colors["success"] if success else "#ff5555"
+        self._set_status(status_text, dot_color=dot)
         self.widgets["build_btn"].config(state="normal")
 
         if show_popup:
@@ -1126,7 +1200,9 @@ class FlashToolApp(tk.Tk):
         if error:
             messagebox.showerror("Error", f"❌ {error}")
 
-        self.after(4000, lambda: self.widgets["status"].config(text="Idle"))
+        self.after(
+            4000, lambda: self._set_status("Idle", dot_color=self.colors["muted"])
+        )
 
 
 if __name__ == "__main__":

@@ -91,7 +91,7 @@
 #define DIV_FLOOR(n, d) ((uint32_t)((n) / (d)))
 #define DIV_ROUND(n, d) ((uint32_t)(((n) + ((d) / 2u)) / (d)))
 
-#define OUTPUT_SEGMENT 1000
+#define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
 /* USER CODE END PD */
@@ -110,8 +110,6 @@ DMA_HandleTypeDef hdma_dac1_ch1;
 I2C_HandleTypeDef hi2c2;
 
 RTC_HandleTypeDef hrtc;
-
-SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
@@ -136,9 +134,9 @@ rtc_time_t now = {.seconds = 0,
 
 int temp_int = 25;
 
-static uint32_t *sine_val_low = NULL;
-static uint32_t *sine_val_high = NULL;
-static uint32_t *dc_mid = NULL;
+static uint32_t sine_val_low[LUT_LOW_SAMPLES];
+static uint32_t sine_val_high[LUT_HIGH_SAMPLES];
+static uint32_t dc_mid[LUT_LOW_SAMPLES];
 
 // Pulse Calculation Variables
 uint32_t fs = 0;
@@ -175,27 +173,11 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_I2C2_Init(void);
-static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
-
-void EnterStopMode(void);
-void calculate_active_duration_ms(void);
-void StartActiveWindowMs(uint32_t ms);
-void make_bitstream_from_string(const char *str);
-void update_input_string(void);
-int make_preamble(int start_idx);
-void get_sineval_low(void);
-void get_sineval_high(void);
-void get_dc_mid(void);
-uint32_t get_dac_sample_rate_hz(void);
-void Set_DAC_Output_To_Midlevel(void);
-
-static void TX_Start(void);
-static void TX_Stop(void);
 
 void EnterStopMode(void);
 void calculate_active_duration_ms(size_t bitstream_len);
@@ -266,7 +248,6 @@ int main(void) {
   MX_ADC1_Init();
   MX_DAC1_Init();
   MX_I2C2_Init();
-  MX_SPI1_Init();
   MX_TIM2_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
@@ -304,12 +285,13 @@ int main(void) {
 
   uint32_t dac_sample_rate = get_dac_sample_rate_hz();
   LOGF("DAC sample rate: %lu Hz\r\n", (unsigned long)dac_sample_rate);
+  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Indicate boot complete with LED blinks
   //-----------------------------------------------------------------------------//
 
-  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
+  // LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
 
   //-----------------------------------------------------------------------------//
   // Find and set FSK frequencies based on user config and sample count
@@ -321,6 +303,7 @@ int main(void) {
   LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
        (unsigned int)freq_pair.lower_freq, (unsigned int)freq_pair.higher_freq);
   LOGF("--------------------------\r\n");
+  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
@@ -348,6 +331,7 @@ int main(void) {
   }
   Get_Time(&now);
   LOGF("-------------------------\r\n");
+  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Initialize radio
@@ -359,6 +343,7 @@ int main(void) {
     LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
          init_result);
     LOGF("--------------------------\r\n");
+    LOGF("\r\n");
     // Error_Handler_Code(init_result);
   }
 
@@ -373,8 +358,9 @@ int main(void) {
   //-----------------------------------------------------------------------------//
   // Main loop
   //-----------------------------------------------------------------------------//
-
+  LOGF("\r\n");
   LOGF("Entering main loop...\r\n");
+  LOGF("\r\n");
 
   while (1) {
 
@@ -385,7 +371,7 @@ int main(void) {
 
     // For testing without button: just delay for a few seconds to simulate
     // sleep
-    HAL_Delay(15000);
+    HAL_Delay(2000);
 
     uint32_t wake_tick = HAL_GetTick();
 
@@ -402,6 +388,7 @@ int main(void) {
         LOGF("%02X ", transmission[i]);
       }
       LOGF("\r\n");
+      LOGF("\r\n");
 
       // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
       // etc.)
@@ -409,6 +396,7 @@ int main(void) {
 
       LOGF("Processed transmission into %s\r\n", transmission);
       LOGF("dBm value: %d\r\n", dBm_value);
+      LOGF("\r\n");
 
       // Create output string based on received data and dBm value (e.g.
       // "/TIM.../STR.../DID.../LOC.../TMP...")
@@ -420,6 +408,7 @@ int main(void) {
       size_t payload_len = strlen((char *)output_str);
       LOGF("Output string length: %lu characters\r\n",
            (unsigned long)payload_len);
+      LOGF("\r\n");
 
       if (USE_REED_SOLOMON_ERROR_CORRECTION) {
         // Prepare buffer for Reed-Solomon codeword (message + parity)
@@ -434,6 +423,7 @@ int main(void) {
         for (size_t i = 0; i < payload_len + RS_ERROR_CORRECTION_SYMBOLS; i++) {
           LOGF("%02X ", codeword[i]);
         }
+        LOGF("\r\n");
         LOGF("\r\n");
 
         // Set output_str to the codeword for transmission (truncated to fit if
@@ -455,32 +445,38 @@ int main(void) {
       LOGF("Output string length: %lu characters\r\n",
            (unsigned long)payload_len);
 
+      LOGF("\r\n");
+
       // Calculate active duration based on bitstream length and bit durations
       size_t bitstream_len = 1u + payload_len * 8u + 8u;
-      // LOGF("Bitstream: ");
-      // for (size_t i = 0; i < bitstream_len; i++) {
-      //   LOGF("%u", bitstream[i]);
-      // }
-      // LOGF("\r\n");
-      calculate_active_duration_ms(bitstream_len);
+      LOGF("Bitstream: ");
+      for (size_t i = 0; i < BITSTREAM_LENGTH; i++) {
+        LOGF("%u", bitstream[i]);
+      }
+      LOGF("\r\n");
+      calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
       LOGF("Calculated active duration for response: %lu ms\r\n",
            (unsigned long)total_ms);
-
-      HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+      LOGF("\r\n");
 
       // Send transmission over audio
       LOGF("Starting transmission of response over audio...\r\n");
-
-      Turn_On_Opamps(&hdac1);
-      // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
-      turn_on_relay();
+      if (USE_CABLE_TRANSMISSION) {
+        LOGF("Using cable transmission\r\n");
+        Turn_On_Opamps(&hdac1);
+        turn_on_relay();
+      } else {
+        LOGF("Using speaker transmission\r\n");
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+      }
+      LOGF("\r\n");
 
       TX_Start();
 
       // Wait for active window to complete (enters low-power sleep while
       // waiting)
-      StartActiveWindowMs((uint32_t)(total_time * 1000.0f));
+      StartActiveWindowMs((uint32_t)(total_ms));
 
       uint32_t last_toggle = HAL_GetTick();
       while (!active_done) {
@@ -595,11 +591,11 @@ void SystemClock_Config(void) {
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
                                 RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
     Error_Handler();
   }
 }
@@ -798,43 +794,6 @@ static void MX_RTC_Init(void) {
 }
 
 /**
- * @brief SPI1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_SPI1_Init(void) {
-
-  /* USER CODE BEGIN SPI1_Init 0 */
-
-  /* USER CODE END SPI1_Init 0 */
-
-  /* USER CODE BEGIN SPI1_Init 1 */
-
-  /* USER CODE END SPI1_Init 1 */
-  /* SPI1 parameter configuration*/
-  hspi1.Instance = SPI1;
-  hspi1.Init.Mode = SPI_MODE_MASTER;
-  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
-  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 7;
-  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI1_Init 2 */
-
-  /* USER CODE END SPI1_Init 2 */
-}
-
-/**
  * @brief TIM2 Initialization Function
  * @param None
  * @retval None
@@ -854,7 +813,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 49;
+  htim2.Init.Period = 249;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -989,7 +948,8 @@ static void MX_GPIO_Init(void) {
       GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6,
+                    GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA1 PA5 PA6 PA7
                            PA10 */
@@ -1000,11 +960,17 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_6;
+  /*Configure GPIO pins : PB0 PB3 PB4 PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB7 */
@@ -1019,414 +985,6 @@ static void MX_GPIO_Init(void) {
 }
 
 /* USER CODE BEGIN 4 */
-
-void EnterStopMode(void) {
-  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-  HAL_SuspendTick();
-
-  // Optional small savings:
-  __HAL_RCC_GPIOF_CLK_DISABLE();
-  __HAL_RCC_GPIOG_CLK_DISABLE();
-  __HAL_RCC_GPIOB_CLK_DISABLE();
-  __HAL_RCC_GPIOA_CLK_DISABLE();
-
-  HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
-
-  // After wake
-  SystemClock_Config();
-
-  // Re-enable clocks if you disabled them
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-
-  HAL_ResumeTick();
-}
-
-void StartActiveWindowMs(uint32_t ms) {
-  active_done = 0;
-
-  HAL_TIM_Base_Stop_IT(&htim6); // <- important, resets state
-  __HAL_TIM_SET_COUNTER(&htim6, 0);
-  __HAL_TIM_SET_AUTORELOAD(&htim6, ms - 1);
-
-  __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE);
-  __HAL_TIM_CLEAR_IT(&htim6, TIM_IT_UPDATE);
-
-  HAL_TIM_Base_Start_IT(&htim6);
-}
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-  if (htim->Instance == TIM6) {
-    HAL_TIM_Base_Stop_IT(&htim6); // <- makes it one-shot reliably
-    active_done = 1;
-  }
-}
-
-int make_preamble(int start_idx) {
-  int k = start_idx;
-  uint16_t id = 0; // 0x2DD4
-  for (int i = 0; i < 16 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = (((id >> (15 - i)) & 1) ^ BIT_POLARITY);
-  }
-
-  return k;
-}
-
-void make_bitstream_from_string(const char *str) {
-  int k = 0;
-
-  // Preamble bit - silence
-  for (int i = 0; i < 1 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = 2; // silence
-  }
-
-  // Data bits from string
-  for (int i = 0; str[i] != '\0' && k < BITSTREAM_LENGTH; ++i) {
-    for (int b = 7; b >= 0 && k < BITSTREAM_LENGTH; b--) {
-      bitstream[k++] = ((str[i] >> b) & 1) ^ BIT_POLARITY; // data
-    }
-  }
-
-  // Add 8 bits of silence at the end if there's space
-  for (int i = 0; i < 8 && k < BITSTREAM_LENGTH; ++i) {
-    bitstream[k++] = 2; // silence
-  }
-
-  // Fill remaining bits with silence if any
-  while (k < BITSTREAM_LENGTH) {
-    bitstream[k++] = 2; // silence
-  }
-}
-
-void update_input_string(void) {
-  input_string[0] = '\0';
-  size_t offset = 0;
-  size_t remaining = MAX_NUM_CHARS;
-  int n = 0;
-
-  // Append USER_STRING if enabled
-  if (INCLUDE_USER_STRING) {
-    n = snprintf(&input_string[offset], remaining, "/STR%s", USER_STRING);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append DEVICE_ID if enabled
-  if (INCLUDE_DEVICE_ID) {
-    n = snprintf(&input_string[offset], remaining, "%s/DID%d",
-                 (offset > 0) ? "" : "", DEVICE_ID);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append LOCATION if enabled
-  if (INCLUDE_LOCATION) {
-    n = snprintf(&input_string[offset], remaining, "%s/LOC%s",
-                 (offset > 0) ? "" : "", LOCATION);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append TEMPERATURE if enabled
-  if (INCLUDE_TEMPERATURE) {
-    n = snprintf(&input_string[offset], remaining, "%s/TMP%d",
-                 (offset > 0) ? "" : "", temp_int);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Append TIME if enabled
-  if (INCLUDE_TIME) {
-    n = snprintf(&input_string[offset], remaining,
-                 "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
-                 now.hours, now.minutes, now.seconds, now.day, now.date,
-                 now.month, now.year);
-
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-  // Add termination sign
-  if (strlen(input_string) > 0) {
-    n = snprintf(&input_string[offset], remaining, "/");
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
-}
-
-// Function to generate sine wave lookup table for low frequency
-void get_sineval_low(void) {
-  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
-    sine_val_low[i] =
-        (uint32_t)((4095.0 / 2.0) *
-                   (1.0 +
-                    sinf(2.0 * pi * i / FSK_LOWER_NUM_SAMPLES) * (1.5 / 1.65)));
-  }
-}
-
-// Function to generate sine wave lookup table for the high frequency
-void get_sineval_high(void) {
-  for (int i = 0; i < FSK_HIGHER_NUM_SAMPLES; i++) {
-    sine_val_high[i] =
-        (uint32_t)((4095.0 / 2.0) *
-                   (1.0 + sinf(2.0 * pi * i / FSK_HIGHER_NUM_SAMPLES) *
-                              (1.5 / 1.65)));
-  }
-}
-
-void get_dc_mid(void) {
-  uint32_t mid_value = (uint32_t)(4095.0 / 2.0);
-  for (int i = 0; i < FSK_LOWER_NUM_SAMPLES; i++) {
-    dc_mid[i] = mid_value;
-  }
-}
-
-uint32_t get_dac_sample_rate_hz(void) {
-  uint32_t tim_clk = HAL_RCC_GetPCLK1Freq();
-  if ((RCC->CFGR & RCC_CFGR_PPRE1) != RCC_CFGR_PPRE1_DIV1)
-    tim_clk *= 2; // timer clock doubled if APB prescaler != 1
-
-  return tim_clk / ((htim2.Init.Prescaler + 1) * (htim2.Init.Period + 1));
-}
-
-void calculate_active_duration_ms(void) {
-  fs = get_dac_sample_rate_hz();
-
-  float f_0 = (float)fs / (float)FSK_LOWER_NUM_SAMPLES;
-  float f_1 = (float)fs / (float)FSK_HIGHER_NUM_SAMPLES;
-
-  f_0_bit_duration = (float)FSK_LOWER_PERIODS / f_0;
-  f_1_bit_duration = (float)FSK_HIGHER_PERIODS / f_1;
-
-  // Exact bitstream time
-  total_time = 0.0f;
-  for (int i = 0; i < BITSTREAM_LENGTH; ++i) {
-    if (bitstream[i] == 0) {
-      total_time += ((float)FSK_LOWER_PERIODS) / f_0;
-    } else if (bitstream[i] == 1) {
-      total_time += (float)FSK_HIGHER_PERIODS / f_1;
-    } else {
-      total_time += ((float)FSK_LOWER_PERIODS) / f_0; // silence
-    }
-  }
-
-  // Add silence time
-  // total_time *= 1.05f;                            // 5% margin
-  // total_time += cable_speaker_delay_ms / 1000.0f; // 10ms margin
-}
-
-static inline FillResult
-fill_half_buffer(uint32_t *buffer, size_t generation_size,
-                 const uint8_t *bitstream, size_t bitstream_len,
-                 size_t bit_index, size_t current_sine_period,
-                 size_t current_sine_index) {
-  size_t out = 0;
-  size_t period = current_sine_period;
-  size_t idx = current_sine_index;
-
-  while (out < generation_size) {
-    // If finished, just output mid forever (prevents repeats)
-    if (bit_index >= bitstream_len) {
-      for (; out < generation_size; ++out) {
-        buffer[out] = dc_mid[0];
-      }
-      break;
-    }
-
-    uint8_t cur_bit = bitstream[bit_index];
-
-    /* Select LUT + target periods for THIS bit */
-    const uint32_t *lut;
-    size_t lut_len;
-    size_t target_periods;
-
-    if (cur_bit == 0) {
-      lut = sine_val_low;
-      lut_len = FSK_LOWER_NUM_SAMPLES;
-      target_periods = FSK_LOWER_PERIODS;
-    } else if (cur_bit == 1) {
-      lut = sine_val_high;
-      lut_len = FSK_HIGHER_NUM_SAMPLES;
-      target_periods = FSK_HIGHER_PERIODS;
-    } else { // silence
-      lut = dc_mid;
-      lut_len = FSK_LOWER_NUM_SAMPLES;
-      target_periods = FSK_LOWER_PERIODS;
-    }
-
-    /* Copy as much as we can from current LUT position */
-    size_t left_buf = generation_size - out;
-    size_t left_lut = lut_len - idx;
-    size_t n = (left_buf < left_lut) ? left_buf : left_lut;
-
-    memcpy(&buffer[out], &lut[idx], n * sizeof(uint32_t));
-    out += n;
-    idx += n;
-
-    /* Completed one period? */
-    if (idx == lut_len) {
-      idx = 0;
-      period++;
-
-      /* Completed this bit? -> advance to next bit */
-      if (period == target_periods) {
-        period = 0;
-        if (bit_index + 1u < bitstream_len) {
-          bit_index++;
-        } else {
-          // reached end -> hold at end
-          bit_index = bitstream_len;
-        }
-      }
-    }
-  }
-
-  return (FillResult){
-      .bit_index = bit_index, .current_period = period, .current_index = idx};
-}
-
-// DMA Half Transfer Complete callback
-void HAL_DAC_ConvHalfCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
-  if (!tx_active)
-    return;
-
-  FillResult r =
-      fill_half_buffer((uint32_t *)&output_buffer[0], BUFFER_SIZE / 2,
-                       bitstream, BITSTREAM_LENGTH, current_bitstream_index,
-                       current_sine_period, current_sine_index);
-
-  current_bitstream_index = r.bit_index;
-  current_sine_period = r.current_period;
-  current_sine_index = r.current_index;
-}
-
-// DMA Transfer Complete callback
-void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
-  if (!tx_active)
-    return;
-
-  FillResult r = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
-                                  BUFFER_SIZE / 2, bitstream, BITSTREAM_LENGTH,
-                                  current_bitstream_index, current_sine_period,
-                                  current_sine_index);
-
-  current_bitstream_index = r.bit_index;
-  current_sine_period = r.current_period;
-  current_sine_index = r.current_index;
-}
-
-static void TX_Start(void) {
-  printf("\r\nTX_Start()\r\n");
-
-  current_bitstream_index = 0;
-  current_sine_period = 0;
-  current_sine_index = 0;
-  tx_active = true;
-
-  FillResult r1 =
-      fill_half_buffer((uint32_t *)&output_buffer[0], BUFFER_SIZE / 2,
-                       bitstream, BITSTREAM_LENGTH, current_bitstream_index,
-                       current_sine_period, current_sine_index);
-
-  current_bitstream_index = r1.bit_index;
-  current_sine_period = r1.current_period;
-  current_sine_index = r1.current_index;
-
-  FillResult r2 = fill_half_buffer((uint32_t *)&output_buffer[BUFFER_SIZE / 2],
-                                   BUFFER_SIZE / 2, bitstream, BITSTREAM_LENGTH,
-                                   current_bitstream_index, current_sine_period,
-                                   current_sine_index);
-
-  current_bitstream_index = r2.bit_index;
-  current_sine_period = r2.current_period;
-  current_sine_index = r2.current_index;
-
-  printf("  Buffer filled\r\n");
-
-  // Clean start
-  HAL_TIM_Base_Stop(&htim2);
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-  HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
-
-  DMA1->IFCR =
-      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
-  NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
-
-  printf("  Peripherals stopped & DMA flags cleared\r\n");
-
-  // Start DAC
-  HAL_StatusTypeDef st;
-  st = HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-  if (st != HAL_OK) {
-    printf("  HAL_DAC_Start error: %d\r\n", st);
-  } else {
-    printf("  HAL_DAC_Start OK\r\n");
-  }
-
-  // Start DMA
-  st = HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                         BUFFER_SIZE, DAC_ALIGN_12B_R);
-
-  if (st != HAL_OK) {
-    printf("  HAL_DAC_Start_DMA error: %d\r\n", st);
-  } else {
-    printf("  HAL_DAC_Start_DMA OK\r\n");
-  }
-
-  // Ensure trigger enabled
-  SET_BIT(DAC1->CR, DAC_CR_TEN1);
-
-  // Start timer last
-  __HAL_TIM_SET_COUNTER(&htim2, 0);
-  st = HAL_TIM_Base_Start(&htim2);
-
-  if (st != HAL_OK) {
-    printf("  HAL_TIM_Base_Start error: %d\r\n", st);
-  } else {
-    printf("  HAL_TIM_Base_Start OK\r\n");
-  }
-}
-
-static void TX_Stop(void) {
-  printf("TX_Stop()\r\n");
-
-  tx_active = false;
-
-  // Stop trigger + DMA first
-  HAL_TIM_Base_Stop(&htim2);
-  HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-
-  Set_DAC_Output_To_Midlevel();
-
-  // Optional: if you want to *keep* the mid DC during STOP, leave DAC
-  // running. If you want lowest power, stop it (output may go undefined
-  // depending on buffer mode): HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
-
-  DMA1->IFCR =
-      DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
-  NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
-
-  printf("  TX stopped cleanly (DAC set to mid)\r\n");
-}
-
-void Set_DAC_Output_To_Midlevel(void) {
-  CLEAR_BIT(DAC1->CR, DAC_CR_TEN1);
-
-  // Ensure DAC channel is enabled
-  HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
-
-  // Set mid-scale (12-bit right aligned)
-  HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, dc_mid[0]);
-}
 
 void EnterStopMode(void) {
 
@@ -2047,25 +1605,8 @@ void create_string_from_received_data(const uint8_t *transmission,
 }
 
 static int init_luts_from_freqpair(void) {
-  // frigjør hvis de finnes fra før
-  free(sine_val_low);
-  sine_val_low = NULL;
-  free(sine_val_high);
-  sine_val_high = NULL;
-  free(dc_mid);
-  dc_mid = NULL;
-
-  sine_val_low = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
-  sine_val_high = malloc(freq_pair.higher_freq_samples * sizeof(uint32_t));
-  dc_mid = malloc(freq_pair.lower_freq_samples * sizeof(uint32_t));
-
-  if (!sine_val_low || !sine_val_high || !dc_mid) {
-    free(sine_val_low);
-    sine_val_low = NULL;
-    free(sine_val_high);
-    sine_val_high = NULL;
-    free(dc_mid);
-    dc_mid = NULL;
+  if (freq_pair.lower_freq_samples > LUT_LOW_SAMPLES ||
+      freq_pair.higher_freq_samples > LUT_HIGH_SAMPLES) {
     return -1;
   }
   return 0;

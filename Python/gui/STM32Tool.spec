@@ -6,15 +6,14 @@ a = Analysis(
     ['gui.py'],
     pathex=[],
     binaries=[
-        ('tools/openocd/bin/openocd', 'tools/openocd/bin'),
         ('tools/ninja/ninja', 'tools/ninja'),
         ('tools/cmake/4.1.2/bin/cmake', 'tools/cmake/4.1.2/bin'),
-        ('tools/arm-none-eabi-gcc', 'tools'),
+        ('tools/arm-none-eabi-gcc', 'tools/arm-none-eabi-gcc'),
+        ('tools/dfu-util/dfu-util', 'tools/dfu-util'),
     ],
     datas=[
         ('../../STM32', 'STM32'),
         ('tools', 'tools'),
-        ('tools/openocd/share/openocd/scripts', 'tools/openocd/share/openocd/scripts'),
     ],
     hiddenimports=[],
     hookspath=[],
