@@ -111,8 +111,6 @@ I2C_HandleTypeDef hi2c2;
 
 RTC_HandleTypeDef hrtc;
 
-SPI_HandleTypeDef hspi1;
-
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim6;
 
@@ -175,7 +173,6 @@ static void MX_DMA_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_DAC1_Init(void);
 static void MX_I2C2_Init(void);
-static void MX_SPI1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_USART2_UART_Init(void);
@@ -251,7 +248,6 @@ int main(void) {
   MX_ADC1_Init();
   MX_DAC1_Init();
   MX_I2C2_Init();
-  MX_SPI1_Init();
   MX_TIM2_Init();
   MX_TIM6_Init();
   MX_USART2_UART_Init();
@@ -295,7 +291,7 @@ int main(void) {
   // Indicate boot complete with LED blinks
   //-----------------------------------------------------------------------------//
 
-  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
+  // LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
 
   //-----------------------------------------------------------------------------//
   // Find and set FSK frequencies based on user config and sample count
@@ -798,43 +794,6 @@ static void MX_RTC_Init(void) {
 }
 
 /**
- * @brief SPI1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_SPI1_Init(void) {
-
-  /* USER CODE BEGIN SPI1_Init 0 */
-
-  /* USER CODE END SPI1_Init 0 */
-
-  /* USER CODE BEGIN SPI1_Init 1 */
-
-  /* USER CODE END SPI1_Init 1 */
-  /* SPI1 parameter configuration*/
-  hspi1.Instance = SPI1;
-  hspi1.Init.Mode = SPI_MODE_MASTER;
-  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
-  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 7;
-  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK) {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN SPI1_Init 2 */
-
-  /* USER CODE END SPI1_Init 2 */
-}
-
-/**
  * @brief TIM2 Initialization Function
  * @param None
  * @retval None
@@ -989,7 +948,8 @@ static void MX_GPIO_Init(void) {
       GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6,
+                    GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA1 PA5 PA6 PA7
                            PA10 */
@@ -1000,11 +960,17 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PB0 PB6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_6;
+  /*Configure GPIO pins : PB0 PB3 PB4 PB6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB7 */
