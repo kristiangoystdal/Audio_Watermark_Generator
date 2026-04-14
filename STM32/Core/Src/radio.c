@@ -161,25 +161,8 @@ void transmit_bytes(void) {
 
 void start_TX(void) {
   LOGF("Starting TX...\r\n");
-  // Transmit bytes for 2 minutes
-  while (1) {
-
-    // transmit_bytes();
-    transmit_bytes();
-
-    // Break after 2 minutes
-    static uint32_t start_time = 0;
-    if (start_time == 0) {
-      start_time = HAL_GetTick();
-    } else if (HAL_GetTick() - start_time >= 120000) {
-      break;
-    }
-
-    // Optional: add delay between transmissions if desired
-    // HAL_Delay(1000);
-
-    break; // for quick test
-  }
+  // transmit_bytes();
+  transmit_bytes();
   LOGF("TX started.\r\n");
 }
 

@@ -297,27 +297,31 @@ int main(void) {
   // Find and set FSK frequencies based on user config and sample count
   // requirements
   //-----------------------------------------------------------------------------//
+  if (RX_MODE) {
+    freq_pair = find_frequency_pair(dac_sample_rate);
 
-  freq_pair = find_frequency_pair(dac_sample_rate);
-
-  LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
-       (unsigned int)freq_pair.lower_freq, (unsigned int)freq_pair.higher_freq);
-  LOGF("--------------------------\r\n");
-  LOGF("\r\n");
+    LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
+         (unsigned int)freq_pair.lower_freq,
+         (unsigned int)freq_pair.higher_freq);
+    LOGF("--------------------------\r\n");
+    LOGF("\r\n");
+  }
 
   //-----------------------------------------------------------------------------//
   // Prepare sine wave lookup tables
   //-----------------------------------------------------------------------------//
 
-  if (init_luts_from_freqpair() != 0) {
-    LOGF("LUT alloc failed\r\n");
-    LOGF("--------------------------\r\n");
-    Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
-  }
+  if (RX_MODE) {
+    if (init_luts_from_freqpair() != 0) {
+      LOGF("LUT alloc failed\r\n");
+      LOGF("--------------------------\r\n");
+      Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
+    }
 
-  get_sineval_low();
-  get_sineval_high();
-  get_dc_mid();
+    get_sineval_low();
+    get_sineval_high();
+    get_dc_mid();
+  }
 
   //-----------------------------------------------------------------------------//
   // Initialize RTC
@@ -373,12 +377,7 @@ int main(void) {
     }
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
-    // For testing without button: just delay for a few seconds to simulate
-    // sleep
-    // HAL_Delay(2000);
-
     uint32_t wake_tick = HAL_GetTick();
-
     LOGF("Woke up!\r\n");
 
     Get_Time(&now);
@@ -500,14 +499,8 @@ int main(void) {
     } else {
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
-      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       start_TX();
-    }
-
-    // 4) Check battery voltage and go back to sleep if low
-    is_battery_low(&hadc1);
-
-    if (!RX_MODE) {
 
       uint32_t target_interval_s;
 
@@ -547,6 +540,9 @@ int main(void) {
 
       RTC_SetWakeupTimer(sleep_seconds);
     }
+
+    // 4) Check battery voltage and go back to sleep if low
+    is_battery_low(&hadc1);
 
     /* USER CODE END WHILE */
 
@@ -1651,6 +1647,11 @@ void Error_Handler(void) {
 
   // If you want it to repeat forever:
   LED_BlinkStatusCode((uint8_t)g_error_code);
+
+  // Turn off relay and opamps to save power (optional, depending on error)
+  turn_off_relay();
+  Turn_Off_Opamps(&hdac1);
+  
 
   __disable_irq();
   while (1) {
