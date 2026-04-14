@@ -291,7 +291,7 @@ int main(void) {
   // Indicate boot complete with LED blinks
   //-----------------------------------------------------------------------------//
 
-  // LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
+  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
 
   //-----------------------------------------------------------------------------//
   // Find and set FSK frequencies based on user config and sample count
@@ -312,7 +312,7 @@ int main(void) {
   if (init_luts_from_freqpair() != 0) {
     LOGF("LUT alloc failed\r\n");
     LOGF("--------------------------\r\n");
-    // Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
+    Error_Handler_Code(STATUS_CODE_LUT_ALLOC_FAIL);
   }
 
   get_sineval_low();
@@ -340,11 +340,11 @@ int main(void) {
   HAL_Delay(20);
   int8_t init_result = init_radio(RX_MODE);
   if (init_result != 0) {
-    LOGF("Failed to initialize radio in RX mode, error code: %d\r\n",
-         init_result);
+    LOGF("Failed to initialize radio in %s mode, error code: %d\r\n",
+         RX_MODE ? "RX" : "TX", init_result);
     LOGF("--------------------------\r\n");
     LOGF("\r\n");
-    // Error_Handler_Code(init_result);
+    Error_Handler_Code(init_result);
   }
 
   //-----------------------------------------------------------------------------//
@@ -364,14 +364,18 @@ int main(void) {
 
   while (1) {
 
-    // // 2) Debounce button
-    // while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
-    // }
-    // __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    LOGF("Entering STOP mode...\r\n");
+    EnterStopMode();
+
+    // 2) Debounce button
+    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
+    }
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
     // For testing without button: just delay for a few seconds to simulate
     // sleep
-    HAL_Delay(2000);
+    // HAL_Delay(2000);
 
     uint32_t wake_tick = HAL_GetTick();
 
@@ -496,7 +500,7 @@ int main(void) {
     } else {
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
-      // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       start_TX();
     }
 
@@ -543,10 +547,6 @@ int main(void) {
 
       RTC_SetWakeupTimer(sleep_seconds);
     }
-
-    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
-    LOGF("Entering STOP mode...\r\n");
-    EnterStopMode();
 
     /* USER CODE END WHILE */
 
@@ -978,6 +978,8 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -1360,7 +1362,7 @@ static void TX_Start(void) {
 
   if (st != HAL_OK) {
     LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
-    // Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     LOGF("  HAL_DAC_Start_DMA OK\r\n");
   }
@@ -1374,7 +1376,7 @@ static void TX_Start(void) {
 
   if (st != HAL_OK) {
     LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
-    // Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
     LOGF("  HAL_TIM_Base_Start OK\r\n");
   }
