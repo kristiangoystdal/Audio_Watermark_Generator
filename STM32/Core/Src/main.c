@@ -28,6 +28,7 @@
 #include "cc1101_config.h"
 #include "ds3231.h"
 #include "error_codes.h"
+#include "flash_flag.h"
 #include "frequency_config.h"
 #include "led_feedback.h"
 #include "log.h"
@@ -329,22 +330,21 @@ int main(void) {
   // Initialize RTC
   //-----------------------------------------------------------------------------//
 
-  if (SET_INITIAL_TIME) {
-    LOGF("Setting initial RTC time to %02d:%02d:%02d %02d/%02d/%04d\r\n",
-         INITIAL_HOUR, INITIAL_MIN, INITIAL_SEC, INITIAL_DOM, INITIAL_MONTH,
-         INITIAL_YEAR);
-
+  if (!FlashFlag_TimeWasSet()) {
     DS3231_PowerOn();
     if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
       DS3231_Init();
       DS3231_SetTime(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
                      INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
+      FlashFlag_SetTimeWasSet();
     }
-    // FlashFlag_ClearFirstBoot(); // won't run again until GUI resets it
+    DS3231_PowerOff();
   }
 
+  DS3231_PowerOn();
   DS3231_GetTime(&now);
   DS3231_PowerOff();
+
   LOGF("-------------------------\r\n");
   LOGF("\r\n");
 
@@ -1531,6 +1531,13 @@ void create_string_from_received_data(const uint8_t *transmission,
 
         char y[5] = {p[12], p[13], p[14], p[15], 0};
         time_val.year = (uint16_t)atoi(y);
+
+        // Set RTC time from received value (optional, depends on use case)
+        DS3231_PowerOn();
+        DS3231_SetTime(time_val.seconds, time_val.minutes, time_val.hours,
+                       time_val.day, time_val.date, time_val.month,
+                       time_val.year);
+        DS3231_PowerOff();
       }
     } else if (strncmp(tok, "STR", 3) == 0) {
       strncpy(user_string, tok + 3, sizeof(user_string) - 1);
