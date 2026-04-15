@@ -1138,15 +1138,18 @@ class FlashToolApp(tk.Tk):
 
         if self.notebook.index(self.notebook.select()) == 1:  # Receiver tab
             if (
-                not self.include_user_string.get()
-                and not self.include_device_id.get()
-                and not self.include_location.get()
-                and not self.include_time.get()
-                and not self.include_temperature.get()
+                not self.vars["include_user_string"].get()
+                and not self.vars["include_device_id"].get()
+                and not self.vars["include_location"].get()
+                and not self.vars["include_time"].get()
+                and not self.vars["include_temperature"].get()
             ):
                 errors.append("At least one field must be included in the watermark")
         else:  # Base tab
-            if not self.include_user_string.get() and not self.include_time.get():
+            if (
+                not self.vars["include_user_string"].get()
+                and not self.vars["include_time"].get()
+            ):
                 errors.append("At least User String or Timestamp must be included")
 
         if errors:
@@ -1174,7 +1177,7 @@ class FlashToolApp(tk.Tk):
 
     def _run_build(self):
         try:
-            ok = dual_build_flash(
+            ok = build_flash(
                 self,
                 self.vars["show_log"],
                 self.widgets["build_btn"],

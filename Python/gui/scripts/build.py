@@ -209,7 +209,7 @@ def ensure_writable_copy(safe_log):
         active_build_dir = BUILD_DIR
 
 
-def dual_build_flash(root, show_log_var, build_btn):
+def build_flash(root, show_log_var, build_btn):
     global set_initial_time
 
     build_btn.config(state="disabled")
@@ -233,23 +233,14 @@ def dual_build_flash(root, show_log_var, build_btn):
     try:
         prepare_build(log_text, safe_log)
 
-        # PASS 1 — set RTC time
-        safe_log("\n========== PASS 1: SET INITIAL TIME ==========")
+        safe_log("\n========== Build and Flash ==========")
         set_initial_time = 1
-        if not change_user_config(root, set_initial_time, safe_log):
-            raise Exception("Failed to update user_config")
-        build_only(log_text, safe_log)
-        flash_only(log_text, safe_log, leave=False)
-
-        # PASS 2 — normal mode
-        safe_log("\n========== PASS 2: NORMAL MODE ==========")
-        set_initial_time = 0
         if not change_user_config(root, set_initial_time, safe_log):
             raise Exception("Failed to update user_config")
         build_only(log_text, safe_log)
         flash_only(log_text, safe_log, leave=True)
 
-        safe_log("\n[SUCCESS] ✅ Dual build & flash complete!")
+        safe_log("\n[SUCCESS] ✅ Build & flash complete!")
 
     except Exception as e:
         safe_log(f"\n[ERROR] ❌ {e}")
