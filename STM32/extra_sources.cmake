@@ -5,6 +5,7 @@ file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/battery.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/cc1101.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/ds3231.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/flash_flag.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/frequency_config.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/led_feedback.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/opamps.c

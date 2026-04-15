@@ -209,6 +209,32 @@ def ensure_writable_copy(safe_log):
         active_build_dir = BUILD_DIR
 
 
+def clear_flash_flag(log_text, safe_log):
+    safe_log("\n[STEP] Clearing RTC flash flag page...")
+
+    # Create a 2KB blank binary (one flash page of 0xFF)
+    blank_page = bytes([0xFF] * 2048)
+
+    tmp = tempfile.NamedTemporaryFile(suffix=".bin", delete=False)
+    tmp.write(blank_page)
+    tmp.close()
+
+    dfu_util = DFU_UTIL if os.path.exists(DFU_UTIL) else "dfu-util"
+
+    result = run_with_log(
+        [dfu_util, "-a", "0", "-s", "0x0801F800", "-D", tmp.name],
+        log_text,
+        success_if_output_contains="File downloaded successfully",
+    )
+
+    os.unlink(tmp.name)
+
+    if result != 0:
+        safe_log("[WARN] Could not clear flash flag — RTC time may not be reset.")
+    else:
+        safe_log("[OK] Flash flag cleared.")
+
+
 def build_flash(root, show_log_var, build_btn):
     global set_initial_time
 
@@ -238,6 +264,7 @@ def build_flash(root, show_log_var, build_btn):
         if not change_user_config(root, set_initial_time, safe_log):
             raise Exception("Failed to update user_config")
         build_only(log_text, safe_log)
+        clear_flash_flag(log_text, safe_log)
         flash_only(log_text, safe_log, leave=True)
 
         safe_log("\n[SUCCESS] ✅ Build & flash complete!")
