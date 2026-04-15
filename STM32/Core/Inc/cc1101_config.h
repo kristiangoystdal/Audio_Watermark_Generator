@@ -1,8 +1,10 @@
-#include "ism.h"
+// Struct to hold register address and value pairs for CC1101 configuration
+typedef struct {
+  uint8_t addr;
+  uint8_t value;
+} ism_reg_t;
 
-// Minimal: just set frequency.
-// Add more registers here later (modulation, data rate, packet settings, PA
-// table, etc.)
+// Configuration arrays for RX mode in 433MHz band
 static const ism_reg_t cc1101_cfg_rx[] = {
     {0x02, 0x07}, // IOCFG0: GDO0 asserts on sync, deassert end/FIFO overflow
     {0x04, 0x04}, // Set sync word (SYNC1)
@@ -14,6 +16,7 @@ static const ism_reg_t cc1101_cfg_rx[] = {
     {0x0F, 0x62}, // FREQ0
 };
 
+// Configuration arrays for TX mode in 433MHz band
 static const ism_reg_t cc1101_cfg_tx[] = {
     {0x02, 0x07}, // IOCFG0: GDO0 asserts on sync, deassert end/FIFO overflow
     {0x04, 0x04}, // Set sync word (SYNC1)

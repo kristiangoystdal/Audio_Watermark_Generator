@@ -10,15 +10,22 @@ extern "C" {
 #include <stddef.h>        // size_t
 #include <stdint.h>        // uint8_t
 
-/**
- * @breif Wait for CC1101 to be ready by monitoring MISO pin. Returns true if
- * ready within timeout, false if timeout occurs.
- *
- * @param timeout_ms Maximum time to wait in milliseconds
- * @return true if CC1101 is ready (MISO goes low) within timeout, false if
- * timeout occurs
- */
-bool CC1101_WaitReadyMs(uint32_t timeout_ms);
+// Bit-bang SPI pins (all on GPIOB)
+#define BB_SCK GPIO_PIN_3  // PB3
+#define BB_MOSI GPIO_PIN_4 // PB4
+#define BB_MISO GPIO_PIN_5 // PB5
+#define BB_CS GPIO_PIN_6   // PB6
+
+// Macros for MOSI and SCK pin states
+// MOSI
+#define MOSI_HIGH (GPIOB->BSRR = BB_MOSI)
+#define MOSI_LOW (GPIOB->BSRR = ((uint32_t)BB_MOSI << 16))
+
+// SCK
+#define SCK_HIGH (GPIOB->BSRR = BB_SCK)
+#define SCK_LOW (GPIOB->BSRR = ((uint32_t)BB_SCK << 16))
+
+#define MISO_READ (GPIOB->IDR & BB_MISO)
 
 /**
  * @brief Send a CC1101 command strobe and optionally return the status byte.

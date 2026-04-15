@@ -7,9 +7,9 @@
 
 #include "stm32g4xx_hal.h"
 
-void Turn_On_Opamps(DAC_HandleTypeDef *hdac1);
-void Turn_Off_Opamps(DAC_HandleTypeDef *hdac1);
-void Set_DAC_Output_To_Zero(DAC_HandleTypeDef *hdac1);
-void Set_DAC_Output_To_Midlevel(DAC_HandleTypeDef *hdac1, uint16_t mid_value);
+void Opamps_Enable(DAC_HandleTypeDef *hdac1);
+void Opamps_Disable(DAC_HandleTypeDef *hdac1);
+void DAC_SetZero(DAC_HandleTypeDef *hdac1);
+void DAC_SetMidlevel(DAC_HandleTypeDef *hdac1, uint16_t mid_value);
 
 #endif // OPAMPS_H

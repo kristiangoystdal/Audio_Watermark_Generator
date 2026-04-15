@@ -8,7 +8,7 @@
 //-------------------------------------------------------//
 
 // Configuration for first time booting up the RTC
-#define SET_INITIAL_TIME false
+#define SET_INITIAL_TIME true
 #define INITIAL_HOUR 12
 #define INITIAL_MIN 54
 #define INITIAL_SEC 12

@@ -7,7 +7,7 @@
 
 #define LOW_BATTERY_THRESHOLD_MV 3000 // Example threshold for low battery
 
-uint16_t Read_Battery_Voltage_mV(ADC_HandleTypeDef *hadc1) {
+uint16_t Battery_ReadVoltage(ADC_HandleTypeDef *hadc1) {
   uint32_t adc_value = 0;
   uint16_t voltage_mV = 0;
 
@@ -27,8 +27,8 @@ uint16_t Read_Battery_Voltage_mV(ADC_HandleTypeDef *hadc1) {
   return voltage_mV;
 }
 
-void is_battery_low(ADC_HandleTypeDef *hadc1) {
-  uint16_t voltage_mV = Read_Battery_Voltage_mV(hadc1);
+void Battery_IsLow(ADC_HandleTypeDef *hadc1) {
+  uint16_t voltage_mV = Battery_ReadVoltage(hadc1);
   if (voltage_mV < LOW_BATTERY_THRESHOLD_MV) {
     LOGF("Battery voltage is low: %u mV\r\n", voltage_mV);
     Error_Handler_Code(STATUS_CODE_BATTERY_LOW);

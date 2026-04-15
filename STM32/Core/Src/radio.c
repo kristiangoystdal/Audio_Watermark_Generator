@@ -1,10 +1,11 @@
+#include "radio.h"
 #include "cc1101.h"
+#include "cc1101_config.h"
 #include "ds3231.h"
 #include "error_codes.h"
-#include "ism.h"
-#include "ism_config_433.h"
 #include "log.h"
 #include "main.h"
+#include "user_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -12,7 +13,7 @@
 #include <string.h>
 #include <sys/_intsup.h>
 
-int8_t init_RX(void) {
+int8_t Radio_InitRXMode(void) {
   LOGF("Initializing radio in RX mode...\r\n");
   uint8_t status = 0;
 
@@ -51,7 +52,7 @@ int8_t init_RX(void) {
   return 0;
 }
 
-int8_t init_TX(void) {
+int8_t Radio_InitTXMode(void) {
   uint8_t status = 0;
 
   // Write configuration for TX
@@ -69,7 +70,7 @@ int8_t init_TX(void) {
   return 0;
 }
 
-int8_t init_radio(bool RX) {
+int8_t Radio_Init(bool RX) {
   const uint32_t delays_ms[] = {5, 20, 50};
 
   LOGF("Initializing radio...\r\n");
@@ -102,9 +103,9 @@ int8_t init_radio(bool RX) {
     }
 
     if (RX == true) {
-      return init_RX();
+      return Radio_InitRXMode();
     } else {
-      return init_TX();
+      return Radio_InitTXMode();
     }
 
     uint8_t st = 0;
@@ -116,23 +117,51 @@ int8_t init_radio(bool RX) {
   return STATUS_CODE_RADIO_INIT_FAIL;
 }
 
-void transmit_bytes(void) {
+char *Radio_BuildPayload(void) {
+  char temp_buf[256];
+  size_t offset = 0;
+
+  if (INCLUDE_USER_STRING) {
+    offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/STR%s",
+                       USER_STRING);
+  }
+  if (INCLUDE_TIME) {
+    rtc_time_t now;
+    DS3231_PowerOn();
+    DS3231_GetTime(&now);
+    DS3231_PowerOff();
+
+    if (now.year == 2000) {
+      LOGF("RTC time not set, don't include time in payload\r\n");
+      return strdup(temp_buf);
+    }
+
+    offset +=
+        snprintf(temp_buf + offset, sizeof(temp_buf) - offset,
+                 "/TIM%02d%02d%02d%02d%02d%02d%04d;", now.hours, now.minutes,
+                 now.seconds, now.day, now.date, now.month, now.year);
+  }
+
+  return strdup(temp_buf);
+}
+
+void Radio_Transmit(void) {
+  LOGF("Starting radio transmission...\r\n");
   uint8_t status = 0;
 
-  const char payload_str[] = "Einar suger";
-  const uint8_t *payload = (const uint8_t *)payload_str;
-  uint8_t payload_len = (uint8_t)strlen(payload_str); // 11
+  const char *payload_str = Radio_BuildPayload();
+  size_t payload_len = strlen(payload_str);
 
   LOGF("Transmitting payload: %s\r\n", payload_str);
   LOGF("Payload in hex: ");
   for (size_t i = 0; i < payload_len; i++) {
-    LOGF("%02X ", payload[i]);
+    LOGF("%02X ", (unsigned char)payload_str[i]);
   }
   LOGF("\r\n");
   uint8_t pkt[2 + payload_len]; // length byte + payload
   pkt[0] = payload_len + 1;     // length
   pkt[1] = 0xEB;
-  memcpy(&pkt[2], payload, payload_len);
+  memcpy(&pkt[2], payload_str, payload_len);
 
   // Optional: flush TX FIFO before loading (good practice)
   CC1101_Strobe(0x3B, &status); // SFTX :contentReference[oaicite:1]{index=1}
@@ -159,31 +188,7 @@ void transmit_bytes(void) {
   }
 }
 
-void start_TX(void) {
-  LOGF("Starting TX...\r\n");
-  // Transmit bytes for 2 minutes
-  while (1) {
-
-    // transmit_bytes();
-    transmit_bytes();
-
-    // Break after 2 minutes
-    static uint32_t start_time = 0;
-    if (start_time == 0) {
-      start_time = HAL_GetTick();
-    } else if (HAL_GetTick() - start_time >= 120000) {
-      break;
-    }
-
-    // Optional: add delay between transmissions if desired
-    // HAL_Delay(1000);
-
-    break; // for quick test
-  }
-  LOGF("TX started.\r\n");
-}
-
-int read_RX(uint8_t *out, size_t out_max_len) {
+int Radio_Receive(uint8_t *out, size_t out_max_len) {
   uint8_t status = 0;
   uint8_t rxbytes = 0;
 

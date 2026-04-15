@@ -9,8 +9,8 @@ extern "C" {
 #include <stdint.h>
 #include <stm32g4xx_hal.h>
 
-void turn_on_relay(void);
-void turn_off_relay(void);
+void Relay_SetMixingMode(void);
+void Relay_SetBypassMode(void);
 
 #ifdef __cplusplus
 }

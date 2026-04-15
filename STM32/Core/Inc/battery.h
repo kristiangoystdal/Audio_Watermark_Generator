@@ -7,8 +7,8 @@ extern "C" {
 
 #include <stm32g4xx_hal.h>
 
-uint16_t Read_Battery_Voltage_mV(ADC_HandleTypeDef *hadc1);
-void is_battery_low(ADC_HandleTypeDef *hadc1);
+uint16_t Battery_ReadVoltage(ADC_HandleTypeDef *hadc1);
+void Battery_IsLow(ADC_HandleTypeDef *hadc1);
 
 #ifdef __cplusplus
 }
