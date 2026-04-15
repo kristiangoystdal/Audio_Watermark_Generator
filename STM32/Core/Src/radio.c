@@ -1,8 +1,8 @@
 #include "radio.h"
 #include "cc1101.h"
+#include "cc1101_config.h"
 #include "ds3231.h"
 #include "error_codes.h"
-#include "cc1101_config.h"
 #include "log.h"
 #include "main.h"
 #include "user_config.h"
@@ -127,7 +127,9 @@ char *Radio_BuildPayload(void) {
   }
   if (INCLUDE_TIME) {
     rtc_time_t now;
+    DS3231_PowerOn();
     DS3231_GetTime(&now);
+    DS3231_PowerOff();
 
     if (now.year == 2000) {
       LOGF("RTC time not set, don't include time in payload\r\n");
