@@ -24,13 +24,13 @@ static uint8_t bb_byte(uint8_t tx) {
   for (int i = 7; i >= 0; i--) {
     // Drive MOSI before rising edge
     if (tx & (1u << i))
-      MISO_HIGH;
+      MOSI_HIGH;
     else
-      MISO_LOW;
+      MOSI_LOW;
 
     // Rising edge — slave samples MOSI, master samples MISO
     SCK_HIGH;
-    if (MISO_SET)
+    if (MISO_READ)
       rx |= (1u << i);
 
     // Falling edge — return SCK to idle-low

@@ -16,12 +16,16 @@ extern "C" {
 #define BB_MISO GPIO_PIN_5 // PB5
 #define BB_CS GPIO_PIN_6   // PB6
 
-// Macros for MISO and SCK pin states
-#define MISO_LOW (GPIOB->BSRR = BB_MOSI)
-#define MISO_HIGH GPIOB->BSRR = ((uint32_t)BB_MOSI << 16)
-#define MISO_SET (GPIOB->IDR & BB_MISO)
-#define SCK_LOW (GPIOB->BSRR = BB_SCK)
-#define SCK_HIGH GPIOB->BSRR = ((uint32_t)BB_SCK << 16)
+// Macros for MOSI and SCK pin states
+// MOSI
+#define MOSI_HIGH (GPIOB->BSRR = BB_MOSI)
+#define MOSI_LOW (GPIOB->BSRR = ((uint32_t)BB_MOSI << 16))
+
+// SCK
+#define SCK_HIGH (GPIOB->BSRR = BB_SCK)
+#define SCK_LOW (GPIOB->BSRR = ((uint32_t)BB_SCK << 16))
+
+#define MISO_READ (GPIOB->IDR & BB_MISO)
 
 /**
  * @brief Send a CC1101 command strobe and optionally return the status byte.
