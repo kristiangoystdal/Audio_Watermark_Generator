@@ -1136,6 +1136,19 @@ class FlashToolApp(tk.Tk):
         if not self.valid_int(self.vars["attenuation"].get(), 0, 100):
             errors.append("Attenuation must be an integer between 0 and 100")
 
+        if self.notebook.index(self.notebook.select()) == 1:  # Receiver tab
+            if (
+                not self.include_user_string.get()
+                and not self.include_device_id.get()
+                and not self.include_location.get()
+                and not self.include_time.get()
+                and not self.include_temperature.get()
+            ):
+                errors.append("At least one field must be included in the watermark")
+        else:  # Base tab
+            if not self.include_user_string.get() and not self.include_time.get():
+                errors.append("At least User String or Timestamp must be included")
+
         if errors:
             messagebox.showwarning(
                 "Invalid Input",
