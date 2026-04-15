@@ -368,6 +368,9 @@ int main(void) {
 
   if (RX_MODE) {
     Relay_SetBypassMode();
+  } else {
+    LOGF("Configuring for TX mode\r\n");
+    RTC_SetWakeupTimer(60);
   }
 
   //-----------------------------------------------------------------------------//
@@ -378,6 +381,10 @@ int main(void) {
   LOGF("\r\n");
 
   while (1) {
+    // 3) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    LOGF("Entering STOP mode...\r\n");
+    EnterStopMode();
+
     // 1) Check battery voltage and go back to sleep if low
     Battery_IsLow(&hadc1);
 
@@ -546,10 +553,6 @@ int main(void) {
 
       RTC_SetWakeupTimer(sleep_seconds);
     }
-
-    // 3) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
-    LOGF("Entering STOP mode...\r\n");
-    EnterStopMode();
 
     /* USER CODE END WHILE */
 
@@ -1013,8 +1016,15 @@ void EnterStopMode(void) {
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
   PWR->SCR = PWR_SCR_CWUF;
+
   __DSB();
   __ISB();
+
+  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET) {
+    HAL_ResumeTick();
+    SystemClock_Config();
+    return;
+  }
 
   HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
 
