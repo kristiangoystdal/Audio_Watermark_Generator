@@ -28,15 +28,13 @@
 #include "ds3231.h"
 #include "error_codes.h"
 #include "frequency_config.h"
-#include "ism.h"
-#include "ism_config_433.h"
+#include "cc1101_config.h"
 #include "led_feedback.h"
 #include "log.h"
 #include "opamps.h"
 #include "radio.h"
 #include "reed_solomon.h"
 #include "relay.h"
-#include "spi.h"
 #include "user_config.h"
 
 // Standard library includes
@@ -191,8 +189,8 @@ void get_dc_mid(void);
 uint32_t get_dac_sample_rate_hz(void);
 static void RTC_SetWakeupTimer(uint32_t seconds);
 
-static void TX_Start(void);
-static void TX_Stop(void);
+static void start_audio_transmission(void);
+static void stop_audio_transmission(void);
 
 void app_radio_test(void);
 
@@ -258,7 +256,7 @@ int main(void) {
   // Set DAC output to mid-level (silence) before starting
   //-----------------------------------------------------------------------------//
 
-  Set_DAC_Output_To_Midlevel(&hdac1, 2048);
+  DAC_SetMidlevel(&hdac1, 2048);
 
   //-----------------------------------------------------------------------------//
   // Initialize UART logging
@@ -277,7 +275,7 @@ int main(void) {
   // Check battery voltage and go back to sleep if low
   //-----------------------------------------------------------------------------//
 
-  is_battery_low(&hadc1);
+  Battery_IsLow(&hadc1);
 
   //-----------------------------------------------------------------------------//
   // Get DAC sample rate and log it
@@ -298,7 +296,7 @@ int main(void) {
   // requirements
   //-----------------------------------------------------------------------------//
   if (RX_MODE) {
-    freq_pair = find_frequency_pair(dac_sample_rate);
+    freq_pair = FreqConfig_FindFreqPair(dac_sample_rate);
 
     LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
          (unsigned int)freq_pair.lower_freq,
@@ -330,10 +328,10 @@ int main(void) {
   DS3231_PowerOn();
   if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
     DS3231_Init();
-    Set_Time(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW, INITIAL_DOM,
-             INITIAL_MONTH, INITIAL_YEAR);
+    DS3231_SetTime(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
+                   INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
   }
-  Get_Time(&now);
+  DS3231_GetTime(&now);
   LOGF("-------------------------\r\n");
   LOGF("\r\n");
 
@@ -342,7 +340,7 @@ int main(void) {
   //-----------------------------------------------------------------------------//
 
   HAL_Delay(20);
-  int8_t init_result = init_radio(RX_MODE);
+  int8_t init_result = Radio_Init(RX_MODE);
   if (init_result != 0) {
     LOGF("Failed to initialize radio in %s mode, error code: %d\r\n",
          RX_MODE ? "RX" : "TX", init_result);
@@ -356,7 +354,11 @@ int main(void) {
   //-----------------------------------------------------------------------------//
 
   if (RX_MODE) {
-    turn_off_relay();
+    Relay_SetBypassMode();
+  } else {
+    RTC_SetWakeupTimer(60);
+    LOGF("Starting in TX mode, will transmit every %d minutes\r\n",
+         INTERVAL_BETWEEN_REPEATS_MINUTES);
   }
 
   //-----------------------------------------------------------------------------//
@@ -367,25 +369,19 @@ int main(void) {
   LOGF("\r\n");
 
   while (1) {
-
-    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
-    LOGF("Entering STOP mode...\r\n");
-    EnterStopMode();
-
-    // 2) Debounce button
-    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
-    }
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+    // 1) Check battery voltage and go back to sleep if low
+    Battery_IsLow(&hadc1);
 
     uint32_t wake_tick = HAL_GetTick();
     LOGF("Woke up!\r\n");
 
-    Get_Time(&now);
+    // 2) Get current time from RTC
+    DS3231_GetTime(&now);
 
     // 3) Check state and either start RX or TX
     if (RX_MODE) {
       // RX mode: read from radio and store in string
-      read_RX(transmission, sizeof(transmission));
+      Radio_Receive(transmission, sizeof(transmission));
       LOGF("Received transmission: ");
       for (size_t i = 0; i < sizeof(transmission); i++) {
         LOGF("%02X ", transmission[i]);
@@ -419,8 +415,8 @@ int main(void) {
         memset(codeword, 0, sizeof(codeword));
 
         // Encode the output string using Reed-Solomon
-        rs_encode_msg((const uint8_t *)output_str, (int)payload_len, codeword,
-                      RS_ERROR_CORRECTION_SYMBOLS);
+        RS_EncodeMsg((const uint8_t *)output_str, (int)payload_len, codeword,
+                     RS_ERROR_CORRECTION_SYMBOLS);
 
         LOGF("Reed-Solomon encoded codeword: ");
         for (size_t i = 0; i < payload_len + RS_ERROR_CORRECTION_SYMBOLS; i++) {
@@ -451,7 +447,6 @@ int main(void) {
       LOGF("\r\n");
 
       // Calculate active duration based on bitstream length and bit durations
-      size_t bitstream_len = 1u + payload_len * 8u + 8u;
       LOGF("Bitstream: ");
       for (size_t i = 0; i < BITSTREAM_LENGTH; i++) {
         LOGF("%u", bitstream[i]);
@@ -467,15 +462,15 @@ int main(void) {
       LOGF("Starting transmission of response over audio...\r\n");
       if (USE_CABLE_TRANSMISSION) {
         LOGF("Using cable transmission\r\n");
-        Turn_On_Opamps(&hdac1);
-        turn_on_relay();
+        Opamps_Enable(&hdac1);
+        Relay_SetMixingMode();
       } else {
         LOGF("Using speaker transmission\r\n");
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
       }
       LOGF("\r\n");
 
-      TX_Start();
+      start_audio_transmission();
 
       // Wait for active window to complete (enters low-power sleep while
       // waiting)
@@ -494,13 +489,13 @@ int main(void) {
       HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 
       // Stop transmission and go back to sleep
-      TX_Stop();
+      stop_audio_transmission();
 
     } else {
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
       // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
-      start_TX();
+      Radio_Transmit();
 
       uint32_t target_interval_s;
 
@@ -541,8 +536,14 @@ int main(void) {
       RTC_SetWakeupTimer(sleep_seconds);
     }
 
-    // 4) Check battery voltage and go back to sleep if low
-    is_battery_low(&hadc1);
+    // 3) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    LOGF("Entering STOP mode...\r\n");
+    EnterStopMode();
+
+    // 4) Debounce button
+    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
+    }
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
     /* USER CODE END WHILE */
 
@@ -1310,7 +1311,7 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   current_sine_index = r.current_index;
 }
 
-static void TX_Start(void) {
+static void start_audio_transmission(void) {
   LOGF("\r\nTX_Start()\r\n");
 
   current_bitstream_index = 0;
@@ -1378,19 +1379,19 @@ static void TX_Start(void) {
   }
 }
 
-static void TX_Stop(void) {
-  LOGF("TX_Stop()\r\n");
+static void stop_audio_transmission(void) {
+  LOGF("stop_audio_transmission()\r\n");
 
   tx_active = false;
 
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
-  turn_off_relay();
+  Relay_SetBypassMode();
 
   // Stop trigger + DMA first
   HAL_TIM_Base_Stop(&htim2);
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 
-  Turn_Off_Opamps(&hdac1);
+  Opamps_Disable(&hdac1);
 
   // Optional: if you want to *keep* the mid DC during STOP, leave DAC
   // running. If you want lowest power, stop it (output may go undefined
@@ -1612,7 +1613,7 @@ static int init_luts_from_freqpair(void) {
 
 void Error_Handler_Code(status_code_t code) {
   g_error_code = code;
-  Error_Handler(); // call the CubeMX-compatible one
+  // Error_Handler(); // call the CubeMX-compatible one
 }
 
 int _write(int file, char *ptr, int len) {
@@ -1645,16 +1646,16 @@ void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   LOGF("Error_Handler: code=%d\r\n", (int)g_error_code);
 
-  // If you want it to repeat forever:
-  LED_BlinkStatusCode((uint8_t)g_error_code);
-
   // Turn off relay and opamps to save power (optional, depending on error)
-  turn_off_relay();
-  Turn_Off_Opamps(&hdac1);
-  
+  Relay_SetBypassMode();
+  Opamps_Disable(&hdac1);
+
+  // Blink error code
+  LED_BlinkStatusCode((uint8_t)g_error_code);
 
   __disable_irq();
   while (1) {
+    // Stay here - reset or power cycle needed
   }
   /* USER CODE END Error_Handler_Debug */
 }
