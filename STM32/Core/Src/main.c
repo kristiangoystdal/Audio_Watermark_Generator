@@ -25,10 +25,10 @@
 // Include headers for custom modules
 #include "battery.h"
 #include "cc1101.h"
+#include "cc1101_config.h"
 #include "ds3231.h"
 #include "error_codes.h"
 #include "frequency_config.h"
-#include "cc1101_config.h"
 #include "led_feedback.h"
 #include "log.h"
 #include "opamps.h"
@@ -303,6 +303,8 @@ int main(void) {
          (unsigned int)freq_pair.higher_freq);
     LOGF("--------------------------\r\n");
     LOGF("\r\n");
+  } else {
+    LOGF("Skipping finding frequencies");
   }
 
   //-----------------------------------------------------------------------------//
@@ -319,19 +321,30 @@ int main(void) {
     get_sineval_low();
     get_sineval_high();
     get_dc_mid();
+  } else {
+    LOGF("Skipping LUT preparation");
   }
 
   //-----------------------------------------------------------------------------//
   // Initialize RTC
   //-----------------------------------------------------------------------------//
 
-  DS3231_PowerOn();
-  if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
-    DS3231_Init();
-    DS3231_SetTime(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
-                   INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
+  if (SET_INITIAL_TIME) {
+    LOGF("Setting initial RTC time to %02d:%02d:%02d %02d/%02d/%04d\r\n",
+         INITIAL_HOUR, INITIAL_MIN, INITIAL_SEC, INITIAL_DOM, INITIAL_MONTH,
+         INITIAL_YEAR);
+
+    DS3231_PowerOn();
+    if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
+      DS3231_Init();
+      DS3231_SetTime(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
+                     INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
+    }
+    // FlashFlag_ClearFirstBoot(); // won't run again until GUI resets it
   }
+
   DS3231_GetTime(&now);
+  DS3231_PowerOff();
   LOGF("-------------------------\r\n");
   LOGF("\r\n");
 
@@ -355,10 +368,6 @@ int main(void) {
 
   if (RX_MODE) {
     Relay_SetBypassMode();
-  } else {
-    RTC_SetWakeupTimer(60);
-    LOGF("Starting in TX mode, will transmit every %d minutes\r\n",
-         INTERVAL_BETWEEN_REPEATS_MINUTES);
   }
 
   //-----------------------------------------------------------------------------//
@@ -376,7 +385,9 @@ int main(void) {
     LOGF("Woke up!\r\n");
 
     // 2) Get current time from RTC
+    DS3231_PowerOn();
     DS3231_GetTime(&now);
+    DS3231_PowerOff();
 
     // 3) Check state and either start RX or TX
     if (RX_MODE) {
@@ -494,7 +505,7 @@ int main(void) {
     } else {
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
-      // LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
+      LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       Radio_Transmit();
 
       uint32_t target_interval_s;
@@ -539,11 +550,6 @@ int main(void) {
     // 3) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
     LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
-
-    // 4) Debounce button
-    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET) {
-    }
-    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
 
     /* USER CODE END WHILE */
 
@@ -986,33 +992,42 @@ static void MX_GPIO_Init(void) {
 /* USER CODE BEGIN 4 */
 
 void EnterStopMode(void) {
-
-  // Clear EXTI pending + NVIC pending for PB7 (wakeup source)
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
-
-  // Clear PWR wake flags
   PWR->SCR = PWR_SCR_CWUF;
-
-  // Optional: disable debug in STOP (important on ST-LINK boards)
   DBGMCU->CR &=
       ~(DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STANDBY);
 
   HAL_SuspendTick();
 
+  if (RX_MODE) {
+    // RX: wake on PB7 only — disable RTC wakeup timer
+    HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
+    HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  } else {
+    // TX: wake on RTC only — disable PB7
+    HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+  }
+
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
+  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
   PWR->SCR = PWR_SCR_CWUF;
   __DSB();
   __ISB();
 
   HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
 
-  // We are awake here, but clocks are still not restored:
+  // Woke up here
   SystemClock_Config();
   HAL_ResumeTick();
-}
 
+  // Restore both interrupt sources after wakeup
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+  PWR->SCR = PWR_SCR_CWUF;
+}
 void StartActiveWindowMs(uint32_t ms) {
   active_done = 0;
 
