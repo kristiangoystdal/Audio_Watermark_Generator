@@ -39,7 +39,7 @@ static bool total_samples_within_tolerance(uint16_t total_samples,
          (total <= (target_samples + tolerance_samples));
 }
 
-freq_pair_t find_frequency_pair(uint32_t fs) {
+freq_pair_t FreqConfig_FindFreqPair(uint32_t fs) {
   freq_pair_t result = {0};
 
   const size_t min_bit_samples =

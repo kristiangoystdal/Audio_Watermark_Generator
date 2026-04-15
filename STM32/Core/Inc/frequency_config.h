@@ -19,6 +19,6 @@ typedef struct {
   uint16_t higher_freq_periods;
 } freq_pair_t;
 
-freq_pair_t find_frequency_pair(uint32_t fs);
+freq_pair_t FreqConfig_FindFreqPair(uint32_t fs);
 
 #endif // FREQUENCY_CONFIG_H
