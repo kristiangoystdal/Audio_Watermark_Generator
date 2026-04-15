@@ -13,11 +13,34 @@ extern I2C_HandleTypeDef hi2c2; // defined in i2c.c
 
 #define DS3231_ADDR (0x68 << 1) // 7-bit address shifted for HAL
 
+// Initialize DS3231
+void DS3231_Init(void) {
+  uint8_t sec;
+
+  // Read current seconds register
+  if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec, 1,
+                       HAL_MAX_DELAY) != HAL_OK) {
+    return;
+  }
+
+  // Clear CH (bit 7)
+  sec &= 0x7F;
+
+  // Write it back
+  if (HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec,
+                        1, HAL_MAX_DELAY) != HAL_OK) {
+    return;
+  }
+  return;
+}
+
+// Power on the DS3231 by setting the control pin high
 void DS3231_PowerOn(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   LOGF("DS3231 Power ON\r\n");
 }
 
+// Power off the DS3231 by setting the control pin low
 void DS3231_PowerOff(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
   LOGF("DS3231 Power OFF\r\n");
@@ -36,17 +59,17 @@ static int DS3231_BcdToDec(uint8_t val) {
 // Set time/date into DS3231
 void DS3231_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow,
                     uint8_t dom, uint8_t month, uint16_t year) {
-  uint8_t DS3231_SetTime[7];
-  DS3231_SetTime[0] = DS3231_DecToBcd(sec);         // Seconds
-  DS3231_SetTime[1] = DS3231_DecToBcd(min);         // Minutes
-  DS3231_SetTime[2] = DS3231_DecToBcd(hour) & 0x3F; // Hours (24h mode)
-  DS3231_SetTime[3] = DS3231_DecToBcd(dow);         // Day of week (1–7)
-  DS3231_SetTime[4] = DS3231_DecToBcd(dom);         // Date (1–31)
-  DS3231_SetTime[5] = DS3231_DecToBcd(month);       // Month (1–12)
-  DS3231_SetTime[6] = DS3231_DecToBcd(year % 100);  // Year (00–99)
+  uint8_t set_time[7];
+  set_time[0] = DS3231_DecToBcd(sec);         // Seconds
+  set_time[1] = DS3231_DecToBcd(min);         // Minutes
+  set_time[2] = DS3231_DecToBcd(hour) & 0x3F; // Hours (24h mode)
+  set_time[3] = DS3231_DecToBcd(dow);         // Day of week (1–7)
+  set_time[4] = DS3231_DecToBcd(dom);         // Date (1–31)
+  set_time[5] = DS3231_DecToBcd(month);       // Month (1–12)
+  set_time[6] = DS3231_DecToBcd(year % 100);  // Year (00–99)
 
-  HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT,
-                    DS3231_SetTime, 7, HAL_MAX_DELAY);
+  HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time,
+                    7, HAL_MAX_DELAY);
   LOGF("RTC Time Set: %02d:%02d:%02d %02d/%02d/%04d\r\n", hour, min, sec, dom,
        month, year);
 }
@@ -80,27 +103,6 @@ void DS3231_GetTime(rtc_time_t *time) {
   return;
 }
 
-// Initialize DS3231
-void DS3231_Init(void) {
-  uint8_t sec;
-
-  // Read current seconds register
-  if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec, 1,
-                       HAL_MAX_DELAY) != HAL_OK) {
-    return;
-  }
-
-  // Clear CH (bit 7)
-  sec &= 0x7F;
-
-  // Write it back
-  if (HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec,
-                        1, HAL_MAX_DELAY) != HAL_OK) {
-    return;
-  }
-  return;
-}
-
 // Read temperature from DS3231 (integer °C only)
 void DS3231_ReadTemperature(int8_t *temperature) {
   uint8_t msb;
@@ -114,3 +116,5 @@ void DS3231_ReadTemperature(int8_t *temperature) {
 
   return;
 }
+
+void DS3231_FirstBootSetup(void) {}
