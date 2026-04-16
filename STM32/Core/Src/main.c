@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -56,6 +57,7 @@
 #include <sys/_intsup.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <usbd_cdc_if.h>
 
 /* USER CODE END Includes */
 
@@ -163,6 +165,9 @@ freq_pair_t freq_pair = {0};
 
 volatile status_code_t g_error_code = STATUS_CODE_OK;
 
+extern volatile uint8_t cdc_rx_buf[64];
+extern volatile uint8_t cdc_rx_len;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -206,6 +211,8 @@ void create_string_from_received_data(const uint8_t *transmission,
 static int init_luts_from_freqpair(void);
 
 void Error_Handler_Code(status_code_t code);
+
+void TryReceiveTimeSync(void);
 
 /* USER CODE END PFP */
 
@@ -251,6 +258,7 @@ int main(void) {
   MX_TIM6_Init();
   MX_USART2_UART_Init();
   MX_RTC_Init();
+  MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
 
   //-----------------------------------------------------------------------------//
@@ -285,12 +293,6 @@ int main(void) {
   uint32_t dac_sample_rate = get_dac_sample_rate_hz();
   LOGF("DAC sample rate: %lu Hz\r\n", (unsigned long)dac_sample_rate);
   LOGF("\r\n");
-
-  //-----------------------------------------------------------------------------//
-  // Indicate boot complete with LED blinks
-  //-----------------------------------------------------------------------------//
-
-  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
 
   //-----------------------------------------------------------------------------//
   // Find and set FSK frequencies based on user config and sample count
@@ -331,14 +333,9 @@ int main(void) {
   //-----------------------------------------------------------------------------//
 
   if (!FlashFlag_TimeWasSet()) {
-    DS3231_PowerOn();
-    if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 3, 100) == HAL_OK) {
-      DS3231_Init();
-      DS3231_SetTime(INITIAL_SEC, INITIAL_MIN, INITIAL_HOUR, INITIAL_DOW,
-                     INITIAL_DOM, INITIAL_MONTH, INITIAL_YEAR);
-      FlashFlag_SetTimeWasSet();
-    }
-    DS3231_PowerOff();
+    TryReceiveTimeSync();
+
+    FlashFlag_SetTimeWasSet();
   }
 
   DS3231_PowerOn();
@@ -372,6 +369,12 @@ int main(void) {
     LOGF("Configuring for TX mode\r\n");
     RTC_SetWakeupTimer(60);
   }
+
+  //-----------------------------------------------------------------------------//
+  // Indicate boot complete with LED blinks
+  //-----------------------------------------------------------------------------//
+
+  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
 
   //-----------------------------------------------------------------------------//
   // Main loop
@@ -984,8 +987,6 @@ static void MX_GPIO_Init(void) {
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -995,6 +996,7 @@ static void MX_GPIO_Init(void) {
 /* USER CODE BEGIN 4 */
 
 void EnterStopMode(void) {
+
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   PWR->SCR = PWR_SCR_CWUF;
@@ -1010,6 +1012,7 @@ void EnterStopMode(void) {
   } else {
     // TX: wake on RTC only — disable PB7
     HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
+    HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
   }
 
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
@@ -1031,6 +1034,7 @@ void EnterStopMode(void) {
   // Woke up here
   SystemClock_Config();
   HAL_ResumeTick();
+  MX_USART2_UART_Init(); // re-init UART after clock restore
 
   // Restore both interrupt sources after wakeup
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
@@ -1666,6 +1670,58 @@ static void RTC_SetWakeupTimer(uint32_t seconds) {
                                   RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK) {
     Error_Handler_Code(STATUS_CODE_UNKNOWN_ERROR);
   }
+}
+
+void TryReceiveTimeSync(void) {
+  LOGF("Waiting for time sync (10s)...\r\n");
+
+  char buf[32] = {0};
+  uint32_t start = HAL_GetTick();
+
+  while (HAL_GetTick() - start < 10000) {
+    if (cdc_rx_len > 0) {
+      uint8_t len = cdc_rx_len;
+      cdc_rx_len = 0; // clear immediately
+
+      memcpy(buf, (uint8_t *)cdc_rx_buf, len);
+      buf[len] = '\0';
+
+      // strip \r\n
+      for (int i = 0; i < len; i++) {
+        if (buf[i] == '\r' || buf[i] == '\n') {
+          buf[i] = '\0';
+          break;
+        }
+      }
+
+      if (buf[0] == 'T') {
+        int h, m, s, dow, day, mon, year;
+        if (sscanf(buf + 1, "%d:%d:%d %d/%d/%d", &h, &m, &s, &dow, &day, &mon,
+                   &year) == 7) {
+          DS3231_PowerOn();
+          HAL_Delay(5);
+          DS3231_Init();
+          DS3231_SetTime(s, m, h, dow, day, mon, year);
+          DS3231_PowerOff();
+          LOGF("Time synced: %02d:%02d:%02d %02d/%02d/%04d\r\n", h, m, s, day,
+               mon, year);
+          LED_Toggle();
+          HAL_Delay(50);
+          LED_Toggle();
+
+          return;
+        }
+      }
+    }
+    HAL_Delay(10);
+  }
+  LOGF("No time sync received\r\n");
+  LED_Toggle();
+  HAL_Delay(50);
+  LED_Toggle();
+  LED_Toggle();
+  HAL_Delay(50);
+  LED_Toggle();
 }
 
 /* USER CODE END 4 */
