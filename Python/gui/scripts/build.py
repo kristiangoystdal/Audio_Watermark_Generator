@@ -8,6 +8,9 @@ from tkinter import messagebox
 import tkinter.scrolledtext as st
 import tempfile
 import pathlib
+import serial
+import serial.tools.list_ports
+from datetime import datetime
 
 from scripts.paths import *
 from scripts.user_config import *
@@ -235,9 +238,54 @@ def clear_flash_flag(log_text, safe_log):
         safe_log("[OK] Flash flag cleared.")
 
 
-def build_flash(root, show_log_var, build_btn):
-    global set_initial_time
+def send_time_sync(root, safe_log):
+    safe_log("\n[STEP] Waiting for device to boot into firmware...")
 
+    messagebox.showinfo(
+        "Toggle BOOT0",
+        "Flash complete!\n\nNow set BOOT0 LOW and power-cycle or replug the device.\n\nClick OK when done.",
+    )
+
+    time.sleep(3)
+
+    port = None
+    all_ports = serial.tools.list_ports.comports()
+    safe_log(
+        f"[DEBUG] Available ports: {[(p.device, p.description) for p in all_ports]}"
+    )
+
+    for p in all_ports:
+        desc = (p.description or "").lower()
+        hwid = (p.hwid or "").lower()
+        device = (p.device or "").lower()
+        if any(
+            x in desc or x in hwid or x in device
+            for x in ["stm32", "usbmodem", "0483:5740"]
+        ):
+            port = p.device
+            break
+
+    if not port:
+        safe_log("[WARN] STM32 CDC port not found, skipping time sync")
+        safe_log(
+            "[INFO] You can set time manually by sending T<HH>:<MM>:<SS> <DOW> <DD>/<MM>/<YYYY> over serial"
+        )
+        return
+
+    now = datetime.now()
+    time_str = f"T{now.hour:02d}:{now.minute:02d}:{now.second:02d} {now.weekday()} {now.day:02d}/{now.month:02d}/{now.year}\n"
+
+    try:
+        with serial.Serial(port, 115200, timeout=2) as ser:
+            time.sleep(0.5)  # let CDC settle before writing
+            safe_log(f"[INFO] Sending: {time_str.strip()} on {port}")
+            ser.write(time_str.encode())
+            safe_log("[OK] Time sync sent")
+    except Exception as e:
+        safe_log(f"[WARN] Time sync failed: {e}")
+
+
+def build_flash(root, show_log_var, build_btn):
     build_btn.config(state="disabled")
     root.update_idletasks()
 
@@ -247,7 +295,7 @@ def build_flash(root, show_log_var, build_btn):
         log_win.title("Build Log")
         log_text = st.ScrolledText(log_win, width=100, height=30)
         log_text.pack(padx=10, pady=10)
-        log_text.insert(tk.END, "Starting dual build...\n")
+        log_text.insert(tk.END, "Starting build...\n")
 
     def safe_log(msg):
         print(msg.strip())
@@ -260,12 +308,14 @@ def build_flash(root, show_log_var, build_btn):
         prepare_build(log_text, safe_log)
 
         safe_log("\n========== Build and Flash ==========")
-        set_initial_time = 1
-        if not change_user_config(root, set_initial_time, safe_log):
+        if not change_user_config(
+            root, 0, safe_log
+        ):  # SET_INITIAL_TIME=0, handled via UART now
             raise Exception("Failed to update user_config")
         build_only(log_text, safe_log)
         clear_flash_flag(log_text, safe_log)
-        flash_only(log_text, safe_log, leave=True)
+        flash_only(log_text, safe_log, leave=True)  # don't leave, we detach manually
+        send_time_sync(root, safe_log)
 
         safe_log("\n[SUCCESS] ✅ Build & flash complete!")
 
