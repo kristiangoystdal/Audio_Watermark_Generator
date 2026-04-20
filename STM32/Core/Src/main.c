@@ -292,6 +292,7 @@ int main(void) {
 
   DS3231_PowerOn();
   DS3231_GetTime(&now);
+  DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
 
   LOGF("-------------------------\r\n");
@@ -394,9 +395,10 @@ int main(void) {
     uint32_t wake_tick = HAL_GetTick();
     LOGF("Woke up!\r\n");
 
-    // 2) Get current time from RTC
+    // 2) Get current time and temperature from RTC
     DS3231_PowerOn();
     DS3231_GetTime(&now);
+    DS3231_ReadTemperature(&temp_int);
     DS3231_PowerOff();
 
     // 3) Check state and either start RX or TX
