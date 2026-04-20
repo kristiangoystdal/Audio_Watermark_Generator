@@ -95,6 +95,8 @@
 #define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
+#define SYNC_DELAY_MS 3000
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -167,6 +169,8 @@ volatile status_code_t g_error_code = STATUS_CODE_OK;
 
 extern volatile uint8_t cdc_rx_buf[64];
 extern volatile uint8_t cdc_rx_len;
+
+uint32_t wake_up_tick = 0;
 
 /* USER CODE END PV */
 
@@ -388,10 +392,12 @@ int main(void) {
     LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
 
+    uint32_t wake_time = HAL_GetTick();
+    LOGF("Woke up after %lu ms\r\n", wake_time - wake_up_tick);
+
     // 1) Check battery voltage and go back to sleep if low
     Battery_IsLow(&hadc1);
 
-    uint32_t wake_tick = HAL_GetTick();
     LOGF("Woke up!\r\n");
 
     // 2) Get current time from RTC
@@ -475,9 +481,20 @@ int main(void) {
       LOGF("\r\n");
       calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
-      LOGF("Calculated active duration for response: %lu ms\r\n",
-           (unsigned long)total_ms);
-      LOGF("\r\n");
+
+      uint32_t preparation_time_ms = HAL_GetTick() - wake_up_tick;
+      LOGF("Preparation time: %lu ms\r\n", (unsigned long)preparation_time_ms);
+
+      // Wait until all units reach the same point in time
+      uint32_t target_tick = wake_up_tick + SYNC_DELAY_MS;
+      int32_t wait_ms = (int32_t)(target_tick - HAL_GetTick());
+      if (wait_ms > 0) {
+        LOGF("Sync wait: %ld ms\r\n", wait_ms);
+        HAL_Delay((uint32_t)wait_ms);
+      } else {
+        LOGF("WARNING: preparation exceeded SYNC_DELAY_MS by %ld ms\r\n",
+             -wait_ms);
+      }
 
       // Send transmission over audio
       LOGF("Starting transmission of response over audio...\r\n");
@@ -512,6 +529,8 @@ int main(void) {
       // Stop transmission and go back to sleep
       stop_audio_transmission();
 
+      Radio_EnterWOR(); // ← add this
+
     } else {
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
@@ -526,7 +545,7 @@ int main(void) {
         target_interval_s = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
       }
 
-      uint32_t elapsed_ms = HAL_GetTick() - wake_tick;
+      uint32_t elapsed_ms = HAL_GetTick() - wake_up_tick;
       uint32_t elapsed_s = elapsed_ms / 1000;
 
       uint32_t sleep_seconds;
@@ -996,57 +1015,54 @@ static void MX_GPIO_Init(void) {
 /* USER CODE BEGIN 4 */
 
 void EnterStopMode(void) {
-
   __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
   HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
+  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
   PWR->SCR = PWR_SCR_CWUF;
+
   DBGMCU->CR &=
       ~(DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STANDBY);
 
-  HAL_SuspendTick();
-
   if (RX_MODE) {
-    // RX: wake on PB7 only — disable RTC wakeup timer
     HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
     HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   } else {
-    // TX: wake on RTC only — disable PB7
     HAL_NVIC_DisableIRQ(EXTI9_5_IRQn);
     HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
   }
 
-  __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
-  HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
-  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
-  PWR->SCR = PWR_SCR_CWUF;
-
   __DSB();
   __ISB();
-
-  if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET) {
-    HAL_ResumeTick();
-    SystemClock_Config();
-    MX_USART2_UART_Init();
-    MX_USB_Device_Init(); // add this
-    HAL_Delay(500);
-    return;
-  }
-
+  HAL_SuspendTick();
   HAL_PWREx_EnterSTOP1Mode(PWR_STOPENTRY_WFI);
 
-  // Woke up here
   SystemClock_Config();
   HAL_ResumeTick();
+  wake_up_tick = HAL_GetTick();
+  MX_I2C2_Init();
   MX_USART2_UART_Init();
-  MX_USB_Device_Init(); // add this
-  HAL_Delay(500);       // wait for host to re-enumerate
+  MX_USB_Device_Init();
+  HAL_Delay(10);
 
-  // Restore both interrupt sources after wakeup
+  // RX only: wait for GDO0 to deassert after wakeup
+  if (RX_MODE) {
+    uint32_t settle = HAL_GetTick();
+    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET &&
+           HAL_GetTick() - settle < 5) {
+    }
+  }
+
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+  if (RX_MODE) {
+    __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
+    HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
+  } else {
+    __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+  }
   __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
   PWR->SCR = PWR_SCR_CWUF;
 }
+
 void StartActiveWindowMs(uint32_t ms) {
   active_done = 0;
 
