@@ -19,7 +19,7 @@ void DS3231_Init(void) {
 
   // Read current seconds register
   if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec, 1,
-                       HAL_MAX_DELAY) != HAL_OK) {
+                       1000) != HAL_OK) {
     return;
   }
 
@@ -28,7 +28,7 @@ void DS3231_Init(void) {
 
   // Write it back
   if (HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec,
-                        1, HAL_MAX_DELAY) != HAL_OK) {
+                        1, 1000) != HAL_OK) {
     return;
   }
   return;
@@ -71,16 +71,17 @@ void DS3231_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow,
   set_time[6] = DS3231_DecToBcd(year % 100);  // Year (00–99)
 
   HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time,
-                    7, HAL_MAX_DELAY);
+                    7, 1000);
   LOGF("RTC Time Set: %02d:%02d:%02d %02d/%02d/%04d\r\n", hour, min, sec, dom,
        month, year);
 }
 
 // Read time/date from DS3231
 void DS3231_GetTime(rtc_time_t *time) {
+  LOGF("Reading time from DS3231...\r\n");
   uint8_t get_time[7];
   if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT,
-                       get_time, 7, HAL_MAX_DELAY) != HAL_OK) {
+                       get_time, 7, 1000) != HAL_OK) {
     time->seconds = 0;
     time->minutes = 0;
     time->hours = 0;
@@ -88,6 +89,8 @@ void DS3231_GetTime(rtc_time_t *time) {
     time->date = 0;
     time->month = 0;
     time->year = 2000;
+
+    LOGF("Failed to read time from DS3231\r\n");
     return;
   }
 
@@ -109,8 +112,9 @@ void DS3231_GetTime(rtc_time_t *time) {
 void DS3231_ReadTemperature(int8_t *temperature) {
   uint8_t msb;
   if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x11, I2C_MEMADD_SIZE_8BIT, &msb, 1,
-                       HAL_MAX_DELAY) != HAL_OK) {
+                       1000) != HAL_OK) {
     *temperature = 0;
+    LOGF("Failed to read temperature from DS3231\r\n");
     return;
   }
 
