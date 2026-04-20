@@ -38,10 +38,12 @@ void DS3231_Init(void) {
 void DS3231_PowerOn(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   LOGF("DS3231 Power ON\r\n");
+  HAL_Delay(5);
 }
 
 // Power off the DS3231 by setting the control pin low
 void DS3231_PowerOff(void) {
+  HAL_Delay(5);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
   LOGF("DS3231 Power OFF\r\n");
 }
