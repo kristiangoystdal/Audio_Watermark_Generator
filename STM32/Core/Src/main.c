@@ -281,6 +281,23 @@ int main(void) {
   /* USER CODE BEGIN WHILE */
 
   //-----------------------------------------------------------------------------//
+  // Initialize RTC
+  //-----------------------------------------------------------------------------//
+
+  if (!FlashFlag_TimeWasSet()) {
+    TryReceiveTimeSync();
+
+    FlashFlag_SetTimeWasSet();
+  }
+
+  DS3231_PowerOn();
+  DS3231_GetTime(&now);
+  DS3231_PowerOff();
+
+  LOGF("-------------------------\r\n");
+  LOGF("\r\n");
+
+  //-----------------------------------------------------------------------------//
   // Check battery voltage and go back to sleep if low
   //-----------------------------------------------------------------------------//
 
@@ -327,23 +344,6 @@ int main(void) {
   } else {
     LOGF("Skipping LUT preparation");
   }
-
-  //-----------------------------------------------------------------------------//
-  // Initialize RTC
-  //-----------------------------------------------------------------------------//
-
-  if (!FlashFlag_TimeWasSet()) {
-    TryReceiveTimeSync();
-
-    FlashFlag_SetTimeWasSet();
-  }
-
-  DS3231_PowerOn();
-  DS3231_GetTime(&now);
-  DS3231_PowerOff();
-
-  LOGF("-------------------------\r\n");
-  LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
   // Initialize radio
@@ -1026,6 +1026,9 @@ void EnterStopMode(void) {
   if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET) {
     HAL_ResumeTick();
     SystemClock_Config();
+    MX_USART2_UART_Init();
+    MX_USB_Device_Init(); // add this
+    HAL_Delay(500);
     return;
   }
 
@@ -1034,7 +1037,9 @@ void EnterStopMode(void) {
   // Woke up here
   SystemClock_Config();
   HAL_ResumeTick();
-  MX_USART2_UART_Init(); // re-init UART after clock restore
+  MX_USART2_UART_Init();
+  MX_USB_Device_Init(); // add this
+  HAL_Delay(500);       // wait for host to re-enumerate
 
   // Restore both interrupt sources after wakeup
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
@@ -1652,9 +1657,20 @@ void Error_Handler_Code(status_code_t code) {
   // Error_Handler(); // call the CubeMX-compatible one
 }
 
+// int _write(int file, char *ptr, int len) {
+//   (void)file;
+//   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
+//   return len;
+// }
+
 int _write(int file, char *ptr, int len) {
   (void)file;
   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
+  uint32_t start = HAL_GetTick();
+  while (CDC_Transmit_FS((uint8_t *)ptr, len) == USBD_BUSY) {
+    if (HAL_GetTick() - start > 10)
+      break;
+  }
   return len;
 }
 
@@ -1696,8 +1712,8 @@ void TryReceiveTimeSync(void) {
 
       if (buf[0] == 'T') {
         int h, m, s, dow, day, mon, year;
-        if (sscanf(buf + 1, "%d:%d:%d %d/%d/%d", &h, &m, &s, &dow, &day, &mon,
-                   &year) == 7) {
+        if (sscanf(buf + 1, "%d:%d:%d %d %d/%d/%d", &h, &m, &s, &dow, &day,
+                   &mon, &year) == 7) {
           DS3231_PowerOn();
           HAL_Delay(5);
           DS3231_Init();
