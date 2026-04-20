@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stm32g4xx_hal.h>
 #include <string.h>
 #include <sys/_intsup.h>
@@ -109,21 +110,21 @@ char *Radio_BuildPayload(uint32_t offset_ms) {
     offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/STR%s",
                        USER_STRING);
   }
+
   if (INCLUDE_TIME) {
     rtc_time_t now;
     DS3231_PowerOn();
     DS3231_GetTime(&now);
     DS3231_PowerOff();
 
-    if (now.year == 2000) {
-      LOGF("RTC time not set, don't include time in payload\r\n");
-      return strdup(temp_buf);
+    if (now.year != 2000) {
+      offset +=
+          snprintf(temp_buf + offset, sizeof(temp_buf) - offset,
+                   "/TIM%02d%02d%02d%02d%02d%02d%04d", now.hours, now.minutes,
+                   now.seconds, now.day, now.date, now.month, now.year);
+    } else {
+      LOGF("RTC time not set, skipping time field\r\n");
     }
-
-    offset +=
-        snprintf(temp_buf + offset, sizeof(temp_buf) - offset,
-                 "/TIM%02d%02d%02d%02d%02d%02d%04d;", now.hours, now.minutes,
-                 now.seconds, now.day, now.date, now.month, now.year);
   }
 
   offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/OFS%lu",
@@ -147,6 +148,9 @@ void Radio_Transmit(void) {
     pkt[0] = payload_len + 1;
     pkt[1] = 0xEB;
     memcpy(&pkt[2], payload_str, payload_len);
+
+    LOGF("TX payload_len=%d pkt_size=%d\r\n", payload_len, 2 + payload_len);
+    LOGF("TX payload: %s\r\n", payload_str);
 
     CC1101_Strobe(0x3B, &status); // SFTX: flush TX FIFO
 
@@ -181,9 +185,17 @@ void Radio_Transmit(void) {
 int Radio_Receive(uint8_t *out, size_t out_max_len) {
   uint8_t status = 0;
   uint8_t rxbytes = 0;
+  uint8_t rxbytes_prev = 0;
 
-  // RXBYTES: bit7=overflow, bits[6:0]=num bytes
-  CC1101_ReadReg(0xFB, &rxbytes, &status);
+  // Wait for FIFO to stabilize (two consecutive identical reads)
+  uint32_t start = HAL_GetTick();
+  do {
+    rxbytes_prev = rxbytes;
+    HAL_Delay(10); // was 2ms — increase to 10ms
+    CC1101_ReadReg(0xFB, &rxbytes, &status);
+    if (HAL_GetTick() - start > 200) // increase timeout too
+      break;
+  } while (rxbytes != rxbytes_prev);
 
   if (rxbytes & 0x80) {
     LOGF("RX FIFO overflow, flushing and re-entering WOR.\r\n");
@@ -204,13 +216,15 @@ int Radio_Receive(uint8_t *out, size_t out_max_len) {
   out[0] = '\0';
 
   CC1101_ReadBurstReg(0xFF, out, n, &status); // RX FIFO burst read
+  LOGF("RXBYTES n=%d, out[0]=0x%02X(len), out[1]=0x%02X(addr), last=0x%02X\r\n",
+       n, out[0], out[1], out[n - 1]);
 
   // Print received bytes in hex
-  // LOGF("Received %d bytes: ", n);
-  // for (size_t i = 0; i < n; i++) {
-  //   LOGF("%02X ", out[i]);
-  // }
-  // LOGF("\r\n");
+  LOGF("Received %d bytes: ", n);
+  for (size_t i = 0; i < n; i++) {
+    LOGF("%02X ", out[i]);
+  }
+  LOGF("\r\n");
 
   Radio_EnterWOR();
 
