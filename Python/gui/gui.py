@@ -385,14 +385,17 @@ class FlashToolApp(tk.Tk):
 
         self.base_tab = ttk.Frame(self.notebook, padding=8)
         self.receiver_tab = ttk.Frame(self.notebook, padding=8)
+        self.standalone_tab = ttk.Frame(self.notebook, padding=8)
 
         self.notebook.add(self.base_tab, text="Base Station")
         self.notebook.add(self.receiver_tab, text="Receiver")
+        self.notebook.add(self.standalone_tab, text="Standalone")
 
         self.notebook.select(self.base_tab)
 
         self._build_base_tab()
         self._build_receiver_tab()
+        self._build_standalone_tab()
         self._build_bottom_bar(outer)
 
     # -----------------------------------------------------
@@ -781,6 +784,196 @@ class FlashToolApp(tk.Tk):
         ToolTip(
             self.widgets["ecc_level"],
             "Number of Reed-Solomon error-correction symbols (0–100).\nHigher = more robust, but longer transmissions.",
+            self.colors,
+        )
+
+    # -----------------------------------------------------
+    # Standalone tab
+    # -----------------------------------------------------
+    def _build_standalone_tab(self):
+        self.standalone_tab.grid_columnconfigure(0, weight=1, uniform="recv_cols")
+        self.standalone_tab.grid_columnconfigure(1, weight=1, uniform="recv_cols")
+
+        ttk.Label(
+            self.standalone_tab,
+            text="All-in-one mode: configure device info, watermark fields, interval, FSK, and transmission.",
+            style="Muted.TLabel",
+        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        left = ttk.Frame(self.standalone_tab)
+        left.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
+        left.grid_columnconfigure(0, weight=1)
+
+        right = ttk.Frame(self.standalone_tab)
+        right.grid(row=1, column=1, sticky="nsew", padx=(6, 0))
+        right.grid_columnconfigure(0, weight=1)
+
+        c = self.colors
+
+        # Device info
+        device = self.section(left, "Device Information", 0)
+        device.grid_columnconfigure(1, weight=1)
+        self.widgets["receiver_user_string"] = self.entry_row(
+            device, 0, "User String", self.vars["user_string"]
+        )
+        self.widgets["device_id"] = self.entry_row(
+            device, 1, "Device ID", self.vars["device_id"]
+        )
+        self.widgets["location"] = self.entry_row(
+            device, 2, "Location", self.vars["location"]
+        )
+
+        # Include settings
+        include = self.section(left, "Include in Watermark", 1)
+        grid = tk.Frame(include, bg=self.colors["surface"])
+        grid.grid(row=0, column=0, sticky="w")
+        self.checkbox(grid, 0, 0, "User String", self.vars["include_user_string"])
+        self.checkbox(grid, 0, 1, "Device ID", self.vars["include_device_id"])
+        self.checkbox(grid, 0, 2, "Location", self.vars["include_location"])
+        self.checkbox(grid, 1, 0, "Temperature", self.vars["include_temperature"])
+        self.checkbox(grid, 1, 1, "Timestamp", self.vars["include_time"])
+
+        # Interval Settings  (from Base)
+        interval = self.section(left, "Interval Settings", 2)
+        irow = tk.Frame(interval, bg=c["surface"])
+        irow.grid(row=0, column=0, sticky="ew")
+        irow.grid_columnconfigure(0, weight=1)
+
+        self.checkbox(
+            irow, 0, 0, "Use Default Interval (1 minute)", self.vars["default_interval"]
+        ).grid(row=0, column=0, sticky="w")
+        tk.Label(irow, text="Minutes:", bg=c["surface"], fg=c["text"]).grid(
+            row=0, column=1, padx=(16, 6)
+        )
+
+        self.widgets["sa_interval"] = tk.Spinbox(
+            irow,
+            from_=1,
+            to=1440,
+            width=6,
+            textvariable=self.vars["interval"],
+            bg=c["surface"],
+            fg=c["text"],
+            buttonbackground=c["surface_2"],
+            insertbackground=c["text"],
+            highlightbackground=c["surface_2"],
+            highlightcolor=c["accent"],
+            highlightthickness=1,
+            relief="solid",
+            bd=1,
+        )
+        self.widgets["sa_interval"].grid(row=0, column=2, sticky="w")
+
+        # Initial Delay  (from Base)
+        delay = self.section(left, "Initial Delay", 3)
+        drow = tk.Frame(delay, bg=c["surface"])
+        drow.grid(row=0, column=0, sticky="ew")
+        drow.grid_columnconfigure(0, weight=1)
+
+        self.checkbox(drow, 0, 0, "Use Starting Minute", self.vars["use_start_minute"])
+        self.widgets["sa_start_minute"] = ttk.Spinbox(
+            drow, from_=0, to=59, width=6, textvariable=self.vars["start_minute"]
+        )
+        self.widgets["sa_start_minute"].grid(row=0, column=1, sticky="w")
+
+        # Transmission settings
+        tx = self.section(right, "Transmission Settings", 0)
+        ttk.Radiobutton(
+            tx,
+            text="Use Cable Transmission",
+            variable=self.vars["transmission"],
+            value="cable",
+        ).grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Radiobutton(
+            tx,
+            text="Use Speaker Transmission",
+            variable=self.vars["transmission"],
+            value="speaker",
+        ).grid(row=1, column=0, sticky="w", pady=2)
+
+        # FSK settings
+        fsk = self.section(right, "FSK Parameters", 1)
+        row = ttk.Frame(fsk)
+        row.grid(row=0, column=0, sticky="w")
+
+        ttk.Label(row, text="Low (Hz):").grid(row=0, column=0, sticky="w")
+        self.widgets["frequency_low"] = ttk.Entry(
+            row, width=8, textvariable=self.vars["frequency_low"]
+        )
+        self.widgets["frequency_low"].grid(row=0, column=1, padx=(8, 20), sticky="w")
+
+        ttk.Label(row, text="High (Hz):").grid(row=0, column=2, sticky="w")
+        self.widgets["frequency_high"] = ttk.Entry(
+            row, width=8, textvariable=self.vars["frequency_high"]
+        )
+        self.widgets["frequency_high"].grid(row=0, column=3, padx=(8, 0), sticky="w")
+
+        ToolTip(
+            self.widgets["frequency_low"],
+            "Lower FSK frequency (Hz). Must be < High frequency.\nValid range: 2000–24000 Hz.",
+            self.colors,
+        )
+        ToolTip(
+            self.widgets["frequency_high"],
+            "Higher FSK frequency (Hz). Must be > Low frequency.\nValid range: 2000–24000 Hz.",
+            self.colors,
+        )
+
+        self.widgets["freq_gap_label"] = ttk.Label(fsk, text="", style="Muted.TLabel")
+        self.widgets["freq_gap_label"].grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+        # Attenuation settings
+        attenuation = self.section(right, "Attenuation", 2)
+        row = ttk.Frame(attenuation)
+        row.grid(row=0, column=0, sticky="w")
+
+        ttk.Label(row, text="Level:").grid(row=0, column=0, sticky="w")
+        self.widgets["attenuation"] = ttk.Spinbox(
+            row, from_=0, to=100, width=6, textvariable=self.vars["attenuation"]
+        )
+        self.widgets["attenuation"].grid(row=0, column=1, padx=(8, 4), sticky="w")
+        ttk.Label(row, text="%").grid(row=0, column=2, sticky="w", padx=(0, 12))
+
+        self.widgets["attenuation_db_label"] = ttk.Label(
+            row, text="", style="Muted.TLabel"
+        )
+        self.widgets["attenuation_db_label"].grid(row=0, column=3, sticky="w")
+
+        self.widgets["attenuation_slider"] = tk.Scale(
+            attenuation,
+            from_=0,
+            to=100,
+            orient="horizontal",
+            variable=self.vars["attenuation"],
+            bg=c["surface"],
+            fg=c["muted"],
+            troughcolor=c["surface_2"],
+            activebackground=c["accent"],
+            highlightthickness=0,
+            relief="flat",
+            showvalue=False,
+            length=220,
+            bd=0,
+        )
+        self.widgets["attenuation_slider"].grid(
+            row=1, column=0, columnspan=4, sticky="w", pady=(2, 0)
+        )
+
+        # ECC Settings
+        ecc = self.section(right, "ECC Settings", 3)
+        row = ttk.Frame(ecc)
+        row.grid(row=0, column=0, sticky="w")
+
+        self.checkbox(
+            row, 0, 0, "Enable ECC (Recommended)", self.vars["ecc_enabled"]
+        ).grid(row=0, column=0, sticky="w")
+        self.widgets["ecc_level"] = ttk.Spinbox(
+            row, from_=0, to=100, width=6, textvariable=self.vars["ecc_level"]
+        )
+        self.widgets["ecc_level"].grid(row=0, column=1, padx=(8, 0), sticky="w")
+        ToolTip(
+            self.widgets["ecc_level"],
+            "Number of Reed-Solomon error-correction symbols (0-100).\nHigher = more robust, but longer transmissions.",
             self.colors,
         )
 
