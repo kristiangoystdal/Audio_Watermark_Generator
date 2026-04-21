@@ -505,6 +505,7 @@ int main(void) {
       } else {
         LOGF("Using speaker transmission\r\n");
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        HAL_Delay(50);
       }
       LOGF("\r\n");
 
@@ -971,18 +972,19 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(
-      GPIOA, GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10,
-      GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA,
+                    GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
+                        GPIO_PIN_10 | GPIO_PIN_15,
+                    GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6,
                     GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA1 PA5 PA6 PA7
-                           PA10 */
-  GPIO_InitStruct.Pin =
-      GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_10;
+                           PA10 PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
+                        GPIO_PIN_10 | GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -1039,10 +1041,12 @@ void EnterStopMode(void) {
   SystemClock_Config();
   HAL_ResumeTick();
   wake_up_tick = HAL_GetTick();
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
   MX_I2C2_Init();
   MX_USART2_UART_Init();
   MX_USB_Device_Init();
   HAL_Delay(10);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
 
   // RX only: wait for GDO0 to deassert after wakeup
   if (RX_MODE) {
