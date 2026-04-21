@@ -74,6 +74,7 @@ void DS3231_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow,
 
 // Read time/date from DS3231
 void DS3231_GetTime(rtc_time_t *time) {
+  LOGF("Reading time from DS3231...\r\n");
   uint8_t get_time[7];
   HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
       &hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, get_time, 7, 10);
