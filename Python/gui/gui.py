@@ -554,7 +554,14 @@ class FlashToolApp(tk.Tk):
             device, 0, "User String", self.vars["user_string"]
         )
 
-        interval = self.section(left, "Interval Settings", 1)
+        include = self.section(left, "Include in Watermark", 1)
+        grid = tk.Frame(include, bg=self.colors["surface"])
+        grid.grid(row=0, column=0, sticky="w")
+
+        self.checkbox(grid, 0, 0, "User String", self.vars["include_user_string"])
+        self.checkbox(grid, 0, 1, "Timestamp", self.vars["include_time"])
+
+        interval = self.section(left, "Interval Settings", 2)
         row = tk.Frame(interval, bg=c["surface"])
         row.grid(row=0, column=0, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
@@ -592,14 +599,7 @@ class FlashToolApp(tk.Tk):
         )
         self.widgets["interval"].grid(row=0, column=2, sticky="w")
 
-        include = self.section(right, "Include in Watermark", 0)
-        grid = tk.Frame(include, bg=self.colors["surface"])
-        grid.grid(row=0, column=0, sticky="w")
-
-        self.checkbox(grid, 0, 0, "User String", self.vars["include_user_string"])
-        self.checkbox(grid, 0, 1, "Timestamp", self.vars["include_time"])
-
-        delay = self.section(right, "Initial Delay", 1)
+        delay = self.section(left, "Initial Delay", 3)
         row = tk.Frame(delay, bg=c["surface"])
         row.grid(row=0, column=0, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
@@ -700,20 +700,24 @@ class FlashToolApp(tk.Tk):
 
         ToolTip(
             self.widgets["frequency_low"],
-            "Lower FSK frequency (Hz). Must be < High frequency.\nValid range: 2000–24000 Hz.",
+            "Lower FSK frequency (Hz). Must be < High frequency.\nValid range: 2000-24000 Hz.",
             self.colors,
         )
         ToolTip(
             self.widgets["frequency_high"],
-            "Higher FSK frequency (Hz). Must be > Low frequency.\nValid range: 2000–24000 Hz.",
+            "Higher FSK frequency (Hz). Must be > Low frequency.\nValid range: 2000-24000 Hz.",
             self.colors,
         )
 
-        self.widgets["freq_gap_label"] = ttk.Label(fsk, text="", style="Muted.TLabel")
-        self.widgets["freq_gap_label"].grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.widgets["receiver_freq_gap_label"] = ttk.Label(
+            fsk, text="", style="Muted.TLabel"
+        )
+        self.widgets["receiver_freq_gap_label"].grid(
+            row=1, column=0, sticky="w", pady=(4, 0)
+        )
 
         # Attenuation settings
-        attenuation = self.section(left, "Attenuation", 2)
+        attenuation = self.section(right, "Attenuation", 2)
 
         row = ttk.Frame(attenuation)
         row.grid(row=0, column=0, sticky="w")
@@ -731,36 +735,15 @@ class FlashToolApp(tk.Tk):
 
         ttk.Label(row, text="%").grid(row=0, column=2, sticky="w", padx=(0, 12))
 
-        self.widgets["attenuation_db_label"] = ttk.Label(
+        self.widgets["receiver_attenuation_db_label"] = ttk.Label(
             row,
             text="",
             style="Muted.TLabel",
         )
-        self.widgets["attenuation_db_label"].grid(row=0, column=3, sticky="w")
-
-        c = self.colors
-        self.widgets["attenuation_slider"] = tk.Scale(
-            attenuation,
-            from_=0,
-            to=100,
-            orient="horizontal",
-            variable=self.vars["attenuation"],
-            bg=c["surface"],
-            fg=c["muted"],
-            troughcolor=c["surface_2"],
-            activebackground=c["accent"],
-            highlightthickness=0,
-            relief="flat",
-            showvalue=False,
-            length=220,
-            bd=0,
-        )
-        self.widgets["attenuation_slider"].grid(
-            row=1, column=0, columnspan=4, sticky="w", pady=(2, 0)
-        )
+        self.widgets["receiver_attenuation_db_label"].grid(row=0, column=3, sticky="w")
 
         # ECC Settings
-        ecc = self.section(right, "ECC Settings", 2)
+        ecc = self.section(right, "ECC Settings", 3)
 
         row = ttk.Frame(ecc)
         row.grid(row=0, column=0, sticky="w")
@@ -919,8 +902,12 @@ class FlashToolApp(tk.Tk):
             self.colors,
         )
 
-        self.widgets["freq_gap_label"] = ttk.Label(fsk, text="", style="Muted.TLabel")
-        self.widgets["freq_gap_label"].grid(row=1, column=0, sticky="w", pady=(4, 0))
+        self.widgets["standalone_freq_gap_label"] = ttk.Label(
+            fsk, text="", style="Muted.TLabel"
+        )
+        self.widgets["standalone_freq_gap_label"].grid(
+            row=1, column=0, sticky="w", pady=(4, 0)
+        )
 
         # Attenuation settings
         attenuation = self.section(right, "Attenuation", 2)
@@ -934,29 +921,11 @@ class FlashToolApp(tk.Tk):
         self.widgets["attenuation"].grid(row=0, column=1, padx=(8, 4), sticky="w")
         ttk.Label(row, text="%").grid(row=0, column=2, sticky="w", padx=(0, 12))
 
-        self.widgets["attenuation_db_label"] = ttk.Label(
+        self.widgets["standalone_attenuation_db_label"] = ttk.Label(
             row, text="", style="Muted.TLabel"
         )
-        self.widgets["attenuation_db_label"].grid(row=0, column=3, sticky="w")
-
-        self.widgets["attenuation_slider"] = tk.Scale(
-            attenuation,
-            from_=0,
-            to=100,
-            orient="horizontal",
-            variable=self.vars["attenuation"],
-            bg=c["surface"],
-            fg=c["muted"],
-            troughcolor=c["surface_2"],
-            activebackground=c["accent"],
-            highlightthickness=0,
-            relief="flat",
-            showvalue=False,
-            length=220,
-            bd=0,
-        )
-        self.widgets["attenuation_slider"].grid(
-            row=1, column=0, columnspan=4, sticky="w", pady=(2, 0)
+        self.widgets["standalone_attenuation_db_label"].grid(
+            row=0, column=3, sticky="w"
         )
 
         # ECC Settings
@@ -1120,7 +1089,8 @@ class FlashToolApp(tk.Tk):
             text = f"dB value: {self.calculate_attenuation_db(x)}"
         except Exception:
             text = "dB value: Invalid value"
-        self.widgets["attenuation_db_label"].config(text=text)
+        self.widgets["receiver_attenuation_db_label"].config(text=text)
+        self.widgets["standalone_attenuation_db_label"].config(text=text)
 
     def tolerance_samples(
         self, target_samples: int, tolerance_percent: int = BIT_SAMPLE_TOLERANCE_PERCENT
@@ -1223,7 +1193,8 @@ class FlashToolApp(tk.Tk):
                 text = f"Gap: {gap:,} Hz  ({low:,} Hz \u2192 {high:,} Hz)"
             else:
                 text = "Gap: — (High must be greater than Low)"
-            self.widgets["freq_gap_label"].config(text=text)
+            self.widgets["receiver_freq_gap_label"].config(text=text)
+            self.widgets["standalone_freq_gap_label"].config(text=text)
         except Exception:
             pass
 
