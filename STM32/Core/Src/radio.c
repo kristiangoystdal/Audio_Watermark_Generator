@@ -184,18 +184,18 @@ void Radio_Transmit(void) {
 
 int Radio_Receive(uint8_t *out, size_t out_max_len) {
   uint8_t status = 0;
-  uint8_t rxbytes = 0;
-  uint8_t rxbytes_prev = 0;
 
-  // Wait for FIFO to stabilize (two consecutive identical reads)
+  // Wait for GDO0 to deassert — signals end of packet, FIFO is fully populated
   uint32_t start = HAL_GetTick();
-  do {
-    rxbytes_prev = rxbytes;
-    HAL_Delay(10); // was 2ms — increase to 10ms
-    CC1101_ReadReg(0xFB, &rxbytes, &status);
-    if (HAL_GetTick() - start > 200) // increase timeout too
+  while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET) {
+    if (HAL_GetTick() - start > 500) {
+      LOGF("Timeout waiting for GDO0 to deassert\r\n");
       break;
-  } while (rxbytes != rxbytes_prev);
+    }
+  }
+
+  uint8_t rxbytes = 0;
+  CC1101_ReadReg(0xFB, &rxbytes, &status);
 
   if (rxbytes & 0x80) {
     LOGF("RX FIFO overflow, flushing and re-entering WOR.\r\n");
@@ -207,19 +207,16 @@ int Radio_Receive(uint8_t *out, size_t out_max_len) {
   if (n == 0)
     return 0;
 
-  // Don't read more than the user buffer
   if (n > out_max_len)
     n = (uint8_t)out_max_len;
 
-  // Clear the output buffer before writing new data
   memset(out, 0, out_max_len);
   out[0] = '\0';
 
-  CC1101_ReadBurstReg(0xFF, out, n, &status); // RX FIFO burst read
+  CC1101_ReadBurstReg(0xFF, out, n, &status);
   LOGF("RXBYTES n=%d, out[0]=0x%02X(len), out[1]=0x%02X(addr), last=0x%02X\r\n",
        n, out[0], out[1], out[n - 1]);
 
-  // Print received bytes in hex
   LOGF("Received %d bytes: ", n);
   for (size_t i = 0; i < n; i++) {
     LOGF("%02X ", out[i]);
