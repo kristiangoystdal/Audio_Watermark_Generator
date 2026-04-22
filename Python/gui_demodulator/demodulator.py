@@ -43,7 +43,6 @@ def find_likely_fsk_region(
     f1=None,
     window_duration=0.25,
     hop_duration=0.1,
-    band_width_hz=150.0,
     threshold_sigma=3.0,
     progress_callback=None,
 ):
@@ -51,21 +50,17 @@ def find_likely_fsk_region(
     Find the time region most likely to contain the FSK signal.
 
     The signal is scanned in overlapping windows. Each window is scored by the
-    matched tone power at `f0` and optionally `f1`. Contiguous windows with
+    matched tone power at `f0` and `f1`. Contiguous windows with
     unusually high tone power are merged into candidate regions, and the region
     with the highest average score is returned.
-
-    `band_width_hz` is kept for call-site compatibility but is not used by the
-    fast path, which evaluates only the exact tone frequencies.
     """
     if window_duration <= 0 or hop_duration <= 0:
         raise ValueError("window_duration and hop_duration must be > 0")
     x = np.asarray(x, dtype=float)
     if x.ndim != 1:
         raise ValueError("x must be a 1D audio signal")
-    _ = band_width_hz
 
-    window_size = max(8, int(round(window_duration * fs)))
+    window_size = max(1024, int(round(window_duration * fs)))
     hop_size = max(1, int(round(hop_duration * fs)))
     if len(x) < window_size:
         raise ValueError("Audio is shorter than one analysis window")
@@ -803,8 +798,7 @@ def decode_fsk(input_filename: str,
         print(f"Reading audio from {input_filename}...")
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
-            audio = audio.mean(axis=1)
-        audio = (audio - np.mean(audio))
+            audio = audio[:, 1] # take right channel if stereo
         report(0.05, "Finding active FSK region")
         print("Locating likely FSK-active region...")
 
@@ -853,12 +847,24 @@ def decode_fsk(input_filename: str,
             seg_base = 0.30 + (segmentindex / num_segments) * 0.70
             seg_span = 0.70 / num_segments
             print(f"\nProcessing segment {segmentindex}...")
+
+            def _seg_region_progress(frac, msg, _base=seg_base, _span=seg_span):
+                report(_base + frac * _span * 0.30, msg)
+
+            seg_region_info = find_likely_fsk_region(
+                audio, fs, f0, f1=f1, progress_callback=_seg_region_progress
+            )
+
             print(f"Finding the best timing/offset for segment {segmentindex}...")
 
             def _timing_progress(frac, msg, _base=seg_base, _span=seg_span):
-                report(_base + frac * _span * 0.85, msg)
+                report(_base + _span * 0.30 + frac * _span * 0.55, msg)
 
-            best_setup = select_best_symbol_timing_and_offset(audio, fs, f0, f1, p0, progress_callback=_timing_progress)
+            best_setup = select_best_symbol_timing_and_offset(
+                audio, fs, f0, f1, p0,
+                region_info=seg_region_info,
+                progress_callback=_timing_progress,
+            )
             N = best_setup["N"]
             N_err = best_setup["N_err"]
             best_offset = best_setup["offset"]
@@ -868,7 +874,7 @@ def decode_fsk(input_filename: str,
                 f"(avg separation {best_offset_score:.6f})..."
             )
             bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
-            report(seg_base + seg_span * 0.95, "Decoding messages")
+            report(seg_base + seg_span * 0.87, "Decoding messages")
 
             if DEBUG_PLOTS:
                 plt.scatter(range(len(scores)), scores, s=10)
@@ -906,7 +912,12 @@ def decode_fsk(input_filename: str,
             mask = generate_mask(th0, th1, scores)
             DMA_reset_delay = 25  # samples
             msg_ranges = find_message_ranges(mask)
-            for start_idx, end_idx in msg_ranges:
+            num_msg_ranges = max(len(msg_ranges), 1)
+            for range_idx, (start_idx, end_idx) in enumerate(msg_ranges):
+                report(
+                    seg_base + seg_span * (0.87 + (range_idx / num_msg_ranges) * 0.12),
+                    f"Decoding message {range_idx + 1}/{len(msg_ranges)}",
+                )
                 msg_bits = bits[start_idx : end_idx + 1]
                 if len(msg_bits) == 0:
                     continue
