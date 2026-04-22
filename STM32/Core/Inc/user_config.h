@@ -37,8 +37,8 @@
 // Configuration for FSK frequencies (in Hz) - these will be adjusted by the
 // algorithm if they don't meet the sample count requirements, but should be set
 // close to the desired frequencies to minimize adjustments
-#define FSK_LOWER_FREQUENCY 2000
-#define FSK_HIGHER_FREQUENCY 3000
+#define FSK_LOWER_FREQUENCY 18113
+#define FSK_HIGHER_FREQUENCY 20000
 
 // Configuration for attenuation of the signal in percent (0-100), where 100 is
 // no attenuation and 0 is maximum attenuation (silence)

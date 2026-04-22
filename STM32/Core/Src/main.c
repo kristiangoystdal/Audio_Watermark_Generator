@@ -95,7 +95,7 @@
 #define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
-#define SYNC_DELAY_MS 3000
+#define SYNC_DELAY_MS 300
 
 /* USER CODE END PD */
 
@@ -199,7 +199,8 @@ void get_dc_mid(void);
 uint32_t get_dac_sample_rate_hz(void);
 static void RTC_SetWakeupTimer(uint32_t seconds);
 
-static void start_audio_transmission(void);
+static void start_audio_arm(void);
+static void start_audio_trigger(void);
 static void stop_audio_transmission(void);
 
 void app_radio_test(void);
@@ -329,7 +330,7 @@ int main(void) {
     LOGF("--------------------------\r\n");
     LOGF("\r\n");
   } else {
-    LOGF("Skipping finding frequencies");
+    LOGF("Skipping finding frequencies\r\n");
   }
 
   //-----------------------------------------------------------------------------//
@@ -347,7 +348,7 @@ int main(void) {
     get_sineval_high();
     get_dc_mid();
   } else {
-    LOGF("Skipping LUT preparation");
+    LOGF("Skipping LUT preparation \r\n");
   }
 
   //-----------------------------------------------------------------------------//
@@ -371,7 +372,7 @@ int main(void) {
   if (RX_MODE) {
     Relay_SetBypassMode();
   } else {
-    LOGF("Configuring for TX mode\r\n");
+    LOGF("Setting first alarm for TX mode\r\n");
     RTC_SetWakeupTimer(60);
   }
 
@@ -393,38 +394,26 @@ int main(void) {
     LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
 
-    uint32_t wake_time = HAL_GetTick();
-    LOGF("Woke up after %lu ms\r\n", wake_time - wake_up_tick);
-
     // 1) Check battery voltage and go back to sleep if low
     Battery_IsLow(&hadc1);
-
-    LOGF("Woke up!\r\n");
-
-    // 2) Get current time and temperature from RTC
     DS3231_PowerOn();
-    DS3231_GetTime(&now);
-    DS3231_ReadTemperature(&temp_int);
-    DS3231_PowerOff();
 
     // 3) Check state and either start RX or TX
     if (RX_MODE) {
       // RX mode: read from radio and store in string
-      Radio_Receive(transmission, sizeof(transmission));
-      LOGF("Received transmission: ");
-      for (size_t i = 0; i < sizeof(transmission); i++) {
-        LOGF("%02X ", transmission[i]);
+      int rx_len = Radio_Receive(transmission, sizeof(transmission));
+      if (rx_len <= 4 || memchr(transmission, '/', rx_len) == NULL) {
+        Radio_EnterWOR();
+        continue;
       }
-      LOGF("\r\n");
-      LOGF("\r\n");
+
+      // 2) Get current time from RTC
+      DS3231_GetTime(&now);
+      DS3231_PowerOff();
 
       // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
       // etc.)
       process_transmission(transmission, &dBm_value);
-
-      LOGF("Processed transmission into %s\r\n", transmission);
-      LOGF("dBm value: %d\r\n", dBm_value);
-      LOGF("\r\n");
 
       // Create output string based on received data and dBm value (e.g.
       // "/TIM.../STR.../DID.../LOC.../TMP...")
@@ -432,11 +421,7 @@ int main(void) {
       create_string_from_received_data(transmission, dBm_value, output_str,
                                        sizeof(output_str));
 
-      LOGF("Created output string: %s\r\n", output_str);
       size_t payload_len = strlen((char *)output_str);
-      LOGF("Output string length: %lu characters\r\n",
-           (unsigned long)payload_len);
-      LOGF("\r\n");
 
       if (USE_REED_SOLOMON_ERROR_CORRECTION) {
         // Prepare buffer for Reed-Solomon codeword (message + parity)
@@ -447,13 +432,6 @@ int main(void) {
         RS_EncodeMsg((const uint8_t *)output_str, (int)payload_len, codeword,
                      RS_ERROR_CORRECTION_SYMBOLS);
 
-        LOGF("Reed-Solomon encoded codeword: ");
-        for (size_t i = 0; i < payload_len + RS_ERROR_CORRECTION_SYMBOLS; i++) {
-          LOGF("%02X ", codeword[i]);
-        }
-        LOGF("\r\n");
-        LOGF("\r\n");
-
         // Set output_str to the codeword for transmission (truncated to fit if
         // necessary)
         size_t codeword_len = payload_len + RS_ERROR_CORRECTION_SYMBOLS;
@@ -462,56 +440,43 @@ int main(void) {
         }
         memcpy(output_str, codeword, codeword_len);
         payload_len = codeword_len;
-        LOGF("Using Reed-Solomon codeword for transmission, length: %lu "
-             "bytes\r\n",
-             (unsigned long)payload_len);
       }
 
       // Make bitstream from output string
       make_bitstream_from_bytes(output_str, payload_len);
-      LOGF("Prepared bitstream from output string.\r\n");
-      LOGF("Output string length: %lu characters\r\n",
-           (unsigned long)payload_len);
 
-      LOGF("\r\n");
-
-      // Calculate active duration based on bitstream length and bit durations
-      LOGF("Bitstream: ");
-      for (size_t i = 0; i < BITSTREAM_LENGTH; i++) {
-        LOGF("%u", bitstream[i]);
-      }
-      LOGF("\r\n");
       calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
 
-      uint32_t preparation_time_ms = HAL_GetTick() - wake_up_tick;
-      LOGF("Preparation time: %lu ms\r\n", (unsigned long)preparation_time_ms);
-
-      // Wait until all units reach the same point in time
-      uint32_t target_tick = wake_up_tick + SYNC_DELAY_MS;
-      int32_t wait_ms = (int32_t)(target_tick - HAL_GetTick());
-      if (wait_ms > 0) {
-        LOGF("Sync wait: %ld ms\r\n", wait_ms);
-        HAL_Delay((uint32_t)wait_ms);
-      } else {
-        LOGF("WARNING: preparation exceeded SYNC_DELAY_MS by %ld ms\r\n",
-             -wait_ms);
-      }
-
-      // Send transmission over audio
-      LOGF("Starting transmission of response over audio...\r\n");
       if (USE_CABLE_TRANSMISSION) {
-        LOGF("Using cable transmission\r\n");
         Opamps_Enable(&hdac1);
         Relay_SetMixingMode();
       } else {
-        LOGF("Using speaker transmission\r\n");
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-        HAL_Delay(50);
+        HAL_Delay(100);
       }
-      LOGF("\r\n");
 
-      start_audio_transmission();
+      start_audio_arm();
+
+      uint32_t target_tick = wake_up_tick + SYNC_DELAY_MS;
+      int32_t wait_ms = (int32_t)(target_tick - HAL_GetTick());
+      LOGF("Sync wait: %ld ms\r\n", wait_ms);
+      if (wait_ms > 1) {
+        HAL_Delay((uint32_t)(wait_ms - 1));
+      }
+      while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TC) == RESET)
+        ;
+      __HAL_UART_DISABLE(&huart2);
+      while (HAL_GetTick() < target_tick)
+        ;
+      (void)SysTick->CTRL; // clear COUNTFLAG by reading it
+      // Now align to the next SysTick rollover for sub-ms precision
+      // SysTick counts DOWN from LOAD to 0, then reloads - catch the reload
+      // moment
+      while ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) == 0)
+        ;
+      start_audio_trigger();
+      __HAL_UART_ENABLE(&huart2);
 
       // Wait for active window to complete (enters low-power sleep while
       // waiting)
@@ -532,7 +497,7 @@ int main(void) {
       // Stop transmission and go back to sleep
       stop_audio_transmission();
 
-      Radio_EnterWOR(); // ← add this
+      Radio_EnterWOR();
 
     } else {
       // Send transmission over radio
@@ -844,7 +809,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 249;
+  htim2.Init.Period = 49;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -1042,18 +1007,17 @@ void EnterStopMode(void) {
 
   SystemClock_Config();
   HAL_ResumeTick();
-  wake_up_tick = HAL_GetTick();
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
   MX_I2C2_Init();
   MX_USART2_UART_Init();
-  MX_USB_Device_Init();
   HAL_Delay(10);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+  wake_up_tick = HAL_GetTick();
 
   // RX only: wait for GDO0 to deassert after wakeup
   if (RX_MODE) {
     uint32_t settle = HAL_GetTick();
-    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET &&
+    while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET &&
            HAL_GetTick() - settle < 5) {
     }
   }
@@ -1367,8 +1331,8 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
   current_sine_index = r.current_index;
 }
 
-static void start_audio_transmission(void) {
-  LOGF("\r\nTX_Start()\r\n");
+static void start_audio_arm(void) {
+  // LOGF("\r\nTX_Arm()\r\n");
 
   current_bitstream_index = 0;
   current_sine_period = 0;
@@ -1393,40 +1357,36 @@ static void start_audio_transmission(void) {
   current_sine_period = r2.current_period;
   current_sine_index = r2.current_index;
 
-  LOGF("  Buffer filled\r\n");
+  // LOGF("  Buffer filled\r\n");
 
   // Clean start
   HAL_TIM_Base_Stop(&htim2);
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
-  HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
 
   DMA1->IFCR =
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
 
-  LOGF("  Peripherals stopped & DMA flags cleared\r\n");
+  // LOGF("  Peripherals stopped & DMA flags cleared\r\n");
 
-  // Start DAC
-  HAL_StatusTypeDef st;
-
-  // Start DMA
-  st = HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
-                         BUFFER_SIZE, DAC_ALIGN_12B_R);
+  HAL_StatusTypeDef st =
+      HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
+                        BUFFER_SIZE, DAC_ALIGN_12B_R);
 
   if (st != HAL_OK) {
     LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
   } else {
-    LOGF("  HAL_DAC_Start_DMA OK\r\n");
+    // LOGF("  HAL_DAC_Start_DMA OK\r\n");
   }
 
-  // Ensure trigger enabled
+  // Ensure trigger enabled; TIM2 not started yet
   SET_BIT(DAC1->CR, DAC_CR_TEN1);
+}
 
-  // Start timer last
+static void start_audio_trigger(void) {
   __HAL_TIM_SET_COUNTER(&htim2, 0);
-  st = HAL_TIM_Base_Start(&htim2);
-
+  HAL_StatusTypeDef st = HAL_TIM_Base_Start(&htim2);
   if (st != HAL_OK) {
     LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
@@ -1436,8 +1396,6 @@ static void start_audio_transmission(void) {
 }
 
 static void stop_audio_transmission(void) {
-  LOGF("stop_audio_transmission()\r\n");
-
   tx_active = false;
 
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_RESET);
@@ -1456,8 +1414,6 @@ static void stop_audio_transmission(void) {
   DMA1->IFCR =
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
-
-  LOGF("  TX stopped cleanly (DAC set to mid)\r\n");
 }
 
 void string_to_hex(const char *str, uint8_t *hex_buf, size_t hex_buf_size) {
@@ -1477,10 +1433,10 @@ void process_transmission(uint8_t *transmission, int *dBm_value) {
     return;
   }
 
-  for (size_t i = 0; i < len; i++) {
-    LOGF("%02X ", transmission[i]);
-  }
-  LOGF("\r\n");
+  // for (size_t i = 0; i < len; i++) {
+  //   LOGF("%02X ", transmission[i]);
+  // }
+  // LOGF("\r\n");
 
   uint8_t rssi_hex = transmission[len - 2]; // 2nd from end
 
@@ -1785,6 +1741,7 @@ void Error_Handler(void) {
   }
   /* USER CODE END Error_Handler_Debug */
 }
+
 #ifdef USE_FULL_ASSERT
 /**
  * @brief  Reports the name of the source file and the source line number
