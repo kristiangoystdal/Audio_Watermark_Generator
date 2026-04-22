@@ -138,7 +138,7 @@ void Radio_Transmit(void) {
   uint8_t status = 0;
   uint32_t t0 = HAL_GetTick(); // Capture once before loop
 
-  for (int tx_repeat = 0; tx_repeat < 3; tx_repeat++) {
+  for (int tx_repeat = 0; tx_repeat < 1; tx_repeat++) {
     const char *payload_str = Radio_BuildPayload(HAL_GetTick() - t0);
     size_t payload_len = strlen(payload_str);
 
@@ -185,15 +185,7 @@ void Radio_Transmit(void) {
 int Radio_Receive(uint8_t *out, size_t out_max_len) {
   uint8_t status = 0;
 
-  // Wait for GDO0 to deassert — signals end of packet, FIFO is fully populated
-  uint32_t start = HAL_GetTick();
-  while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET) {
-    if (HAL_GetTick() - start > 500) {
-      LOGF("Timeout waiting for GDO0 to deassert\r\n");
-      break;
-    }
-  }
-
+  // GDO0 will deassert on first FIFO read — read immediately
   uint8_t rxbytes = 0;
   CC1101_ReadReg(0xFB, &rxbytes, &status);
 
@@ -214,16 +206,6 @@ int Radio_Receive(uint8_t *out, size_t out_max_len) {
   out[0] = '\0';
 
   CC1101_ReadBurstReg(0xFF, out, n, &status);
-  LOGF("RXBYTES n=%d, out[0]=0x%02X(len), out[1]=0x%02X(addr), last=0x%02X\r\n",
-       n, out[0], out[1], out[n - 1]);
-
-  LOGF("Received %d bytes: ", n);
-  for (size_t i = 0; i < n; i++) {
-    LOGF("%02X ", out[i]);
-  }
-  LOGF("\r\n");
-
-  Radio_EnterWOR();
 
   return (int)n;
 }
@@ -236,6 +218,4 @@ void Radio_EnterWOR(void) {
   CC1101_Strobe(0x3A, &status); // SFRX
   HAL_Delay(10);
   CC1101_Strobe(0x38, &status); // SWOR
-
-  LOGF("Re-entered WOR mode.\r\n");
 }

@@ -5,12 +5,13 @@ typedef struct {
 } ism_reg_t;
 
 static const ism_reg_t cc1101_cfg_rx[] = {
-    {0x02, 0x06}, // IOCFG0: GDO0 asserts on sync word, deasserts end-of-packet
-    {0x04, 0x04}, // SYNC1: sync word high byte = 0x04
-    {0x05, 0x05}, // SYNC0: sync word low byte = 0x05
+    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received with CRC OK,
+                  // deasserts on first FIFO byte read
+    {0x04, 0xD3}, // SYNC1: sync word high byte = 0xD3  \  more unique
+    {0x05, 0x91}, // SYNC0: sync word low byte  = 0x91  /  sync word
     {0x06, 0x3D}, // PKTLEN: max packet length = 61 bytes
     {0x07, 0x05}, // PKTCTRL1: address check enabled, no status bytes appended
-    {0x08, 0x01}, // PKTCTRL0: variable length, no CRC, no data whitening
+    {0x08, 0x05}, // PKTCTRL0: variable length, CRC enabled, no data whitening
     {0x09, 0xEB}, // ADDR: device address = 0xEB
     {0x0D, 0x10}, // FREQ2: carrier frequency high byte  \
     {0x0E, 0xA7}, // FREQ1: carrier frequency mid byte    > 433 MHz
@@ -21,6 +22,8 @@ static const ism_reg_t cc1101_cfg_rx[] = {
     {0x17,
      0x07}, // MCSM2: RX_TIME=7, stay in RX until packet done after WOR wake
     {0x18, 0x18}, // MCSM0: FS_AUTOCAL=01, calibrate on IDLE->RX transition
+    {0x1D,
+     0x1A}, // AGCCTRL2: raise RSSI threshold - only wake on stronger signals
     {0x1E, 0x43}, // WOREVT1: EVENT0 high byte \  0x43CC = 17356 counts
     {0x1F, 0xCC}, // WOREVT0: EVENT0 low byte   > ~500 ms WOR wake interval
     {0x20, 0x78}, // WORCTRL: RC_PD=0, EVENT1=7 (~1.8ms CS window), RC_CAL=1,
@@ -28,11 +31,12 @@ static const ism_reg_t cc1101_cfg_rx[] = {
 };
 
 static const ism_reg_t cc1101_cfg_tx[] = {
-    {0x02, 0x06}, // IOCFG0: GDO0 asserts on sync word, deasserts end-of-packet
-    {0x04, 0x04}, // SYNC1: sync word high byte = 0x04
-    {0x05, 0x05}, // SYNC0: sync word low byte = 0x05
+    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received with CRC OK,
+                  // deasserts on first FIFO byte read
+    {0x04, 0xD3}, // SYNC1: sync word high byte = 0xD3  \  must match RX
+    {0x05, 0x91}, // SYNC0: sync word low byte  = 0x91  /
     {0x06, 0x3D}, // PKTLEN: max packet length = 61 bytes
-    {0x08, 0x01}, // PKTCTRL0: variable length, no CRC, no data whitening
+    {0x08, 0x05}, // PKTCTRL0: variable length, CRC enabled, no data whitening
     {0x0D, 0x10}, // FREQ2: carrier frequency high byte  \
     {0x0E, 0xA7}, // FREQ1: carrier frequency mid byte    > 433 MHz
     {0x0F, 0x62}, // FREQ0: carrier frequency low byte   /

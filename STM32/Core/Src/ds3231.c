@@ -37,23 +37,13 @@ void DS3231_Init(void) {
 // Power on the DS3231 by setting the control pin high
 void DS3231_PowerOn(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
-  LOGF("DS3231 Power ON\r\n");
-
-  uint32_t start = HAL_GetTick();
-  while (HAL_GetTick() - start < 100) {
-    if (HAL_I2C_IsDeviceReady(&hi2c2, DS3231_ADDR, 1, 10) == HAL_OK) {
-      LOGF("DS3231 ready after %lu ms\r\n", HAL_GetTick() - start);
-      return;
-    }
-  }
-  LOGF("DS3231 not responding after 100ms\r\n");
+  HAL_Delay(5);
 }
 
 // Power off the DS3231 by setting the control pin low
 void DS3231_PowerOff(void) {
   HAL_Delay(5);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
-  LOGF("DS3231 Power OFF\r\n");
 }
 
 // Convert normal decimal numbers to binary coded decimal
@@ -80,18 +70,16 @@ void DS3231_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow,
 
   HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, set_time,
                     7, 1000);
-  LOGF("RTC Time Set: %02d:%02d:%02d %02d/%02d/%04d\r\n", hour, min, sec, dom,
-       month, year);
 }
 
 // Read time/date from DS3231
 void DS3231_GetTime(rtc_time_t *time) {
-  LOGF("Reading time from DS3231...\r\n");
   uint8_t get_time[7];
   HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
       &hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, get_time, 7, 1000);
   if (ret != HAL_OK) {
-    LOGF("Failed to read time from DS3231, HAL error=%d, I2C error=0x%lX\r\n",
+    LOGF("Failed to read time from DS3231, HAL error=%d, I2C error = 0x % "
+         "lX\r\n ",
          ret, HAL_I2C_GetError(&hi2c2));
 
     time->seconds = 0;
@@ -112,9 +100,6 @@ void DS3231_GetTime(rtc_time_t *time) {
   time->date = DS3231_BcdToDec(get_time[4] & 0x3F);
   time->month = DS3231_BcdToDec(get_time[5] & 0x1F);
   time->year = 2000 + DS3231_BcdToDec(get_time[6]);
-
-  LOGF("Current Time: %02d:%02d:%02d %02d/%02d/%04d\r\n", time->hours,
-       time->minutes, time->seconds, time->date, time->month, time->year);
 
   return;
 }
