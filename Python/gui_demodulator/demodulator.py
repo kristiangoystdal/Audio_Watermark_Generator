@@ -745,13 +745,13 @@ def decode_fsk(input_filename: str,
         for segment_start_sample, audio in segments:
             seg_base = 0.30 + (segmentindex / num_segments) * 0.70
             seg_span = 0.70 / num_segments
-            print(f"\nProcessing segment {segmentindex}...")
+            print(f"\nProcessing segment {segmentindex+1}...")
 
             def _seg_region_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + frac * _span * 0.30, msg)
 
             seg_region_info = find_likely_fsk_region(
-                audio, fs, f0, f1=f1, progress_callback=_seg_region_progress
+                audio, fs, f0, f1, progress_callback=_seg_region_progress
             )
 
             print(f"Finding the best timing/offset for segment {segmentindex}...")
@@ -778,7 +778,8 @@ def decode_fsk(input_filename: str,
                 f"Decoding bits for segment {segmentindex} with N={N}, offset {best_offset} "
                 f"(avg separation {best_offset_score:.6f})..."
             )
-            bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
+            E0, E1, scores = fsk_symbol_metrics(audio, fs, f0, f1, N, N_err, start=best_offset)
+            bits = (E1 > E0).astype(int)
             report(seg_base + seg_span * 0.87, "Decoding messages")
 
             if DEBUG_PLOTS:
