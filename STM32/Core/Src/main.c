@@ -408,7 +408,12 @@ int main(void) {
     // 3) Check state and either start RX or TX
     if (RX_MODE) {
       // RX mode: read from radio and store in string
-      Radio_Receive(transmission, sizeof(transmission));
+      int rx_len = Radio_Receive(transmission, sizeof(transmission));
+      if (rx_len <= 4 || memchr(transmission, '/', rx_len) == NULL) {
+        Radio_EnterWOR();
+        continue;
+      }
+
       LOGF("Received transmission: ");
       for (size_t i = 0; i < sizeof(transmission); i++) {
         LOGF("%02X ", transmission[i]);
@@ -499,15 +504,12 @@ int main(void) {
       // Send transmission over audio
       LOGF("Starting transmission of response over audio...\r\n");
       if (USE_CABLE_TRANSMISSION) {
-        LOGF("Using cable transmission\r\n");
         Opamps_Enable(&hdac1);
         Relay_SetMixingMode();
       } else {
-        LOGF("Using speaker transmission\r\n");
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
-        HAL_Delay(50);
+        HAL_Delay(100);
       }
-      LOGF("\r\n");
 
       start_audio_transmission();
 
@@ -842,7 +844,7 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 249;
+  htim2.Init.Period = 49;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
@@ -1044,7 +1046,6 @@ void EnterStopMode(void) {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
   MX_I2C2_Init();
   MX_USART2_UART_Init();
-  MX_USB_Device_Init();
   HAL_Delay(10);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
 
@@ -1783,6 +1784,7 @@ void Error_Handler(void) {
   }
   /* USER CODE END Error_Handler_Debug */
 }
+
 #ifdef USE_FULL_ASSERT
 /**
  * @brief  Reports the name of the source file and the source line number
