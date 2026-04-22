@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stm32g4xx_hal.h>
 #include <string.h>
 #include <sys/_intsup.h>
@@ -27,28 +28,12 @@ int8_t Radio_InitRXMode(void) {
     }
   }
 
-  CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+  CC1101_Strobe(0x33, &status); // SCAL
+  CC1101_Strobe(0x38, &status); // SWOR
 
-  CC1101_Strobe(0x34, &status); // Go to RX state (SRX)
+  HAL_Delay(10);
 
-  // Wait for RX to be ready (check MARCSTATE)
-  while (1) {
-    uint8_t marcstate = 0;
-    CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
-    if (marcstate == 0x0D) {
-      break; // RX
-    }
-
-    // Timeout after some time to avoid infinite loop (optional)
-    static uint32_t start_time = 0;
-    if (start_time == 0) {
-      start_time = HAL_GetTick();
-    } else if (HAL_GetTick() - start_time > 1000) { // 1 second timeout
-      LOGF("Timeout waiting for RX state, status: 0x%02X\r\n", status);
-      return STATUS_CODE_RADIO_MODE_ERROR;
-    }
-  }
-  LOGF("RX mode initialized.\r\n");
+  LOGF("RX WOR mode initialized (EVENT0~500ms, 1200bps).\r\n");
   return 0;
 }
 
@@ -117,7 +102,7 @@ int8_t Radio_Init(bool RX) {
   return STATUS_CODE_RADIO_INIT_FAIL;
 }
 
-char *Radio_BuildPayload(void) {
+char *Radio_BuildPayload(uint32_t offset_ms) {
   char temp_buf[256];
   size_t offset = 0;
 
@@ -125,22 +110,25 @@ char *Radio_BuildPayload(void) {
     offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/STR%s",
                        USER_STRING);
   }
+
   if (INCLUDE_TIME) {
     rtc_time_t now;
     DS3231_PowerOn();
     DS3231_GetTime(&now);
     DS3231_PowerOff();
 
-    if (now.year == 2000) {
-      LOGF("RTC time not set, don't include time in payload\r\n");
-      return strdup(temp_buf);
+    if (now.year != 2000) {
+      offset +=
+          snprintf(temp_buf + offset, sizeof(temp_buf) - offset,
+                   "/TIM%02d%02d%02d%02d%02d%02d%04d", now.hours, now.minutes,
+                   now.seconds, now.day, now.date, now.month, now.year);
+    } else {
+      LOGF("RTC time not set, skipping time field\r\n");
     }
-
-    offset +=
-        snprintf(temp_buf + offset, sizeof(temp_buf) - offset,
-                 "/TIM%02d%02d%02d%02d%02d%02d%04d;", now.hours, now.minutes,
-                 now.seconds, now.day, now.date, now.month, now.year);
   }
+
+  offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/OFS%lu",
+                     (unsigned long)offset_ms);
 
   return strdup(temp_buf);
 }
@@ -148,58 +136,62 @@ char *Radio_BuildPayload(void) {
 void Radio_Transmit(void) {
   LOGF("Starting radio transmission...\r\n");
   uint8_t status = 0;
+  uint32_t t0 = HAL_GetTick(); // Capture once before loop
 
-  const char *payload_str = Radio_BuildPayload();
-  size_t payload_len = strlen(payload_str);
+  for (int tx_repeat = 0; tx_repeat < 1; tx_repeat++) {
+    const char *payload_str = Radio_BuildPayload(HAL_GetTick() - t0);
+    size_t payload_len = strlen(payload_str);
 
-  LOGF("Transmitting payload: %s\r\n", payload_str);
-  LOGF("Payload in hex: ");
-  for (size_t i = 0; i < payload_len; i++) {
-    LOGF("%02X ", (unsigned char)payload_str[i]);
-  }
-  LOGF("\r\n");
-  uint8_t pkt[2 + payload_len]; // length byte + payload
-  pkt[0] = payload_len + 1;     // length
-  pkt[1] = 0xEB;
-  memcpy(&pkt[2], payload_str, payload_len);
+    LOGF("TX %d payload: %s\r\n", tx_repeat + 1, payload_str);
 
-  // Optional: flush TX FIFO before loading (good practice)
-  CC1101_Strobe(0x3B, &status); // SFTX :contentReference[oaicite:1]{index=1}
+    uint8_t pkt[2 + payload_len];
+    pkt[0] = payload_len + 1;
+    pkt[1] = 0xEB;
+    memcpy(&pkt[2], payload_str, payload_len);
 
-  // Burst write into TX FIFO
-  CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
-  if (status != 0x0F) {
-    LOGF("Error writing to TX FIFO, status: 0x%02X\r\n", status);
-    Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
-    return;
-  }
+    LOGF("TX payload_len=%d pkt_size=%d\r\n", payload_len, 2 + payload_len);
+    LOGF("TX payload: %s\r\n", payload_str);
 
-  // Start TX
-  CC1101_Strobe(0x35, &status); // STX :contentReference[oaicite:3]{index=3}
+    CC1101_Strobe(0x3B, &status); // SFTX: flush TX FIFO
 
-  // Wait for IDLE (mask state bits)
-  while (1) {
-    uint8_t marcstate = 0;
-    CC1101_ReadReg(0xF5, &marcstate, &status); // MARCSTATE (status space)
-    marcstate &= 0x1F;
-    if (marcstate == 0x01) {
-      break; // IDLE
+    CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
+    if (status != 0x0F) {
+      LOGF("Error writing to TX FIFO, status: 0x%02X\r\n", status);
+      Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+      return;
     }
+
+    CC1101_Strobe(0x35, &status); // STX
+
+    // Wait for IDLE with 2000 ms timeout
+    uint32_t tx_start = HAL_GetTick();
+    while (1) {
+      uint8_t marcstate = 0;
+      CC1101_ReadReg(0xF5, &marcstate, &status);
+      marcstate &= 0x1F;
+      if (marcstate == 0x01)
+        break; // IDLE — TX done
+      if (HAL_GetTick() - tx_start > 2000) {
+        LOGF("TX timeout on repeat %d, forcing IDLE.\r\n", tx_repeat + 1);
+        CC1101_Strobe(0x36, &status); // SIDLE
+        break;
+      }
+    }
+
+    free((void *)payload_str);
   }
 }
 
 int Radio_Receive(uint8_t *out, size_t out_max_len) {
   uint8_t status = 0;
-  uint8_t rxbytes = 0;
 
-  // RXBYTES: bit7=overflow, bits[6:0]=num bytes
+  // GDO0 will deassert on first FIFO read — read immediately
+  uint8_t rxbytes = 0;
   CC1101_ReadReg(0xFB, &rxbytes, &status);
 
   if (rxbytes & 0x80) {
-    // FIFO overflow -> flush
-    CC1101_Strobe(0x36, &status); // SIDLE
-    CC1101_Strobe(0x3A, &status); // SFRX
-    CC1101_Strobe(0x34, &status); // SRX
+    LOGF("RX FIFO overflow, flushing and re-entering WOR.\r\n");
+    Radio_EnterWOR();
     return -1;
   }
 
@@ -207,27 +199,23 @@ int Radio_Receive(uint8_t *out, size_t out_max_len) {
   if (n == 0)
     return 0;
 
-  // Don't read more than the user buffer
   if (n > out_max_len)
     n = (uint8_t)out_max_len;
 
-  // Clear the output buffer before writing new data
   memset(out, 0, out_max_len);
   out[0] = '\0';
 
-  CC1101_ReadBurstReg(0xFF, out, n, &status); // RX FIFO burst read
-
-  // Print received bytes in hex
-  // LOGF("Received %d bytes: ", n);
-  // for (size_t i = 0; i < n; i++) {
-  //   LOGF("%02X ", out[i]);
-  // }
-  // LOGF("\r\n");
-
-  // Re-enter RX (and flush to be safe)
-  CC1101_Strobe(0x36, &status); // SIDLE
-  CC1101_Strobe(0x3A, &status); // SFRX
-  CC1101_Strobe(0x34, &status); // SRX
+  CC1101_ReadBurstReg(0xFF, out, n, &status);
 
   return (int)n;
+}
+
+void Radio_EnterWOR(void) {
+  uint8_t status = 0;
+
+  CC1101_Strobe(0x36, &status); // SIDLE
+  HAL_Delay(1);
+  CC1101_Strobe(0x3A, &status); // SFRX
+  HAL_Delay(10);
+  CC1101_Strobe(0x38, &status); // SWOR
 }

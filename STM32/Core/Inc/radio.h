@@ -26,9 +26,7 @@ int8_t Radio_InitTXMode(void);
 int8_t Radio_Init(bool RX);
 
 /**
- * @brief Create the payload string to transmit based on user config and RTC
- * time.
- * @return Pointer to a static buffer containing the payload string.
+ * @brief Transmit payload 3 times back-to-back for WOR preamble coverage.
  */
 void Radio_Transmit(void);
 
@@ -36,6 +34,11 @@ void Radio_Transmit(void);
  * @brief Read RX FIFO (RXBYTES), dump bytes to printf, then SIDLE + SFRX + SRX.
  */
 int Radio_Receive(uint8_t *out, size_t out_max);
+
+/**
+ * @brief Enter WOR mode (after configuring WOR settings in init).
+ */
+void Radio_EnterWOR(void);
 
 /**
  * @brief Start RX loop: continuously read RX FIFO and print.
