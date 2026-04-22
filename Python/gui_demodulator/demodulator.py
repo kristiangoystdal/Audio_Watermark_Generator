@@ -52,6 +52,7 @@ def find_likely_fsk_region(
 
     The signal is scanned in overlapping windows. Each window is scored by the
     matched tone power at `f0` and `f1`. Contiguous windows with
+    matched tone power at `f0` and `f1`. Contiguous windows with
     unusually high tone power are merged into candidate regions, and the region
     with the highest average score is returned.
     """
@@ -61,6 +62,7 @@ def find_likely_fsk_region(
     if x.ndim != 1:
         raise ValueError("x must be a 1D audio signal")
 
+    window_size = max(1024, int(round(window_duration * fs)))
     window_size = max(1024, int(round(window_duration * fs)))
     hop_size = max(1, int(round(hop_duration * fs)))
     if len(x) < window_size:
@@ -698,6 +700,7 @@ def decode_fsk(input_filename: str,
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio[:, 1] # take right channel if stereo
+            audio = audio[:, 1] # take right channel if stereo
         report(0.05, "Finding active FSK region")
         print("Locating likely FSK-active region...")
 
@@ -742,20 +745,26 @@ def decode_fsk(input_filename: str,
         for segment_start_sample, audio in segments:
             seg_base = 0.30 + (segmentindex / num_segments) * 0.70
             seg_span = 0.70 / num_segments
-            print(f"\nProcessing segment {segmentindex+1}...")
+            print(f"\nProcessing segment {segmentindex}...")
 
             def _seg_region_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + frac * _span * 0.30, msg)
 
             seg_region_info = find_likely_fsk_region(
-                audio, fs, f0, f1, progress_callback=_seg_region_progress
+                audio, fs, f0, f1=f1, progress_callback=_seg_region_progress
             )
 
             print(f"Finding the best timing/offset for segment {segmentindex}...")
 
             def _timing_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + _span * 0.30 + frac * _span * 0.55, msg)
+                report(_base + _span * 0.30 + frac * _span * 0.55, msg)
 
+            best_setup = select_best_symbol_timing_and_offset(
+                audio, fs, f0, f1, p0,
+                region_info=seg_region_info,
+                progress_callback=_timing_progress,
+            )
             best_setup = select_best_symbol_timing_and_offset(
                 audio, fs, f0, f1, p0,
                 region_info=seg_region_info,
@@ -769,8 +778,7 @@ def decode_fsk(input_filename: str,
                 f"Decoding bits for segment {segmentindex} with N={N}, offset {best_offset} "
                 f"(avg separation {best_offset_score:.6f})..."
             )
-            E0, E1, scores = fsk_symbol_metrics(audio, fs, f0, f1, N, N_err, start=best_offset)
-            bits = (E1 > E0).astype(int)
+            bits, scores = fsk_decode_aligned(audio, fs, f0, f1, N, N_err, best_offset)
             report(seg_base + seg_span * 0.87, "Decoding messages")
 
             if DEBUG_PLOTS:
@@ -811,6 +819,12 @@ def decode_fsk(input_filename: str,
             th0, th1 = define_thresholds(scores, region_mask=region_mask)
             mask = generate_mask(th0, th1, scores)
             msg_ranges = find_message_ranges(mask)
+            num_msg_ranges = max(len(msg_ranges), 1)
+            for range_idx, (start_idx, end_idx) in enumerate(msg_ranges):
+                report(
+                    seg_base + seg_span * (0.87 + (range_idx / num_msg_ranges) * 0.12),
+                    f"Decoding message {range_idx + 1}/{len(msg_ranges)}",
+                )
             num_msg_ranges = max(len(msg_ranges), 1)
             for range_idx, (start_idx, end_idx) in enumerate(msg_ranges):
                 report(
