@@ -138,7 +138,7 @@ void Radio_Transmit(void) {
   uint8_t status = 0;
   uint32_t t0 = HAL_GetTick(); // Capture once before loop
 
-  for (int tx_repeat = 0; tx_repeat < 3; tx_repeat++) {
+  for (int tx_repeat = 0; tx_repeat < 1; tx_repeat++) {
     const char *payload_str = Radio_BuildPayload(HAL_GetTick() - t0);
     size_t payload_len = strlen(payload_str);
 
