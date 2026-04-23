@@ -15,7 +15,7 @@ void Opamps_Enable(DAC_HandleTypeDef *hdac1) {
 void Opamps_Disable(DAC_HandleTypeDef *hdac1) {
   DAC_SetZero(hdac1);
   HAL_GPIO_WritePin(OPAMP_POWER_GPIO_Port, OPAMP_POWER_Pin, GPIO_PIN_RESET);
-  HAL_Delay(OPAMP_BOOT_TIME_MS);
+
 }
 
 void DAC_SetZero(DAC_HandleTypeDef *hdac1) {
