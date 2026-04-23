@@ -406,14 +406,19 @@ class FlashToolApp(tk.Tk):
         current = self.notebook.select()
 
         if current == str(self.base_tab):
-            self.vars["rx_mode"].set(0)
+            self.vars["operation_mode"].set(1)
             self.after(10, lambda: self.widgets["base_user_string"].focus_set())
             self.notebook.select(self.base_tab)
 
         elif current == str(self.receiver_tab):
-            self.vars["rx_mode"].set(1)
+            self.vars["operation_mode"].set(0)
             self.after(10, lambda: self.widgets["receiver_user_string"].focus_set())
             self.notebook.select(self.receiver_tab)
+
+        elif current == str(self.standalone_tab):
+            self.vars["operation_mode"].set(2)
+            self.after(10, lambda: self.widgets["standalone_user_string"].focus_set())
+            self.notebook.select(self.standalone_tab)
 
     def _init_tab_render(self):
         self.notebook.select(self.receiver_tab)
@@ -520,7 +525,7 @@ class FlashToolApp(tk.Tk):
             value=int(read_user_config_value("RS_ERROR_CORRECTION_SYMBOLS"))
         )
 
-        self.vars["rx_mode"] = tk.IntVar(value=0)
+        self.vars["operation_mode"] = tk.IntVar(value=0)
 
         self.vars["show_log"] = tk.IntVar(value=0)
 
@@ -796,7 +801,7 @@ class FlashToolApp(tk.Tk):
         # Device info
         device = self.section(left, "Device Information", 0)
         device.grid_columnconfigure(1, weight=1)
-        self.widgets["receiver_user_string"] = self.entry_row(
+        self.widgets["standalone_user_string"] = self.entry_row(
             device, 0, "User String", self.vars["user_string"]
         )
         self.widgets["device_id"] = self.entry_row(
