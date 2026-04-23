@@ -1436,8 +1436,6 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
 }
 
 static void start_audio_arm(void) {
-  // LOGF("\r\nTX_Arm()\r\n");
-
   current_bitstream_index = 0;
   current_sine_period = 0;
   current_sine_index = 0;
@@ -1461,8 +1459,6 @@ static void start_audio_arm(void) {
   current_sine_period = r2.current_period;
   current_sine_index = r2.current_index;
 
-  // LOGF("  Buffer filled\r\n");
-
   // Clean start
   HAL_TIM_Base_Stop(&htim2);
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
@@ -1471,8 +1467,6 @@ static void start_audio_arm(void) {
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
 
-  // LOGF("  Peripherals stopped & DMA flags cleared\r\n");
-
   HAL_StatusTypeDef st =
       HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
                         BUFFER_SIZE, DAC_ALIGN_12B_R);
@@ -1480,8 +1474,6 @@ static void start_audio_arm(void) {
   if (st != HAL_OK) {
     LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
-  } else {
-    // LOGF("  HAL_DAC_Start_DMA OK\r\n");
   }
 
   // Ensure trigger enabled; TIM2 not started yet
@@ -1494,8 +1486,6 @@ static void start_audio_trigger(void) {
   if (st != HAL_OK) {
     LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
-  } else {
-    LOGF("  HAL_TIM_Base_Start OK\r\n");
   }
 }
 
@@ -1510,10 +1500,6 @@ static void stop_audio_transmission(void) {
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 
   Opamps_Disable(&hdac1);
-
-  // Optional: if you want to *keep* the mid DC during STOP, leave DAC
-  // running. If you want lowest power, stop it (output may go undefined
-  // depending on buffer mode): HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
 
   DMA1->IFCR =
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
@@ -1717,12 +1703,6 @@ void Error_Handler_Code(status_code_t code) {
   g_error_code = code;
   // Error_Handler(); // call the CubeMX-compatible one
 }
-
-// int _write(int file, char *ptr, int len) {
-//   (void)file;
-//   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
-//   return len;
-// }
 
 int _write(int file, char *ptr, int len) {
   (void)file;
