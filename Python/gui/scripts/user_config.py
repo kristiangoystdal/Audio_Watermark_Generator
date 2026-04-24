@@ -125,7 +125,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
 
         rs_error_correction_symbols = root.vars["ecc_level"].get()
 
-        rx_mode = root.vars["rx_mode"].get()
+        operation_mode = root.vars["operation_mode"].get()
 
     except Exception as e:
         if safe_log:
@@ -191,7 +191,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "ENABLE_DELAYED_START",
         "USE_CABLE_TRANSMISSION",
         "USE_SPEAKER_TRANSMISSION",
-        "RX_MODE",
     }
 
     int_vars = {
@@ -210,6 +209,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "FSK_HIGHER_FREQUENCY",
         "SIGNAL_ATTENUATION",
         "RS_ERROR_CORRECTION_SYMBOLS",
+        "OPERATION_MODE",
     }
 
     # Values to apply (use normalized ints)
@@ -240,7 +240,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "USE_SPEAKER_TRANSMISSION": bool(use_speaker_transmission),
         "SIGNAL_ATTENUATION": attenuation_i,
         "RS_ERROR_CORRECTION_SYMBOLS": rs_error_correction_symbols_i,
-        "RX_MODE": bool(rx_mode),
+        "OPERATION_MODE": operation_mode,
     }
 
     def format_define(var: str, val):
