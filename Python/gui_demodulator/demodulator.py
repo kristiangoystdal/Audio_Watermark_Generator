@@ -10,16 +10,15 @@ import os
 import sys
 import numpy as np
 import soundfile as sf
-from scipy.signal import firwin, lfilter, windows
+from scipy.signal import windows
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
-import matplotlib.pyplot as plt
 
 MIN_MESSAGE_BITS = 16
-MAX_GAP_BETWEEN_MESSAGES = 16
 
 DEBUG_PLOTS = False
 
 if DEBUG_PLOTS:
+    import matplotlib.pyplot as plt
     #make PLOTS folder and clear existing contents for debug plot output
     import shutil
     if os.path.exists("PLOTS"):
@@ -106,12 +105,13 @@ def find_likely_fsk_region(
     mad = float(np.median(np.abs(window_scores - baseline)))
     robust_sigma = 1.4826 * mad
     if robust_sigma == 0.0:
-        threshold = baseline
+        threshold = float(np.max(window_scores)) * 0.1
     else:
         threshold = baseline + threshold_sigma * robust_sigma
 
     active = window_scores >= threshold
     if not np.any(active):
+        print("Warning: No active FSK windows found above threshold; falling back to peak window")
         best_idx = int(np.argmax(window_scores))
         start_time = max(0.0, window_times[best_idx] - 0.5 * window_duration)
         end_time = min(len(x) / fs, window_times[best_idx] + 0.5 * window_duration)
@@ -125,6 +125,8 @@ def find_likely_fsk_region(
             "window_scores": window_scores,
         }
     else:
+        if np.all(active):
+            print("Warning: All windows are above threshold; FSK region spans the entire file")
         active_idx = np.flatnonzero(active)
         split_points = np.where(np.diff(active_idx) > 1)[0] + 1
         groups = np.split(active_idx, split_points)
@@ -176,7 +178,7 @@ def fsk_symbol_metrics(
     e_1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
     E0, E1, S = [], [], []
     acc_err = float(initial_acc_err)
-    for seg_start in range(start, len(x) - N_samples+ 1, N_samples):
+    for seg_start in range(start, len(x) - N_samples + 1, N_samples):
         acc_err += N_err
         seg_start -= int(math.floor(acc_err))
         if seg_start < 0 or seg_start + N_samples > len(x):
@@ -227,10 +229,10 @@ def generate_mask(th0, th1, scores):
     scores = np.asarray(scores, dtype=float)
     return (scores > th1) | (scores < th0)
 
-def print_message(message, start_time, end_time, debug, labels):
-    """Write decoded message info to debug and labels streams.
+def print_message(message, start_time, end_time, debug, label_track):
+    """Write decoded message info to debug and label_track streams.
 
-    Returns True if the message was valid and written to labels.
+    Returns True if the message was valid and written to label_track.
     """
     debug.write("Decoded Message: \"" + message + "\"\n")
     debug.write(f"{len(message)} characters\n")
@@ -241,28 +243,35 @@ def print_message(message, start_time, end_time, debug, labels):
         debug.write("Warning: Message might be corrupted (missing '/' preamble)\n")
         return False
     elif message[-1] != "/":
-        debug.write("Warning: Message might be corrupted (missing '/' termination)\n")
-        return False
-    else:
-        labels.write(f"{start_time:.6f}\t{end_time:.6f}\t")
-
-        messages_lines = message.split("/")
-        for idx, line in enumerate(messages_lines):
-            if idx > 1 and idx != len(messages_lines) - 1:
-                labels.write(" | ")
-            if line[0:3] == "STR":
-                labels.write("Message: " + line[3:])
-            elif line[0:3] == "LOC":
-                labels.write("Location: " + line[3:])
-            elif line[0:3] == "DID":
-                labels.write("Device ID: " + line[3:])
-            elif line[0:3] == "TMP":
-                labels.write("Temperature: " + line[3:] + "°C")
-            elif line[0:3] == "TIM":
-                labels.write("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}")
-        debug.write("\n")
-        labels.write("\n")
-        return True
+        if len(message) > 6 and message.count("/") >= 2:
+            message = message[:message.rfind("/") + 1]
+            debug.write("Warning: Message truncated to last '/' due to missing termination\n")
+        else:
+            debug.write("Warning: Message might be corrupted (missing '/' termination)\n")
+            return False
+    label_track.write(f"{start_time:.6f}\t{end_time:.6f}\t")
+    messages_lines = message.split("/")
+    first_field = True
+    for line in messages_lines:
+        if line[0:3] == "STR":
+            content = "Message: " + line[3:]
+        elif line[0:3] == "LOC":
+            content = "Location: " + line[3:]
+        elif line[0:3] == "DID":
+            content = "Device ID: " + line[3:]
+        elif line[0:3] == "TMP":
+            content = "Temperature: " + line[3:] + "°C"
+        elif line[0:3] == "TIM":
+            content = "Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}"
+        else:
+            continue
+        if not first_field:
+            label_track.write(" | ")
+        label_track.write(content)
+        first_field = False
+    debug.write("\n")
+    label_track.write("\n")
+    return True
 
 def seconds_to_hms(total_seconds):
     """Convert seconds to a human-readable hours/minutes/seconds string."""
@@ -297,6 +306,8 @@ def refine_fsk_tones_fft(
         Peak frequencies (Hz) inside each band.
     """
     x = np.asarray(x, dtype=float)
+    if len(x) / fs > 20.0:
+        return f0, f1
     nyq = fs / 2.0
     if search_width_hz <= 0:
         raise ValueError("search_width_hz must be > 0")
@@ -344,19 +355,6 @@ def refine_fsk_tones_fft(
         band_smooth = smooth_band_slice(k_lo, k_hi)
         k = k_lo + int(np.argmax(band_smooth))
 
-        if DEBUG_PLOTS:
-            freqs = np.arange(len(power)) * df
-            plt.plot(freqs[k_lo : k_hi + 1], band_smooth, label="Smoothed Power")
-            plt.plot(freqs[k_lo : k_hi + 1], power[k_lo : k_hi + 1], label="Original Power", alpha=0.5)
-            plt.axvline(freqs[k], color="red", linestyle="--", label=f"Peak at {freqs[k]:.2f} Hz")
-            plt.title(f"FFT Magnitude around {f_center:.2f} Hz")
-            plt.xlabel("Frequency (Hz)")
-            plt.ylabel("Power")
-            plt.legend()
-            plt.grid()
-            plt.show()
-            plt.clf()
-
         # Quadratic (parabolic) interpolation around k for sub-bin peak estimate
         # Use log-magnitude to behave better for sharp peaks.
         if 1 <= k < len(power) - 1:
@@ -381,7 +379,7 @@ def compute_p0(f0, DAC_fs=960000):
     n0 = np.floor(DAC_fs / f0)
     return int(np.round(m / n0))
 
-def find_message_ranges(mask):
+def find_message_ranges(mask, ecc_nsym):
     """
     Find contiguous message ranges in the original bitstream using reliable symbols.
 
@@ -391,7 +389,8 @@ def find_message_ranges(mask):
     if len(reliable_idx) == 0:
         return []
 
-    split_at = np.where(np.diff(reliable_idx) > MAX_GAP_BETWEEN_MESSAGES)[0] + 1
+    max_gap = ecc_nsym * 16
+    split_at = np.where(np.diff(reliable_idx) > max_gap)[0] + 1
     groups = np.split(reliable_idx, split_at)
     return [(int(group[0]), int(group[-1])) for group in groups if len(group) > 0]
 
@@ -669,15 +668,14 @@ def decode_fsk(input_filename: str,
             progress_callback(fraction, message)
 
     message_count = 0
-    user_f0 = f0
-    p0 = compute_p0(user_f0)
+    p0 = compute_p0(f0)
     base, _ = os.path.splitext(input_filename)
     if generate_debug:
         debug_filename = base + "_debug.txt"
     else:
         debug_filename = os.devnull
     labels_filename = base + ".txt"
-    with open(labels_filename, "w") as labels, open(debug_filename, "w") as debug:
+    with open(labels_filename, "w") as label_track, open(debug_filename, "w") as debug:
         rsc = None
         decode_codeword_fn = None
         rs_error_type = Exception
@@ -733,8 +731,8 @@ def decode_fsk(input_filename: str,
         if minutes_per_segment <= 0:
             minutes_per_segment = len(audio) / fs / 60          
         seg_len = int(round(minutes_per_segment * 60 * fs))
-        n = audio.shape[0]
-        segments = [(i, audio[i : i + seg_len]) for i in range(0, n, seg_len)]
+        audio_len = audio.shape[0]
+        segments = [(i, audio[i : i + seg_len]) for i in range(0, audio_len, seg_len)]
         report(0.30, "Processing audio segments")
         print(f"Processing {len(segments)} audio segment(s) for demodulation...")
         num_segments = len(segments)
@@ -769,6 +767,7 @@ def decode_fsk(input_filename: str,
                 f"Decoding bits for segment {segmentindex} with N={N}, offset {best_offset} "
                 f"(avg separation {best_offset_score:.6f})..."
             )
+            report(seg_base + seg_span * 0.85, "Decoding bits")
             E0, E1, scores = fsk_symbol_metrics(audio, fs, f0, f1, N, N_err, start=best_offset)
             bits = (E1 > E0).astype(int)
             report(seg_base + seg_span * 0.87, "Decoding messages")
@@ -810,7 +809,7 @@ def decode_fsk(input_filename: str,
             region_mask = (start_samples >= region_start_sample) & (start_samples < region_end_sample)
             th0, th1 = define_thresholds(scores, region_mask=region_mask)
             mask = generate_mask(th0, th1, scores)
-            msg_ranges = find_message_ranges(mask)
+            msg_ranges = find_message_ranges(mask, ecc_nsym)
             num_msg_ranges = max(len(msg_ranges), 1)
             for range_idx, (start_idx, end_idx) in enumerate(msg_ranges):
                 report(
@@ -861,7 +860,7 @@ def decode_fsk(input_filename: str,
                         continue
 
                 message = decoded_payload.decode("ascii", errors="replace")
-                if print_message(message, start_time, end_time, debug, labels):
+                if print_message(message, start_time, end_time, debug, label_track):
                     message_count += 1
 
             segmentindex += 1
