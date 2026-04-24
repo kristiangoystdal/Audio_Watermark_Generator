@@ -209,9 +209,10 @@ void read_buffer(void);
 
 void process_transmission(uint8_t *transmission, int *dBm_value);
 
-void create_payload_string(const char *user_str, int device_id,
+void create_payload_string(const char *user_string, int device_id,
                            const char *location, int8_t temperature,
-                           rtc_time_t time, uint8_t *output_str,
+                           rtc_time_t time_val, bool include_message_id,
+                           int8_t message_id, uint8_t *output_str,
                            size_t output_str_size);
 
 void create_string_from_received_data(const uint8_t *transmission,
@@ -578,7 +579,7 @@ int main(void) {
       create_payload_string(INCLUDE_USER_STRING ? USER_STRING : NULL,
                             INCLUDE_DEVICE_ID ? DEVICE_ID : -1,
                             INCLUDE_LOCATION ? LOCATION : NULL,
-                            INCLUDE_TEMPERATURE ? temp_int : -1, now,
+                            INCLUDE_TEMPERATURE ? temp_int : -1, now, false, -1,
                             output_str, sizeof(output_str));
 
       size_t payload_len = strlen((char *)output_str);
@@ -1545,7 +1546,8 @@ void process_transmission(uint8_t *transmission, int *dBm_value) {
 
 void create_payload_string(const char *user_str, int device_id,
                            const char *location, int8_t temperature,
-                           rtc_time_t time_val, uint8_t *output_str,
+                           rtc_time_t time_val, bool INCLUDE_MESSAGE_ID,
+                           int8_t message_id, uint8_t *output_str,
                            size_t output_str_size) {
   if (!output_str || output_str_size == 0)
     return;
@@ -1556,6 +1558,15 @@ void create_payload_string(const char *user_str, int device_id,
   int n = 0;
 
   output_str[0] = '\0';
+
+  // Append MID if enabled
+  if (INCLUDE_MESSAGE_ID) {
+    n = snprintf(&temp_buf[offset], remaining, "/MID%02d", message_id);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
 
   if (INCLUDE_TIME) {
     n = snprintf(&temp_buf[offset], remaining,
@@ -1628,6 +1639,7 @@ void create_string_from_received_data(const uint8_t *transmission,
     return;
 
   // Defaults (fallback if missing in RX packet)
+  int mid = 0; // default MID if missing
   char user_string[64] = USER_STRING;
   int device_id = DEVICE_ID;
   char location[64] = LOCATION;
@@ -1640,6 +1652,14 @@ void create_string_from_received_data(const uint8_t *transmission,
 
   // Parse tokens
   for (char *tok = strtok(buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
+    if (strncmp(tok, "MID", 3) == 0) {
+      // MID is two digits
+      char mid_buf[3] = {0};
+      mid_buf[0] = tok[3];
+      mid_buf[1] = tok[4];
+      mid = atoi(mid_buf);
+    }
+
     if (strncmp(tok, "TIM", 3) == 0) {
       const char *p = tok + 3;
 
@@ -1688,7 +1708,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   create_payload_string(user_string, device_id, location, temperature, time_val,
-                        output_str, output_str_size);
+                        true, mid, output_str, output_str_size);
 }
 
 static int init_luts_from_freqpair(void) {
