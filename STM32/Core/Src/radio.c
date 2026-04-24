@@ -14,6 +14,8 @@
 #include <string.h>
 #include <sys/_intsup.h>
 
+int8_t message_id = 0;
+
 int8_t Radio_InitRXMode(void) {
   LOGF("Initializing radio in RX mode...\r\n");
   uint8_t status = 0;
@@ -50,7 +52,11 @@ int8_t Radio_InitTXMode(void) {
     }
   }
 
+  message_id = 0; // reset message ID counter on each init
+
   CC1101_Strobe(0x33, &status); // Calibrate (SCAL) before TX
+
+  LOGF("TX mode initialized (250kbps, no WOR).\r\n");
 
   return 0;
 }
@@ -89,14 +95,9 @@ int8_t Radio_Init(int8_t operation_mode) {
 
     if (operation_mode == 0) {
       return Radio_InitRXMode();
-    } else {
+    } else if (operation_mode == 1) {
       return Radio_InitTXMode();
     }
-
-    uint8_t st = 0;
-    CC1101_Strobe(0x36, &st); // SIDLE
-    CC1101_Strobe(0x3A, &st); // SFRX
-    CC1101_Strobe(0x3B, &st); // SFTX
   }
 
   return STATUS_CODE_RADIO_INIT_FAIL;
@@ -105,6 +106,13 @@ int8_t Radio_Init(int8_t operation_mode) {
 char *Radio_BuildPayload(uint32_t offset_ms) {
   char temp_buf[256];
   size_t offset = 0;
+
+  // Make sure message ID is always two digits for consistent parsing, and wrap
+  // around at 99
+  offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/MID%02d",
+                     message_id);
+
+  message_id = (message_id + 1) % 100;
 
   if (INCLUDE_USER_STRING) {
     offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/STR%s",
@@ -126,9 +134,6 @@ char *Radio_BuildPayload(uint32_t offset_ms) {
       LOGF("RTC time not set, skipping time field\r\n");
     }
   }
-
-  offset += snprintf(temp_buf + offset, sizeof(temp_buf) - offset, "/OFS%lu",
-                     (unsigned long)offset_ms);
 
   return strdup(temp_buf);
 }

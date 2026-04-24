@@ -273,7 +273,8 @@ def send_time_sync(root, safe_log):
         return
 
     now = datetime.now()
-    time_str = f"T{now.hour:02d}:{now.minute:02d}:{now.second:02d} {now.weekday()} {now.day:02d}/{now.month:02d}/{now.year}\n"
+    dow = (now.weekday() + 1) % 7  # Convert Python's 0=Mon..6=Sun to 0=Sun..6=Sat
+    time_str = f"T{now.hour:02d}:{now.minute:02d}:{now.second:02d} {dow} {now.day:02d}/{now.month:02d}/{now.year}\n"
 
     try:
         with serial.Serial(port, 115200, timeout=2) as ser:
