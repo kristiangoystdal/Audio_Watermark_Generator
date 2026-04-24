@@ -55,7 +55,7 @@ int8_t Radio_InitTXMode(void) {
   return 0;
 }
 
-int8_t Radio_Init(bool RX) {
+int8_t Radio_Init(int8_t operation_mode) {
   const uint32_t delays_ms[] = {5, 20, 50};
 
   LOGF("Initializing radio...\r\n");
@@ -87,7 +87,7 @@ int8_t Radio_Init(bool RX) {
       continue; // retry
     }
 
-    if (RX == true) {
+    if (operation_mode == 0) {
       return Radio_InitRXMode();
     } else {
       return Radio_InitTXMode();
