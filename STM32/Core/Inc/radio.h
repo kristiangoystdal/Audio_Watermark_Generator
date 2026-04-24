@@ -21,9 +21,10 @@ int8_t Radio_InitTXMode(void);
 
 /**
  * @brief Reset CC1101, print PARTNUM/VERSION, then init either RX or TX mode.
- * @param RX true => RX mode, false => TX mode
+ * @param operation_mode 0 for RX, 1 for TX, 2 for standalone (no radio) mode
+ * @return 0 on success, nonzero error code on failure
  */
-int8_t Radio_Init(bool RX);
+int8_t Radio_Init(int8_t operation_mode);
 
 /**
  * @brief Transmit payload 3 times back-to-back for WOR preamble coverage.
