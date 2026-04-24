@@ -240,8 +240,12 @@ def print_message(message, start_time, end_time, debug, label_track):
         debug.write("Warning: Message too short\n")
         return False
     elif message[0] != "/":
-        debug.write("Warning: Message might be corrupted (missing '/' preamble)\n")
-        return False
+        if len(message) > 6 and message.count("/") >= 2:
+            message = message[message.index("/"):]
+            debug.write("Warning: Message truncated to first '/' due to missing preamble\n")
+        else:
+            debug.write("Warning: Message might be corrupted (missing '/' preamble)\n")
+            return False
     elif message[-1] != "/":
         if len(message) > 6 and message.count("/") >= 2:
             message = message[:message.rfind("/") + 1]
@@ -697,7 +701,7 @@ def decode_fsk(input_filename: str,
         print(f"Reading audio from {input_filename}...")
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
-            audio = audio[:, 1] # take right channel if stereo
+            audio = audio[:, 0] # take right channel if stereo
         report(0.05, "Finding active FSK region")
         print("Locating likely FSK-active region...")
 
