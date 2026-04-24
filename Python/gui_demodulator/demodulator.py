@@ -105,7 +105,7 @@ def find_likely_fsk_region(
     mad = float(np.median(np.abs(window_scores - baseline)))
     robust_sigma = 1.4826 * mad
     if robust_sigma == 0.0:
-        threshold = float(np.max(window_scores)) * 0.1
+        threshold = baseline
     else:
         threshold = baseline + threshold_sigma * robust_sigma
 
@@ -257,6 +257,8 @@ def print_message(message, start_time, end_time, debug, label_track):
             content = "Message: " + line[3:]
         elif line[0:3] == "LOC":
             content = "Location: " + line[3:]
+        elif line[0:3] == "MID":
+            content = "Message ID: " + line[3:]
         elif line[0:3] == "DID":
             content = "Device ID: " + line[3:]
         elif line[0:3] == "TMP":
