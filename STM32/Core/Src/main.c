@@ -135,7 +135,7 @@ rtc_time_t now = {.seconds = 0,
                   .month = 1,
                   .year = 1970};
 
-int temp_int = 25;
+int8_t temp_int = 25;
 
 static uint32_t sine_val_low[LUT_LOW_SAMPLES];
 static uint32_t sine_val_high[LUT_HIGH_SAMPLES];
@@ -209,6 +209,11 @@ void read_buffer(void);
 
 void process_transmission(uint8_t *transmission, int *dBm_value);
 
+void create_payload_string(const char *user_str, int device_id,
+                           const char *location, int8_t temperature,
+                           rtc_time_t time, uint8_t *output_str,
+                           size_t output_str_size);
+
 void create_string_from_received_data(const uint8_t *transmission,
                                       int dBm_value, uint8_t *output_str,
                                       size_t output_str_size);
@@ -266,11 +271,21 @@ int main(void) {
   MX_USB_Device_Init();
   /* USER CODE BEGIN 2 */
 
+  if (OPERATION_MODE == 0) {
+    LOGF("Starting in RX mode\r\n");
+  } else if (OPERATION_MODE == 1) {
+    LOGF("Starting in TX mode\r\n");
+  } else {
+    LOGF("Starting in Standalone mode\r\n");
+  }
+
   //-----------------------------------------------------------------------------//
-  // Set DAC output to mid-level (silence) before starting
+  // Set DAC output to mid-level (silence) before starting for RX and Standalone
   //-----------------------------------------------------------------------------//
 
-  DAC_SetMidlevel(&hdac1, 2048);
+  if (OPERATION_MODE == 0 || OPERATION_MODE == 2) {
+    DAC_SetMidlevel(&hdac1, 2048);
+  }
 
   //-----------------------------------------------------------------------------//
   // Initialize UART logging
@@ -297,6 +312,7 @@ int main(void) {
 
   DS3231_PowerOn();
   DS3231_GetTime(&now);
+  DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
 
   LOGF("-------------------------\r\n");
@@ -318,9 +334,9 @@ int main(void) {
 
   //-----------------------------------------------------------------------------//
   // Find and set FSK frequencies based on user config and sample count
-  // requirements
+  // requirements (RX and Standalone modes)
   //-----------------------------------------------------------------------------//
-  if (RX_MODE) {
+  if (OPERATION_MODE != 1) {
     freq_pair = FreqConfig_FindFreqPair(dac_sample_rate);
 
     LOGF("Frequency pair: lower=%u Hz, higher=%u Hz\r\n",
@@ -336,7 +352,7 @@ int main(void) {
   // Prepare sine wave lookup tables
   //-----------------------------------------------------------------------------//
 
-  if (RX_MODE) {
+  if (OPERATION_MODE != 1) {
     if (init_luts_from_freqpair() != 0) {
       LOGF("LUT alloc failed\r\n");
       LOGF("--------------------------\r\n");
@@ -351,27 +367,32 @@ int main(void) {
   }
 
   //-----------------------------------------------------------------------------//
-  // Initialize radio
+  // Initialize radio for RX or TX mode
   //-----------------------------------------------------------------------------//
 
-  HAL_Delay(20);
-  int8_t init_result = Radio_Init(RX_MODE);
-  if (init_result != 0) {
-    LOGF("Failed to initialize radio in %s mode, error code: %d\r\n",
-         RX_MODE ? "RX" : "TX", init_result);
-    LOGF("--------------------------\r\n");
-    LOGF("\r\n");
-    Error_Handler_Code(init_result);
+  if (OPERATION_MODE != 2) {
+    HAL_Delay(20);
+    int8_t init_result = Radio_Init(OPERATION_MODE);
+    if (init_result != 0) {
+      LOGF("Failed to initialize radio in %s mode, error code: %d\r\n",
+           OPERATION_MODE == 0 ? "RX" : "TX", init_result);
+      LOGF("--------------------------\r\n");
+      LOGF("\r\n");
+      Error_Handler_Code(init_result);
+    }
+  } else {
+    LOGF("No radio in standalone mode - skipping radio initialization\r\n");
   }
 
   //-----------------------------------------------------------------------------//
   // Configure RX or TX mode
   //-----------------------------------------------------------------------------//
 
-  if (RX_MODE) {
+  if (OPERATION_MODE == 0) {
     Relay_SetBypassMode();
   } else {
-    LOGF("Setting first alarm for TX mode\r\n");
+    LOGF("Setting first alarm for TX and Standalone mode\r\n");
+    // TODO: ajust timer to match user config for transmission intervals
     RTC_SetWakeupTimer(60);
   }
 
@@ -389,32 +410,32 @@ int main(void) {
   LOGF("\r\n");
 
   while (1) {
-    // 3) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
     LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
 
-    // 1) Check battery voltage and go back to sleep if low
+    // 2) Check battery voltage and go back to sleep if low
     Battery_IsLow(&hadc1);
     DS3231_PowerOn();
 
-    // 3) Check state and either start RX or TX
-    if (RX_MODE) {
+    if (OPERATION_MODE == 0) {
+      LOGF("Woke up for RX reception\r\n");
+
       // RX mode: read from radio and store in string
       int rx_len = Radio_Receive(transmission, sizeof(transmission));
       if (rx_len <= 4 || memchr(transmission, '/', rx_len) == NULL) {
         Radio_EnterWOR();
         continue;
       }
+      // Process received transmission
+      process_transmission(transmission, &dBm_value);
 
       // 2) Get current time from RTC
       DS3231_GetTime(&now);
+      DS3231_ReadTemperature(&temp_int);
       DS3231_PowerOff();
 
-      // Process received transmission (e.g. parse bytes, convert RSSI to dBm,
-      // etc.)
-      process_transmission(transmission, &dBm_value);
-
-      // Create output string based on received data and dBm value (e.g.
+      // Create output string based on received data (e.g.
       // "/TIM.../STR.../DID.../LOC.../TMP...")
       uint8_t output_str[256] = {0};
       create_string_from_received_data(transmission, dBm_value, output_str,
@@ -498,7 +519,8 @@ int main(void) {
 
       Radio_EnterWOR();
 
-    } else {
+    } else if (OPERATION_MODE == 1) {
+      LOGF("Woke up for TX transmission\r\n");
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
       LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
@@ -540,6 +562,89 @@ int main(void) {
 
       LOGF("Going back to sleep...\r\n");
 
+      RTC_SetWakeupTimer(sleep_seconds);
+    } else {
+      LOGF("Woke up for Standalone mode\r\n");
+
+      // 1) Get current time and temperature from RTC
+      DS3231_PowerOn();
+      DS3231_GetTime(&now);
+      DS3231_ReadTemperature(&temp_int);
+      DS3231_PowerOff();
+
+      // Create output string based on received data (e.g.
+      // "/TIM.../STR.../DID.../LOC.../TMP...")
+      uint8_t output_str[256] = {0};
+      create_payload_string(INCLUDE_USER_STRING ? USER_STRING : NULL,
+                            INCLUDE_DEVICE_ID ? DEVICE_ID : -1,
+                            INCLUDE_LOCATION ? LOCATION : NULL,
+                            INCLUDE_TEMPERATURE ? temp_int : -1, now,
+                            output_str, sizeof(output_str));
+
+      size_t payload_len = strlen((char *)output_str);
+
+      if (USE_REED_SOLOMON_ERROR_CORRECTION) {
+        // Prepare buffer for Reed-Solomon codeword (message + parity)
+        uint8_t codeword[payload_len + RS_ERROR_CORRECTION_SYMBOLS];
+        memset(codeword, 0, sizeof(codeword));
+
+        // Encode the output string using Reed-Solomon
+        RS_EncodeMsg((const uint8_t *)output_str, (int)payload_len, codeword,
+                     RS_ERROR_CORRECTION_SYMBOLS);
+
+        // Set output_str to the codeword for transmission (truncated to fit
+        // if necessary)
+        size_t codeword_len = payload_len + RS_ERROR_CORRECTION_SYMBOLS;
+        if (codeword_len > sizeof(output_str)) {
+          codeword_len = sizeof(output_str);
+        }
+        memcpy(output_str, codeword, codeword_len);
+        payload_len = codeword_len;
+      }
+
+      // Make bitstream from output string
+      make_bitstream_from_bytes(output_str, payload_len);
+
+      calculate_active_duration_ms(BITSTREAM_LENGTH);
+      uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
+
+      if (USE_CABLE_TRANSMISSION) {
+        Opamps_Enable(&hdac1);
+        Relay_SetMixingMode();
+      } else {
+        HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
+        HAL_Delay(100);
+      }
+
+      start_audio_arm();
+      start_audio_trigger();
+
+      // Wait for active window to complete (enters low-power sleep while
+      // waiting)
+      StartActiveWindowMs((uint32_t)(total_ms));
+
+      uint32_t last_toggle = HAL_GetTick();
+      while (!active_done) {
+        uint32_t now = HAL_GetTick();
+        if ((now - last_toggle) >= 100) { // blink every 100 ms
+          last_toggle = now;
+          LED_Toggle();
+        }
+        __WFI(); // CPU sleeps while DMA+TIM2+DAC run
+      }
+      active_done = 0;
+      HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+
+      // Stop transmission and go back to sleep
+      stop_audio_transmission();
+
+      // Set next wakeup timer for x minutes based on user config
+      uint32_t sleep_seconds;
+      if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
+        sleep_seconds = 60;
+      } else {
+        sleep_seconds = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
+      }
       RTC_SetWakeupTimer(sleep_seconds);
     }
 
@@ -991,7 +1096,7 @@ void EnterStopMode(void) {
   DBGMCU->CR &=
       ~(DBGMCU_CR_DBG_STOP | DBGMCU_CR_DBG_SLEEP | DBGMCU_CR_DBG_STANDBY);
 
-  if (RX_MODE) {
+  if (OPERATION_MODE == 0) {
     HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
     HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
   } else {
@@ -1014,7 +1119,7 @@ void EnterStopMode(void) {
   wake_up_tick = HAL_GetTick();
 
   // RX only: wait for GDO0 to deassert after wakeup
-  if (RX_MODE) {
+  if (OPERATION_MODE == 0) {
     uint32_t settle = HAL_GetTick();
     while (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_RESET &&
            HAL_GetTick() - settle < 5) {
@@ -1022,7 +1127,7 @@ void EnterStopMode(void) {
   }
 
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
-  if (RX_MODE) {
+  if (OPERATION_MODE == 0) {
     __HAL_GPIO_EXTI_CLEAR_IT(GPIO_PIN_7);
     HAL_NVIC_ClearPendingIRQ(EXTI9_5_IRQn);
   } else {
@@ -1331,8 +1436,6 @@ void HAL_DAC_ConvCpltCallbackCh1(DAC_HandleTypeDef *hdac) {
 }
 
 static void start_audio_arm(void) {
-  // LOGF("\r\nTX_Arm()\r\n");
-
   current_bitstream_index = 0;
   current_sine_period = 0;
   current_sine_index = 0;
@@ -1356,8 +1459,6 @@ static void start_audio_arm(void) {
   current_sine_period = r2.current_period;
   current_sine_index = r2.current_index;
 
-  // LOGF("  Buffer filled\r\n");
-
   // Clean start
   HAL_TIM_Base_Stop(&htim2);
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
@@ -1366,8 +1467,6 @@ static void start_audio_arm(void) {
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
   NVIC_ClearPendingIRQ(DMA1_Channel1_IRQn);
 
-  // LOGF("  Peripherals stopped & DMA flags cleared\r\n");
-
   HAL_StatusTypeDef st =
       HAL_DAC_Start_DMA(&hdac1, DAC_CHANNEL_1, (uint32_t *)output_buffer,
                         BUFFER_SIZE, DAC_ALIGN_12B_R);
@@ -1375,8 +1474,6 @@ static void start_audio_arm(void) {
   if (st != HAL_OK) {
     LOGF("  HAL_DAC_Start_DMA error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
-  } else {
-    // LOGF("  HAL_DAC_Start_DMA OK\r\n");
   }
 
   // Ensure trigger enabled; TIM2 not started yet
@@ -1389,8 +1486,6 @@ static void start_audio_trigger(void) {
   if (st != HAL_OK) {
     LOGF("  HAL_TIM_Base_Start error: %d\r\n", st);
     Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
-  } else {
-    LOGF("  HAL_TIM_Base_Start OK\r\n");
   }
 }
 
@@ -1405,10 +1500,6 @@ static void stop_audio_transmission(void) {
   HAL_DAC_Stop_DMA(&hdac1, DAC_CHANNEL_1);
 
   Opamps_Disable(&hdac1);
-
-  // Optional: if you want to *keep* the mid DC during STOP, leave DAC
-  // running. If you want lowest power, stop it (output may go undefined
-  // depending on buffer mode): HAL_DAC_Stop(&hdac1, DAC_CHANNEL_1);
 
   DMA1->IFCR =
       DMA_IFCR_CGIF1 | DMA_IFCR_CTCIF1 | DMA_IFCR_CHTIF1 | DMA_IFCR_CTEIF1;
@@ -1432,22 +1523,11 @@ void process_transmission(uint8_t *transmission, int *dBm_value) {
     return;
   }
 
-  // for (size_t i = 0; i < len; i++) {
-  //   LOGF("%02X ", transmission[i]);
-  // }
-  // LOGF("\r\n");
-
   uint8_t rssi_hex = transmission[len - 2]; // 2nd from end
-
-  // LOGF("Extracted RSSI hex: %02X\r\n", rssi_hex);
 
   int8_t rssi_signed = (int8_t)rssi_hex; // 2's complement
 
-  // LOGF("RSSI signed value: %d\r\n", rssi_signed);
-
   int rssi_dbm = (rssi_signed / 2) - 74; // integer dBm
-
-  // LOGF("RSSI: %d dBm\r\n", rssi_dbm);
 
   dBm_value[0] = (int)rssi_dbm;
 
@@ -1463,86 +1543,13 @@ void process_transmission(uint8_t *transmission, int *dBm_value) {
   strncpy((char *)transmission, cleaned_str, MAX_NUM_CHARS - 1);
 }
 
-void create_string_from_received_data(const uint8_t *transmission,
-                                      int dBm_value, uint8_t *output_str,
-                                      size_t output_str_size) {
+void create_payload_string(const char *user_str, int device_id,
+                           const char *location, int8_t temperature,
+                           rtc_time_t time_val, uint8_t *output_str,
+                           size_t output_str_size) {
   if (!output_str || output_str_size == 0)
     return;
 
-  // Clear the entire output string buffer to ensure no leftover data, and set
-  // first char to null for safe concatenation
-  memset(output_str, 0, output_str_size);
-  output_str[0] = '\0';
-
-  // Initialize with default values
-  char user_string[64] = USER_STRING; // fallback from user_config.h
-  int device_id = DEVICE_ID;          // fallback from user_config.h
-  char location[64] = LOCATION;       // fallback from user_config.h
-  int temperature = temp_int;         // runtime value
-  rtc_time_t time_val = now;          // runtime value
-
-  // Copy transmission to local buffer for tokenization
-  char buf[256] = {0};
-  size_t in_len = strnlen((const char *)transmission, sizeof(buf) - 1);
-  memcpy(buf, transmission, in_len);
-  buf[in_len] = '\0';
-
-  // Parse tokens in the format /KEYvalue, where KEY is 3 chars and value is
-  // variable length, separated by '/'
-  for (char *tok = strtok((char *)buf, "/"); tok != NULL;
-       tok = strtok(NULL, "/")) {
-    if (strncmp(tok, "TIM", 3) == 0) {
-      const char *p = tok + 3;
-      if (strlen(p) >= 16) {
-        char t[3] = {0};
-
-        t[0] = p[0];
-        t[1] = p[1];
-        time_val.hours = (uint8_t)atoi(t);
-        t[0] = p[2];
-        t[1] = p[3];
-        time_val.minutes = (uint8_t)atoi(t);
-        t[0] = p[4];
-        t[1] = p[5];
-        time_val.seconds = (uint8_t)atoi(t);
-        t[0] = p[6];
-        t[1] = p[7];
-        time_val.day = (uint8_t)atoi(t);
-        t[0] = p[8];
-        t[1] = p[9];
-        time_val.date = (uint8_t)atoi(t);
-        t[0] = p[10];
-        t[1] = p[11];
-        time_val.month = (uint8_t)atoi(t);
-
-        char y[5] = {p[12], p[13], p[14], p[15], 0};
-        time_val.year = (uint16_t)atoi(y);
-
-        // Set RTC time from received value (optional, depends on use case)
-        DS3231_PowerOn();
-        DS3231_SetTime(time_val.seconds, time_val.minutes, time_val.hours,
-                       time_val.day, time_val.date, time_val.month,
-                       time_val.year);
-        DS3231_PowerOff();
-      }
-    } else if (strncmp(tok, "STR", 3) == 0) {
-      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
-      user_string[sizeof(user_string) - 1] = '\0';
-
-    } else if (strncmp(tok, "DID", 3) == 0) {
-      device_id = atoi(tok + 3);
-
-    } else if (strncmp(tok, "LOC", 3) == 0) {
-      strncpy(location, tok + 3, sizeof(location) - 1);
-      location[sizeof(location) - 1] = '\0';
-
-    } else if (strncmp(tok, "TMP", 3) == 0) {
-      temperature = atoi(tok + 3);
-    }
-  }
-
-  // Build output string based on parsed tokens and compile-time flags, with
-  // careful buffer management
   char temp_buf[256] = {0};
   size_t offset = 0;
   size_t remaining = sizeof(temp_buf);
@@ -1562,7 +1569,7 @@ void create_string_from_received_data(const uint8_t *transmission,
   }
 
   if (INCLUDE_USER_STRING) {
-    n = snprintf(&temp_buf[offset], remaining, "/STR%s", user_string);
+    n = snprintf(&temp_buf[offset], remaining, "/STR%s", user_str);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
@@ -1595,7 +1602,6 @@ void create_string_from_received_data(const uint8_t *transmission,
       remaining -= (size_t)n;
     }
   }
-
   // Add termination slash
   if (strlen(temp_buf) > 0) {
     n = snprintf(&temp_buf[offset], remaining, "/");
@@ -1604,21 +1610,85 @@ void create_string_from_received_data(const uint8_t *transmission,
       remaining -= (size_t)n;
     }
   }
-
-  // Optional: append RSSI info for debug/logging
-  // snprintf(&output_str[offset], remaining, " RSSI=%d dBm", dBm_value);
-
   // Hard guarantee null-termination
   output_str[output_str_size - 1] = '\0';
-
   // Copy ASCII bytes into uint8_t output buffer
   size_t out_len = strnlen(temp_buf, sizeof(temp_buf));
   if (out_len >= output_str_size) {
     out_len = output_str_size - 1;
   }
-
   memcpy(output_str, temp_buf, out_len);
   output_str[out_len] = 0x00;
+}
+
+void create_string_from_received_data(const uint8_t *transmission,
+                                      int dBm_value, uint8_t *output_str,
+                                      size_t output_str_size) {
+  if (!transmission || !output_str || output_str_size == 0)
+    return;
+
+  // Defaults (fallback if missing in RX packet)
+  char user_string[64] = USER_STRING;
+  int device_id = DEVICE_ID;
+  char location[64] = LOCATION;
+  int8_t temperature = temp_int;
+  rtc_time_t time_val = now;
+
+  // Make local copy for strtok (DO NOT modify input buffer)
+  char buf[256] = {0};
+  strncpy(buf, (const char *)transmission, sizeof(buf) - 1);
+
+  // Parse tokens
+  for (char *tok = strtok(buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
+    if (strncmp(tok, "TIM", 3) == 0) {
+      const char *p = tok + 3;
+
+      if (strlen(p) >= 16) {
+        char tmp[5] = {0};
+
+        tmp[0] = p[0];
+        tmp[1] = p[1];
+        time_val.hours = atoi(tmp);
+
+        tmp[0] = p[2];
+        tmp[1] = p[3];
+        time_val.minutes = atoi(tmp);
+
+        tmp[0] = p[4];
+        tmp[1] = p[5];
+        time_val.seconds = atoi(tmp);
+
+        tmp[0] = p[6];
+        tmp[1] = p[7];
+        time_val.day = atoi(tmp);
+
+        tmp[0] = p[8];
+        tmp[1] = p[9];
+        time_val.date = atoi(tmp);
+
+        tmp[0] = p[10];
+        tmp[1] = p[11];
+        time_val.month = atoi(tmp);
+
+        tmp[0] = p[12];
+        tmp[1] = p[13];
+        tmp[2] = p[14];
+        tmp[3] = p[15];
+        time_val.year = atoi(tmp);
+      }
+    } else if (strncmp(tok, "STR", 3) == 0) {
+      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
+    } else if (strncmp(tok, "DID", 3) == 0) {
+      device_id = atoi(tok + 3);
+    } else if (strncmp(tok, "LOC", 3) == 0) {
+      strncpy(location, tok + 3, sizeof(location) - 1);
+    } else if (strncmp(tok, "TMP", 3) == 0) {
+      temperature = (int8_t)atoi(tok + 3);
+    }
+  }
+
+  create_payload_string(user_string, device_id, location, temperature, time_val,
+                        output_str, output_str_size);
 }
 
 static int init_luts_from_freqpair(void) {
@@ -1633,12 +1703,6 @@ void Error_Handler_Code(status_code_t code) {
   g_error_code = code;
   // Error_Handler(); // call the CubeMX-compatible one
 }
-
-// int _write(int file, char *ptr, int len) {
-//   (void)file;
-//   HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 100);
-//   return len;
-// }
 
 int _write(int file, char *ptr, int len) {
   (void)file;
@@ -1727,7 +1791,8 @@ void Error_Handler(void) {
   /* USER CODE BEGIN Error_Handler_Debug */
   LOGF("Error_Handler: code=%d\r\n", (int)g_error_code);
 
-  // Turn off relay and opamps to save power (optional, depending on error)
+  // Turn off relay and opamps to save power (optional, depending on
+  // error)
   Relay_SetBypassMode();
   Opamps_Disable(&hdac1);
 
@@ -1752,8 +1817,8 @@ void Error_Handler(void) {
 void assert_failed(uint8_t *file, uint32_t line) {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
-     number, ex: printf("Wrong parameters value: file %s on line %d\r\n", file,
-     line) */
+     number, ex: printf("Wrong parameters value: file %s on line %d\r\n",
+     file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

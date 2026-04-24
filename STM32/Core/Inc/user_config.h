@@ -52,8 +52,9 @@
 #define RS_ERROR_CORRECTION_SYMBOLS 20
 
 // Configuration for whether to start in RX mode (listening for incoming
-// signals) or TX mode (transmitting signals)
-#define RX_MODE false
+// signals), TX mode (transmitting signals) or Standalone mode (run on internal
+// timer without radio)
+#define OPERATION_MODE 0 // 0=RX, 1=TX, 2=Standalone
 
 // Configuration for base station transmission intervals and timing
 // If delayed start is enabled, the device will wait until the specified
