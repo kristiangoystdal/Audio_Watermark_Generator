@@ -172,6 +172,8 @@ extern volatile uint8_t cdc_rx_len;
 
 uint32_t wake_up_tick = 0;
 
+bool first_boot = true;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -316,6 +318,11 @@ int main(void) {
   DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
 
+  LOGF("Current RTC time: %02d:%02d:%02d, %02d/%02d/%04d, DOW: %u\r\n",
+       now.hours, now.minutes, now.seconds, now.date, now.month,
+       now.year + 2000, now.day);
+  LOGF("Temperature: %d°C\r\n", temp_int);
+
   LOGF("-------------------------\r\n");
   LOGF("\r\n");
 
@@ -389,12 +396,26 @@ int main(void) {
   // Configure RX or TX mode
   //-----------------------------------------------------------------------------//
 
-  if (OPERATION_MODE == 0) {
-    Relay_SetBypassMode();
-  } else {
+  Relay_SetBypassMode();
+  if (OPERATION_MODE != 0) {
     LOGF("Setting first alarm for TX and Standalone mode\r\n");
-    // TODO: ajust timer to match user config for transmission intervals
-    RTC_SetWakeupTimer(60);
+    RTC_SetWakeupTimer(10); // 1 minute
+
+    if (ENABLE_DELAYED_START) {
+      LOGF("Delayed start enabled - device will wait until minute %u to start "
+           "TX and Standalone modes\r\n",
+           (unsigned int)STARTING_MINUTE);
+    } else {
+      LOGF("Delayed start disabled - device will start TX and Standalone modes "
+           "immediately\r\n");
+    }
+
+    if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
+      LOGF("Using default interval of 60 minutes between repeats\r\n");
+    } else {
+      LOGF("Using user-configured interval of %u minutes between repeats\r\n",
+           (unsigned int)INTERVAL_BETWEEN_REPEATS_MINUTES);
+    }
   }
 
   //-----------------------------------------------------------------------------//
@@ -418,6 +439,24 @@ int main(void) {
     // 2) Check battery voltage and go back to sleep if low
     Battery_IsLow(&hadc1);
     DS3231_PowerOn();
+
+    // 3) Check if it is the starting minute for TX and Standalone modes
+    if (ENABLE_DELAYED_START && first_boot) {
+      DS3231_GetTime(&now);
+      if (OPERATION_MODE != 0 && now.minutes != STARTING_MINUTE) {
+        LOGF("Not the starting minute yet (current minute: %02d), going back "
+             "to sleep...\r\n",
+             now.minutes);
+        DS3231_PowerOff();
+
+        RTC_SetWakeupTimer(60); // check again in 1 minute
+
+        continue;
+      } else {
+        LOGF("It is the starting minute...");
+        first_boot = false;
+      }
+    }
 
     if (OPERATION_MODE == 0) {
       LOGF("Woke up for RX reception\r\n");
@@ -640,12 +679,42 @@ int main(void) {
       stop_audio_transmission();
 
       // Set next wakeup timer for x minutes based on user config
-      uint32_t sleep_seconds;
+      uint32_t target_interval_s;
+
       if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-        sleep_seconds = 60;
+        target_interval_s = 60;
       } else {
-        sleep_seconds = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
+        target_interval_s = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
       }
+
+      uint32_t elapsed_ms = HAL_GetTick() - wake_up_tick;
+      uint32_t elapsed_s = elapsed_ms / 1000;
+
+      uint32_t sleep_seconds;
+      if (elapsed_s >= target_interval_s) {
+        sleep_seconds = 1;
+      } else {
+        uint32_t remainder_ms = elapsed_ms % 1000;
+
+        if (remainder_ms != 0) {
+          HAL_Delay(1000 - remainder_ms);
+        }
+
+        static uint32_t cycle_count = 0;
+        cycle_count++;
+
+        if ((cycle_count % 4) == 0) {
+          sleep_seconds = target_interval_s - elapsed_s - 2;
+        } else {
+          sleep_seconds = target_interval_s - elapsed_s - 3;
+        }
+      }
+
+      LOGF("Elapsed awake time: %lu ms\r\n", (unsigned long)elapsed_ms);
+      LOGF("Sleeping for %lu s\r\n", (unsigned long)sleep_seconds);
+
+      LOGF("Going back to sleep...\r\n");
+
       RTC_SetWakeupTimer(sleep_seconds);
     }
 
