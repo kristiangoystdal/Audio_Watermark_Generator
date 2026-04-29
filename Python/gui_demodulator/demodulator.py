@@ -449,7 +449,7 @@ def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_typ
             try:
                 payload = decode_codeword_fn(trimmed, codec=rsc)
                 if payload and payload[:1] == b"/" and payload[-1:] == b"/":
-                    return payload
+                    return payload, bit_offset
             except rs_error_type:
                 pass
     return None
@@ -857,20 +857,32 @@ def decode_fsk(input_filename: str,
                 )
 
                 mid_bits = np.array([b for byte in b"/MID" for b in (int(byte) >> i & 1 for i in range(7, -1, -1))], dtype=int)
+                mid_offset = None
                 for mid_i in range(len(msg_bits) - len(mid_bits) + 1):
                     if np.array_equal(msg_bits[mid_i:mid_i + len(mid_bits)], mid_bits):
+                        mid_offset = mid_i
                         msg_bits = msg_bits[mid_i:]
                         break
 
+                if mid_offset is not None:
+                    mid_bit_idx = start_idx + mid_offset
+                    if mid_bit_idx < len(start_samples):
+                        start_time = (segment_start_sample + start_samples[mid_bit_idx]) / fs
+
                 if use_ecc:
-                    decoded_payload = decode_message_with_rs(
+                    rs_result = decode_message_with_rs(
                         msg_bits,
                         rsc,
                         ecc_nsym,
                         decode_codeword_fn,
                         rs_error_type,
                     )
-                    if decoded_payload is not None:
+                    if rs_result is not None:
+                        decoded_payload, ecc_bit_offset = rs_result
+                        if mid_offset is None:
+                            mid_bit_idx = start_idx + ecc_bit_offset
+                            if mid_bit_idx < len(start_samples):
+                                start_time = (segment_start_sample + start_samples[mid_bit_idx]) / fs
                         print("ECC decode successful:" + decoded_payload.decode("ascii", errors="replace"))
                     else:
                         print("ECC decode failed")

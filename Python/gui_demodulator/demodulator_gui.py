@@ -5,7 +5,6 @@ import re
 import threading
 import tkinter as tk
 from dataclasses import dataclass
-from datetime import datetime
 from tkinter import filedialog, messagebox
 from tkinter import ttk
 from pathlib import Path
@@ -24,13 +23,7 @@ FREQ_MIN = 2000
 FREQ_MAX = 24000
 BIT_SAMPLE_TOLERANCE_PERCENT = 1
 SYNC_FILE_SUFFIX = "_synced"
-LABEL_TIMESTAMP_RE = re.compile(
-    r"Time:\s*"
-    r"(?P<hour>\d{2}):(?P<minute>\d{2}):(?P<second>\d{2})"
-    r"\s+on\s+"
-    r"(?P<weekday>[A-Za-z]+)\s+"
-    r"(?P<day>\d{2})/(?P<month>\d{2})/(?P<year>\d{4})"
-)
+LABEL_MESSAGE_ID_RE = re.compile(r"Message ID:\s*(?P<mid>\S+)")
 
 
 def derive_txt_path(wav_path: str) -> str:
@@ -53,32 +46,21 @@ class LabelEntry:
     start_time: float
     end_time: float
     label_text: str
-    message_timestamp: datetime | None
+    message_id: str | None
 
 
 @dataclass(frozen=True)
 class SyncResult:
     outputs: tuple[str, ...]
     message: str
-    shared_timestamp: datetime | None = None
+    shared_id: str | None = None
 
 
-def extract_message_timestamp(label_text: str) -> datetime | None:
-    match = LABEL_TIMESTAMP_RE.search(label_text)
+def extract_message_id(label_text: str) -> str | None:
+    match = LABEL_MESSAGE_ID_RE.search(label_text)
     if match is None:
         return None
-
-    try:
-        return datetime(
-            year=int(match.group("year")),
-            month=int(match.group("month")),
-            day=int(match.group("day")),
-            hour=int(match.group("hour")),
-            minute=int(match.group("minute")),
-            second=int(match.group("second")),
-        )
-    except ValueError:
-        return None
+    return match.group("mid")
 
 
 def parse_label_entries(txt_path: str) -> list[LabelEntry]:
@@ -109,30 +91,30 @@ def parse_label_entries(txt_path: str) -> list[LabelEntry]:
                     start_time=start_time,
                     end_time=end_time,
                     label_text=label_text,
-                    message_timestamp=extract_message_timestamp(label_text),
+                    message_id=extract_message_id(label_text),
                 )
             )
     return entries
 
 
-def find_shared_message_timestamp(
+def find_shared_message_id(
     entries_by_file: dict[str, list[LabelEntry]],
-) -> datetime | None:
-    timestamp_sets = []
+) -> str | None:
+    id_sets = []
     for entries in entries_by_file.values():
-        timestamps = {
-            entry.message_timestamp
+        ids = {
+            entry.message_id
             for entry in entries
-            if entry.message_timestamp is not None
+            if entry.message_id is not None
         }
-        if not timestamps:
+        if not ids:
             return None
-        timestamp_sets.append(timestamps)
+        id_sets.append(ids)
 
-    if not timestamp_sets:
+    if not id_sets:
         return None
 
-    shared = set.intersection(*timestamp_sets)
+    shared = set.intersection(*id_sets)
     if not shared:
         return None
     return min(shared)
@@ -173,12 +155,12 @@ def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
             raise FileNotFoundError(f"Missing label file: {Path(txt_path).name}")
         entries_by_file[wav_path] = parse_label_entries(txt_path)
 
-    shared_timestamp = find_shared_message_timestamp(entries_by_file)
-    if shared_timestamp is None:
+    shared_id = find_shared_message_id(entries_by_file)
+    if shared_id is None:
         return SyncResult(
             outputs=(),
             message=(
-                "No shared message timestamp was found across all selected files. "
+                "No shared Message ID was found across all selected files. "
                 "No synchronized copies were created."
             ),
         )
@@ -192,10 +174,10 @@ def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
 
     for wav_path, entries in entries_by_file.items():
         matching_entries = [
-            entry for entry in entries if entry.message_timestamp == shared_timestamp
+            entry for entry in entries if entry.message_id == shared_id
         ]
         if not matching_entries:
-            raise ValueError(f"Shared timestamp lookup failed for {Path(wav_path).name}")
+            raise ValueError(f"Shared Message ID lookup failed for {Path(wav_path).name}")
 
         anchor = min(matching_entries, key=lambda entry: entry.start_time)
         info = sf.info(wav_path)
@@ -249,7 +231,7 @@ def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
                 min_available_duration = available_duration
 
     if min_available_duration is None or min_available_duration <= 0:
-        raise ValueError("Shared timestamp leaves no remaining audio to synchronize.")
+        raise ValueError("Shared Message ID leaves no remaining audio to synchronize.")
 
     outputs: list[str] = []
     use_shared_frame_count = len(sample_rates) == 1
@@ -294,15 +276,14 @@ def synchronize_audio_files(wav_paths: list[str]) -> SyncResult:
         )
         outputs.append(synced_wav_path)
 
-    timestamp_text = shared_timestamp.strftime("%Y-%m-%d %H:%M:%S")
     return SyncResult(
         outputs=tuple(outputs),
         message=(
             f"Created {len(outputs)} synchronized WAV "
             f"{'copy' if len(outputs) == 1 else 'copies'} using shared "
-            f"message timestamp {timestamp_text}."
+            f"Message ID {shared_id}."
         ),
-        shared_timestamp=shared_timestamp,
+        shared_id=shared_id,
     )
 
 
@@ -422,7 +403,7 @@ class App(tk.Tk):
         batch.pack(fill="x", **pad)
         self.auto_sync_check = tk.Checkbutton(
             batch,
-            text="Auto-sync matching timestamps for multiple files",
+            text="Auto-sync matching Message IDs for multiple files",
             variable=self.auto_sync_audio,
         )
         self.auto_sync_check.pack(side="left")
