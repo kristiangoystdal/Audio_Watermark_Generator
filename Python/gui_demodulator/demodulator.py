@@ -433,17 +433,25 @@ def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_typ
     """
     Attempt RS decode from a bit segment.
 
-    Tries all bit alignments [0..7] and returns the first successful payload.
+    Tries all bit alignments [0..7] and, for each, trims trailing bytes one at
+    a time up to nsym bytes. This handles cases where the captured bit range is
+    slightly longer than the actual codeword (e.g. trailing silence appended to
+    ensure full parity coverage), because RS decode fails if extra bytes shift
+    the parity window.
     """
     for bit_offset in range(8):
         codeword = bits_to_bytes(msg_bits, bit_offset=bit_offset)
-        if len(codeword) <= nsym:
-            continue
-        try:
-            payload = decode_codeword_fn(codeword, codec=rsc)
-            return payload
-        except rs_error_type:
-            continue
+        max_trim = min(nsym, max(0, len(codeword) - nsym - 1))
+        for trim in range(max_trim + 1):
+            trimmed = codeword if trim == 0 else codeword[: len(codeword) - trim]
+            if len(trimmed) <= nsym:
+                break
+            try:
+                payload = decode_codeword_fn(trimmed, codec=rsc)
+                if payload and payload[:1] == b"/" and payload[-1:] == b"/":
+                    return payload
+            except rs_error_type:
+                pass
     return None
 
 def decode_message_without_ecc(
@@ -576,6 +584,7 @@ def select_best_symbol_timing_and_offset(
         return float(np.mean(np.abs(scores))), scores
 
     best_setup = None
+    best_scores_for_plot = None
     done_candidates = 0
     print_progress(0)
     for candidate_N_true in candidate_N_trues:
@@ -584,27 +593,19 @@ def select_best_symbol_timing_and_offset(
         offsets = list(range(0, N, stepsize)) or [0]
         best_offset = 0
         best_score = float("-inf")
+        best_scores_this_N = None
 
         for offset in offsets:
             score, scores = score_offset(N, N_err, offset)
-            if DEBUG_PLOTS:
-                plt.scatter(range(len(scores)), scores, s=10)
-                plt.title(
-                    f"N_true={candidate_N_true:.4f}, N={N}, offset={offset} Symbol Scores. "
-                    f"Score: {score if np.isfinite(score) else float(0):.6f}"
-                )
-                plt.xlabel("Symbol Index")
-                plt.ylabel("Score (E1 - E0)")
-                plt.grid()
-                plt.savefig(f"PLOTS/Ntrue_{candidate_N_true:.4f}_N_{N}_offset_{offset}_scores.png")
-                plt.clf()
             done_candidates += 1
             if score > best_score:
                 best_score = score
                 best_offset = offset
+                best_scores_this_N = scores
             print_progress(done_candidates)
 
         if best_setup is None or best_score > best_setup["avg_abs_score"]:
+            best_scores_for_plot = (candidate_N_true, N, best_offset, best_score, best_scores_this_N)
             best_setup = {
                 "f0": float(refined_f0),
                 "p0": int(p0),
@@ -621,6 +622,19 @@ def select_best_symbol_timing_and_offset(
     sys.stdout.write("\n")
     if best_setup is None:
         raise ValueError("No valid N/offset candidate produced demodulation scores")
+
+    if DEBUG_PLOTS and best_scores_for_plot is not None:
+        candidate_N_true, N, offset, score, scores = best_scores_for_plot
+        plt.scatter(range(len(scores)), scores, s=10)
+        plt.title(
+            f"N_true={candidate_N_true:.4f}, N={N}, offset={offset} Symbol Scores. "
+            f"Score: {score if np.isfinite(score) else float(0):.6f}"
+        )
+        plt.xlabel("Symbol Index")
+        plt.ylabel("Score (E1 - E0)")
+        plt.grid()
+        plt.savefig(f"PLOTS/Ntrue_{candidate_N_true:.4f}_N_{N}_offset_{offset}_scores.png")
+        plt.clf()
 
     print(
         "Best timing/offset found: "
@@ -778,15 +792,6 @@ def decode_fsk(input_filename: str,
             bits = (E1 > E0).astype(int)
             report(seg_base + seg_span * 0.87, "Decoding messages")
 
-            if DEBUG_PLOTS:
-                plt.scatter(range(len(scores)), scores, s=10)
-                plt.title(f"Segment {segmentindex} Symbol Scores")
-                plt.xlabel("Symbol Index")
-                plt.ylabel("Score (E1 - E0)")
-                plt.grid()
-                plt.savefig(f"PLOTS/segment_{segmentindex}_scores.png")
-                plt.clf()
-            
             if len(bits) == 0:
                 segmentindex += 1
                 continue
@@ -814,6 +819,17 @@ def decode_fsk(input_filename: str,
             region_end_sample = min(len(audio), int(round(seg_region_info["end_time"] * fs)))
             region_mask = (start_samples >= region_start_sample) & (start_samples < region_end_sample)
             th0, th1 = define_thresholds(scores, region_mask=region_mask)
+            if DEBUG_PLOTS:
+                plt.scatter(range(len(scores)), scores, s=10)
+                plt.axhline(th0, color="red", linestyle="--", label=f"th0={th0:.4f}")
+                plt.axhline(th1, color="green", linestyle="--", label=f"th1={th1:.4f}")
+                plt.title(f"Segment {segmentindex} Symbol Scores")
+                plt.xlabel("Symbol Index")
+                plt.ylabel("Score (E1 - E0)")
+                plt.legend()
+                plt.grid()
+                plt.savefig(f"PLOTS/segment_{segmentindex}_scores.png")
+                plt.clf()
             mask = generate_mask(th0, th1, scores)
             msg_ranges = find_message_ranges(mask, ecc_nsym)
             num_msg_ranges = max(len(msg_ranges), 1)
@@ -822,7 +838,7 @@ def decode_fsk(input_filename: str,
                     seg_base + seg_span * (0.87 + (range_idx / num_msg_ranges) * 0.12),
                     f"Decoding message {range_idx + 1}/{len(msg_ranges)}",
                 )
-                msg_bits = bits[start_idx : end_idx + 1]
+                msg_bits = bits[start_idx : min(len(bits), end_idx + 1 + ecc_nsym * 8)]
                 if len(msg_bits) == 0:
                     continue
                 message_start_sample = segment_start_sample + start_samples[start_idx]
@@ -837,8 +853,15 @@ def decode_fsk(input_filename: str,
                     print(f"Decoded message bits: {len(msg_bits)}\n")
                 start_time = time_in_recording
                 end_time = (
-                    message_end_sample / fs 
+                    message_end_sample / fs
                 )
+
+                mid_bits = np.array([b for byte in b"/MID" for b in (int(byte) >> i & 1 for i in range(7, -1, -1))], dtype=int)
+                for mid_i in range(len(msg_bits) - len(mid_bits) + 1):
+                    if np.array_equal(msg_bits[mid_i:mid_i + len(mid_bits)], mid_bits):
+                        msg_bits = msg_bits[mid_i:]
+                        break
+
                 if use_ecc:
                     decoded_payload = decode_message_with_rs(
                         msg_bits,
@@ -847,7 +870,10 @@ def decode_fsk(input_filename: str,
                         decode_codeword_fn,
                         rs_error_type,
                     )
-                    if decoded_payload is None:
+                    if decoded_payload is not None:
+                        print("ECC decode successful:" + decoded_payload.decode("ascii", errors="replace"))
+                    else:
+                        print("ECC decode failed")
                         debug.write("Warning: RS decode failed for this message segment\n")
                         decoded_payload = decode_message_without_ecc(
                             msg_bits=msg_bits,
