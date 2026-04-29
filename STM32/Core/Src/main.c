@@ -38,6 +38,7 @@
 #include "reed_solomon.h"
 #include "relay.h"
 #include "user_config.h"
+#include "wakeup.h"
 
 // Standard library includes
 #include <cmsis_gcc.h>
@@ -327,6 +328,13 @@ int main(void) {
   LOGF("\r\n");
 
   //-----------------------------------------------------------------------------//
+  // Set first valid minute for wakeup based on current time and user-configured
+  // interval
+  //-----------------------------------------------------------------------------//
+
+  WakeUp_Init(now);
+
+  //-----------------------------------------------------------------------------//
   // Check battery voltage and go back to sleep if low
   //-----------------------------------------------------------------------------//
 
@@ -393,7 +401,13 @@ int main(void) {
   }
 
   //-----------------------------------------------------------------------------//
-  // Configure RX or TX mode
+  // Indicate boot complete with LED blinks
+  //-----------------------------------------------------------------------------//
+
+  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
+
+  //-----------------------------------------------------------------------------//
+  // Configure first wakeup timer for TX and Standalone modes
   //-----------------------------------------------------------------------------//
 
   Relay_SetBypassMode();
@@ -411,18 +425,12 @@ int main(void) {
     }
 
     if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-      LOGF("Using default interval of 60 minutes between repeats\r\n");
+      LOGF("Using default interval of 1 minute between repeats\r\n");
     } else {
       LOGF("Using user-configured interval of %u minutes between repeats\r\n",
            (unsigned int)INTERVAL_BETWEEN_REPEATS_MINUTES);
     }
   }
-
-  //-----------------------------------------------------------------------------//
-  // Indicate boot complete with LED blinks
-  //-----------------------------------------------------------------------------//
-
-  LED_BlinkStatusCode(STATUS_CODE_OK); // code 0 = "0000" = 4 short blinks
 
   //-----------------------------------------------------------------------------//
   // Main loop
@@ -431,32 +439,61 @@ int main(void) {
   LOGF("Entering main loop...\r\n");
   LOGF("\r\n");
 
+  DS3231_GetTime(&now);
+
   while (1) {
-    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7)
+    // 1) Enter STOP mode and wait for wakeup from EXTI (GPIOB Pin 7) or RTC
+    // wakeup timer
     LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
 
+    // Set new wake up alarm for next cycle immediately after waking up
+    // 55 seconds ensure we wake up in every minute to check if it's the valid
+    // minute for operation, even if we miss the exact wakeup timer match due to
+    // timing variations
+    if (OPERATION_MODE != 0) {
+      uint32_t sleep_seconds = 55;
+      LOGF("Sleeping for %lu s\r\n", (unsigned long)sleep_seconds);
+      RTC_SetWakeupTimer(sleep_seconds);
+    }
+
     // 2) Check battery voltage and go back to sleep if low
+
     Battery_IsLow(&hadc1);
+
+    // Update current minute from RTC
     DS3231_PowerOn();
+    DS3231_GetTime(&now);
 
-    // 3) Check if it is the starting minute for TX and Standalone modes
-    if (ENABLE_DELAYED_START && first_boot) {
-      DS3231_GetTime(&now);
-      if (OPERATION_MODE != 0 && now.minutes != STARTING_MINUTE) {
-        LOGF("Not the starting minute yet (current minute: %02d), going back "
-             "to sleep...\r\n",
-             now.minutes);
+    // Check if we are in the active window based on the current minute and
+    // configured intervals, and if not, go back to sleep
+    // Only for TX and Standalone modes
+    if (OPERATION_MODE != 0) {
+      if (!WakeUp_CheckCurrentMinute(now)) {
+        LOGF("Not in active window, going back to sleep...\r\n");
         DS3231_PowerOff();
-
-        RTC_SetWakeupTimer(60); // check again in 1 minute
-
         continue;
-      } else {
-        LOGF("It is the starting minute...");
-        first_boot = false;
       }
     }
+
+    // 3) Check if it is the starting minute for TX and Standalone modes
+    // if (ENABLE_DELAYED_START && first_boot) {
+    //   DS3231_GetTime(&now);
+    //   if (OPERATION_MODE != 0 && now.minutes != STARTING_MINUTE) {
+    //     LOGF("Not the starting minute yet (current minute: %02d), going back
+    //     "
+    //          "to sleep...\r\n",
+    //          now.minutes);
+    //     DS3231_PowerOff();
+
+    //     RTC_SetWakeupTimer(60); // check again in 1 minute
+
+    //     continue;
+    //   } else {
+    //     LOGF("It is the starting minute...");
+    //     first_boot = false;
+    //   }
+    // }
 
     if (OPERATION_MODE == 0) {
       LOGF("Woke up for RX reception\r\n");
@@ -492,8 +529,8 @@ int main(void) {
         RS_EncodeMsg((const uint8_t *)output_str, (int)payload_len, codeword,
                      RS_ERROR_CORRECTION_SYMBOLS);
 
-        // Set output_str to the codeword for transmission (truncated to fit if
-        // necessary)
+        // Set output_str to the codeword for transmission (truncated to fit
+        // if necessary)
         size_t codeword_len = payload_len + RS_ERROR_CORRECTION_SYMBOLS;
         if (codeword_len > sizeof(output_str)) {
           codeword_len = sizeof(output_str);
@@ -565,44 +602,6 @@ int main(void) {
       LOGF("Starting transmission over radio...\r\n");
       LED_BlinkStatusCode(STATUS_CODE_STARTING_TRANSMISSION);
       Radio_Transmit();
-
-      uint32_t target_interval_s;
-
-      if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-        target_interval_s = 60;
-      } else {
-        target_interval_s = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
-      }
-
-      uint32_t elapsed_ms = HAL_GetTick() - wake_up_tick;
-      uint32_t elapsed_s = elapsed_ms / 1000;
-
-      uint32_t sleep_seconds;
-      if (elapsed_s >= target_interval_s) {
-        sleep_seconds = 1;
-      } else {
-        uint32_t remainder_ms = elapsed_ms % 1000;
-
-        if (remainder_ms != 0) {
-          HAL_Delay(1000 - remainder_ms);
-        }
-
-        static uint32_t cycle_count = 0;
-        cycle_count++;
-
-        if ((cycle_count % 4) == 0) {
-          sleep_seconds = target_interval_s - elapsed_s - 2;
-        } else {
-          sleep_seconds = target_interval_s - elapsed_s - 3;
-        }
-      }
-
-      LOGF("Elapsed awake time: %lu ms\r\n", (unsigned long)elapsed_ms);
-      LOGF("Sleeping for %lu s\r\n", (unsigned long)sleep_seconds);
-
-      LOGF("Going back to sleep...\r\n");
-
-      RTC_SetWakeupTimer(sleep_seconds);
     } else {
       LOGF("Woke up for Standalone mode\r\n");
 
@@ -650,6 +649,7 @@ int main(void) {
 
       if (USE_CABLE_TRANSMISSION) {
         Opamps_Enable(&hdac1);
+        HAL_Delay(20);
         Relay_SetMixingMode();
       } else {
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
@@ -664,8 +664,9 @@ int main(void) {
       StartActiveWindowMs((uint32_t)(total_ms));
 
       uint32_t last_toggle = HAL_GetTick();
+      uint32_t now = 0;
       while (!active_done) {
-        uint32_t now = HAL_GetTick();
+        now = HAL_GetTick();
         if ((now - last_toggle) >= 100) { // blink every 100 ms
           last_toggle = now;
           LED_Toggle();
@@ -677,45 +678,6 @@ int main(void) {
 
       // Stop transmission and go back to sleep
       stop_audio_transmission();
-
-      // Set next wakeup timer for x minutes based on user config
-      uint32_t target_interval_s;
-
-      if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-        target_interval_s = 60;
-      } else {
-        target_interval_s = INTERVAL_BETWEEN_REPEATS_MINUTES * 60;
-      }
-
-      uint32_t elapsed_ms = HAL_GetTick() - wake_up_tick;
-      uint32_t elapsed_s = elapsed_ms / 1000;
-
-      uint32_t sleep_seconds;
-      if (elapsed_s >= target_interval_s) {
-        sleep_seconds = 1;
-      } else {
-        uint32_t remainder_ms = elapsed_ms % 1000;
-
-        if (remainder_ms != 0) {
-          HAL_Delay(1000 - remainder_ms);
-        }
-
-        static uint32_t cycle_count = 0;
-        cycle_count++;
-
-        if ((cycle_count % 4) == 0) {
-          sleep_seconds = target_interval_s - elapsed_s - 2;
-        } else {
-          sleep_seconds = target_interval_s - elapsed_s - 3;
-        }
-      }
-
-      LOGF("Elapsed awake time: %lu ms\r\n", (unsigned long)elapsed_ms);
-      LOGF("Sleeping for %lu s\r\n", (unsigned long)sleep_seconds);
-
-      LOGF("Going back to sleep...\r\n");
-
-      RTC_SetWakeupTimer(sleep_seconds);
     }
 
     /* USER CODE END WHILE */
@@ -1327,10 +1289,6 @@ void update_input_string(void) {
 
 // Function to generate sine wave lookup table for low frequency
 void get_sineval_low(void) {
-  if (!sine_val_low || freq_pair.lower_freq_samples == 0) {
-    return; // eller Error_Handler()
-  }
-
   const float dac_max = 4095.0f;
   const float dac_mid = dac_max / 2.0f;
   const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
@@ -1345,10 +1303,6 @@ void get_sineval_low(void) {
 
 // Function to generate sine wave lookup table for the high frequency
 void get_sineval_high(void) {
-  if (!sine_val_high || freq_pair.higher_freq_samples == 0) {
-    return; // eller Error_Handler()
-  }
-
   const float dac_max = 4095.0f;
   const float dac_mid = dac_max / 2.0f;
   const float amplitude = (1.5f / 1.65f) * (SIGNAL_ATTENUATION / 100.0f);
@@ -1362,10 +1316,6 @@ void get_sineval_high(void) {
 }
 
 void get_dc_mid(void) {
-  if (!dc_mid || freq_pair.lower_freq_samples == 0) {
-    return; // eller Error_Handler()
-  }
-
   uint32_t mid_value = (uint32_t)(4095.0 / 2.0);
   for (uint16_t i = 0; i < freq_pair.lower_freq_samples; i++) {
     dc_mid[i] = mid_value;
@@ -1682,6 +1632,7 @@ void create_payload_string(const char *user_str, int device_id,
       remaining -= (size_t)n;
     }
   }
+
   // Add termination slash
   if (strlen(temp_buf) > 0) {
     n = snprintf(&temp_buf[offset], remaining, "/");
@@ -1708,71 +1659,51 @@ void create_string_from_received_data(const uint8_t *transmission,
     return;
 
   // Defaults (fallback if missing in RX packet)
-  int mid = 0; // default MID if missing
+  int mid = 0;
   char user_string[64] = USER_STRING;
   int device_id = DEVICE_ID;
   char location[64] = LOCATION;
   int8_t temperature = temp_int;
   rtc_time_t time_val = now;
 
-  // Make local copy for strtok (DO NOT modify input buffer)
+  // Make local copy for strtok
   char buf[256] = {0};
   strncpy(buf, (const char *)transmission, sizeof(buf) - 1);
 
-  // Parse tokens
+  // Parse tokens separated by /
   for (char *tok = strtok(buf, "/"); tok != NULL; tok = strtok(NULL, "/")) {
-    if (strncmp(tok, "MID", 3) == 0) {
-      // MID is two digits
-      char mid_buf[3] = {0};
-      mid_buf[0] = tok[3];
-      mid_buf[1] = tok[4];
-      mid = atoi(mid_buf);
-    }
+    // Extract type (first 3 chars) and data (remaining chars)
+    if (strlen(tok) < 3)
+      continue;
 
-    if (strncmp(tok, "TIM", 3) == 0) {
-      const char *p = tok + 3;
+    char type[4] = {0};
+    strncpy(type, tok, 3);
+    const char *data = tok + 3;
 
-      if (strlen(p) >= 16) {
-        char tmp[5] = {0};
-
-        tmp[0] = p[0];
-        tmp[1] = p[1];
-        time_val.hours = atoi(tmp);
-
-        tmp[0] = p[2];
-        tmp[1] = p[3];
-        time_val.minutes = atoi(tmp);
-
-        tmp[0] = p[4];
-        tmp[1] = p[5];
-        time_val.seconds = atoi(tmp);
-
-        tmp[0] = p[6];
-        tmp[1] = p[7];
-        time_val.day = atoi(tmp);
-
-        tmp[0] = p[8];
-        tmp[1] = p[9];
-        time_val.date = atoi(tmp);
-
-        tmp[0] = p[10];
-        tmp[1] = p[11];
-        time_val.month = atoi(tmp);
-
-        tmp[0] = p[12];
-        tmp[1] = p[13];
-        tmp[2] = p[14];
-        tmp[3] = p[15];
-        time_val.year = atoi(tmp);
+    // Route by type
+    if (strcmp(type, "MID") == 0) {
+      if (strlen(data) >= 2) {
+        char mid_buf[3] = {0};
+        strncpy(mid_buf, data, 2);
+        mid = atoi(mid_buf);
       }
-    } else if (strncmp(tok, "STR", 3) == 0) {
-      strncpy(user_string, tok + 3, sizeof(user_string) - 1);
-    } else if (strncmp(tok, "DID", 3) == 0) {
-      device_id = atoi(tok + 3);
-    } else if (strncmp(tok, "LOC", 3) == 0) {
-      strncpy(location, tok + 3, sizeof(location) - 1);
-    } else if (strncmp(tok, "TMP", 3) == 0) {
-      temperature = (int8_t)atoi(tok + 3);
+    } else if (strcmp(type, "TIM") == 0) {
+      if (strlen(data) >= 16) {
+        int hours = 0, minutes = 0, seconds = 0;
+        int day = 0, date = 0, month = 0, year = 0;
+        if (sscanf(data, "%2d%2d%2d%2d%2d%2d%4d", &hours, &minutes, &seconds,
+                   &day, &date, &month, &year) == 7) {
+          time_val.hours = (uint8_t)hours;
+          time_val.minutes = (uint8_t)minutes;
+          time_val.seconds = (uint8_t)seconds;
+          time_val.day = (uint8_t)day;
+          time_val.date = (uint8_t)date;
+          time_val.month = (uint8_t)month;
+          time_val.year = (uint16_t)year;
+        }
+      }
+    } else if (strcmp(type, "STR") == 0) {
+      strncpy(user_string, data, sizeof(user_string) - 1);
     }
   }
 
@@ -1827,12 +1758,10 @@ void TryReceiveTimeSync(void) {
   while (HAL_GetTick() - start < 10000) {
     if (cdc_rx_len > 0) {
       uint8_t len = cdc_rx_len;
-      cdc_rx_len = 0; // clear immediately
-
+      cdc_rx_len = 0;
       memcpy(buf, (uint8_t *)cdc_rx_buf, len);
       buf[len] = '\0';
 
-      // strip \r\n
       for (int i = 0; i < len; i++) {
         if (buf[i] == '\r' || buf[i] == '\n') {
           buf[i] = '\0';
@@ -1844,17 +1773,32 @@ void TryReceiveTimeSync(void) {
         int h, m, s, dow, day, mon, year;
         if (sscanf(buf + 1, "%d:%d:%d %d %d/%d/%d", &h, &m, &s, &dow, &day,
                    &mon, &year) == 7) {
+
+          uint32_t t0 = HAL_GetTick();
+
           DS3231_PowerOn();
+          uint32_t t1 = HAL_GetTick();
+          LOGF("[TIMING] PowerOn: %lu ms\r\n", t1 - t0);
+
           HAL_Delay(5);
+          uint32_t t2 = HAL_GetTick();
+
           DS3231_Init();
+          uint32_t t3 = HAL_GetTick();
+          LOGF("[TIMING] Init: %lu ms\r\n", t3 - t2);
+
           DS3231_SetTime(s, m, h, dow, day, mon, year);
+          uint32_t t4 = HAL_GetTick();
+          LOGF("[TIMING] SetTime: %lu ms\r\n", t4 - t3);
+          LOGF("[TIMING] Total: %lu ms\r\n", t4 - t0);
+
           DS3231_PowerOff();
+
           LOGF("Time synced: %02d:%02d:%02d %02d/%02d/%04d\r\n", h, m, s, day,
                mon, year);
           LED_Toggle();
           HAL_Delay(50);
           LED_Toggle();
-
           return;
         }
       }
