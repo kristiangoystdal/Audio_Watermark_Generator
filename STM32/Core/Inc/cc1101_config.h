@@ -13,9 +13,9 @@ static const ism_reg_t cc1101_cfg_rx[] = {
     {0x07, 0x05}, // PKTCTRL1: address check enabled, no status bytes appended
     {0x08, 0x05}, // PKTCTRL0: variable length, CRC enabled, no data whitening
     {0x09, 0xEB}, // ADDR: device address = 0xEB
-    {0x0D, 0x10}, // FREQ2: carrier frequency high byte  \
-    {0x0E, 0xA7}, // FREQ1: carrier frequency mid byte    > 433 MHz
-    {0x0F, 0x62}, // FREQ0: carrier frequency low byte   /
+    {0x0D, 0x10}, // FREQ2: carrier frequency high byte
+    {0x0E, 0xA7}, // FREQ1: carrier frequency mid byte
+    {0x0F, 0x62}, // FREQ0: carrier frequency low byte
     {0x10, 0x85}, // MDMCFG4: channel BW=203kHz, DRATE_E=5 -> 1200 bps
     {0x11, 0x83}, // MDMCFG3: DRATE_M=131 -> 1200 bps
     {0x12,
@@ -39,9 +39,9 @@ static const ism_reg_t cc1101_cfg_tx[] = {
     {0x07, 0x05}, // PKTCTRL1: address check enabled, no status bytes appended
     {0x08, 0x05}, // PKTCTRL0: variable length, CRC enabled, no data whitening
     {0x09, 0xEB}, // ADDR: device address = 0xEB
-    {0x0D, 0x10}, // FREQ2: carrier frequency high byte  \
-    {0x0E, 0xA7}, // FREQ1: carrier frequency mid byte    > 433 MHz
-    {0x0F, 0x62}, // FREQ0: carrier frequency low byte   /
+    {0x0D, 0x10}, // FREQ2: carrier frequency high byte
+    {0x0E, 0xA7}, // FREQ1: carrier frequency mid byte
+    {0x0F, 0x62}, // FREQ0: carrier frequency low byte
     {0x10, 0x85}, // MDMCFG4: channel BW=203kHz, DRATE_E=5 -> 1200 bps
     {0x11, 0x83}, // MDMCFG3: DRATE_M=131 -> 1200 bps
     {0x12,
