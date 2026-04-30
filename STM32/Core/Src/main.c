@@ -97,7 +97,7 @@
 #define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
-#define SYNC_DELAY_MS 100 
+#define SYNC_DELAY_MS 200
 
 /* USER CODE END PD */
 
@@ -628,9 +628,15 @@ int main(void) {
 
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
+      // Toggle on Relay to make click sound at start of transmission for easier
+      // analysis
+      Relay_SetMixingMode();
+
       LED_ON();
       trigger_tick = HAL_GetTick() - wake_up_tick;
       Radio_Transmit();
+
+      Relay_SetBypassMode();
       LED_OFF();
       done_tick = HAL_GetTick() - wake_up_tick;
     } else {
