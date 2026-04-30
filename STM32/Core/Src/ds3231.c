@@ -101,9 +101,9 @@ void DS3231_GetTime(rtc_time_t *time) {
   time->month = DS3231_BcdToDec(get_time[5] & 0x1F);
   time->year = 2000 + DS3231_BcdToDec(get_time[6]);
 
-  LOGF("Read time from DS3231: %02d:%02d:%02d, %02d/%02d/%04d, DOW: %u\r\n",
-       time->hours, time->minutes, time->seconds, time->date, time->month,
-       time->year, time->day);
+  // LOGF("Read time from DS3231: %02d:%02d:%02d, %02d/%02d/%04d, DOW: %u\r\n",
+  //      time->hours, time->minutes, time->seconds, time->date, time->month,
+  //      time->year, time->day);
 
   return;
 }
