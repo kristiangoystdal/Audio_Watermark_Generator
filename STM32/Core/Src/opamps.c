@@ -15,7 +15,6 @@ void Opamps_Enable(DAC_HandleTypeDef *hdac1) {
 void Opamps_Disable(DAC_HandleTypeDef *hdac1) {
   DAC_SetZero(hdac1);
   HAL_GPIO_WritePin(OPAMP_POWER_GPIO_Port, OPAMP_POWER_Pin, GPIO_PIN_RESET);
-
 }
 
 void DAC_SetZero(DAC_HandleTypeDef *hdac1) {
@@ -26,7 +25,7 @@ void DAC_SetZero(DAC_HandleTypeDef *hdac1) {
   HAL_DAC_Start(hdac1, DAC_CHANNEL_1);
 
   HAL_DAC_SetValue(hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0);
-  LOGF("DAC output set to zero\r\n");
+  // LOGF("DAC output set to zero\r\n");
 }
 
 void DAC_SetMidlevel(DAC_HandleTypeDef *hdac1, uint16_t mid_value) {
@@ -37,5 +36,5 @@ void DAC_SetMidlevel(DAC_HandleTypeDef *hdac1, uint16_t mid_value) {
 
   // Set mid-scale (12-bit right aligned)
   HAL_DAC_SetValue(hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, mid_value);
-  LOGF("DAC output set to mid-level\r\n");
+  // LOGF("DAC output set to mid-level\r\n");
 }
