@@ -5,7 +5,8 @@ typedef struct {
 } ism_reg_t;
 
 static const ism_reg_t cc1101_cfg_rx[] = {
-    {0x02, 0x06}, // IOCFG0: Sync word detected (works in WOR)
+    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received with CRC OK,
+                  // deasserts on first FIFO byte read
     {0x04, 0xD3}, // SYNC1
     {0x05, 0x91}, // SYNC0
     {0x06, 0x3D}, // PKTLEN
