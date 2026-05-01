@@ -403,6 +403,16 @@ int main(void) {
     }
   } else {
     LOGF("No radio in standalone mode - skipping radio initialization\r\n");
+
+    // Power down CC1101 since we don't use it in standalone
+    HAL_Delay(20);
+    uint8_t status = 0;
+    CC1101_PowerUpReset();
+    HAL_Delay(10);
+
+    // Put it in sleep to save power
+    Radio_EnterSleep();
+    LOGF("CC1101 powered down for standalone mode\r\n");
   }
 
   //-----------------------------------------------------------------------------//
@@ -625,6 +635,7 @@ int main(void) {
 
     } else if (OPERATION_MODE == 1) {
       LOGF("Woke up for TX transmission\r\n");
+      Radio_EnterIdle();
 
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
@@ -634,11 +645,14 @@ int main(void) {
 
       LED_ON();
       trigger_tick = HAL_GetTick() - wake_up_tick;
+
       Radio_Transmit();
 
       Relay_SetBypassMode();
       LED_OFF();
       done_tick = HAL_GetTick() - wake_up_tick;
+
+      Radio_EnterSleep();
     } else {
       LOGF("Woke up for Standalone mode\r\n");
 
