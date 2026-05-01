@@ -19,9 +19,6 @@ void Relay_SetMixingMode(void) {
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_ON, GPIO_PIN_SET);
   HAL_Delay(RELAY_TOGGLE_DELAY_MS);
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_ON, GPIO_PIN_RESET);
-
-  LOGF("Set relay to mixing mode\r\n");
-  LOGF("--------------------------\r\n");
 }
 
 void Relay_SetBypassMode(void) {
@@ -30,7 +27,4 @@ void Relay_SetBypassMode(void) {
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_OFF, GPIO_PIN_SET);
   HAL_Delay(RELAY_TOGGLE_DELAY_MS);
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_OFF, GPIO_PIN_RESET);
-
-  LOGF("Set relay to bypass mode\r\n");
-  LOGF("--------------------------\r\n");
 }

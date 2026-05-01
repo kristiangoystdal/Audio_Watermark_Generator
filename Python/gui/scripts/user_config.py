@@ -213,6 +213,9 @@ def change_user_config(root, set_initial_time, safe_log=None):
     }
 
     # Values to apply (use normalized ints)
+    # Set interval to 1 if using default interval, otherwise use the provided value
+    final_interval = 1 if use_default_interval else interval_minutes_i
+
     variables = {
         "USER_STRING": to_str(user_string),
         "DEVICE_ID": device_id_i,
@@ -235,7 +238,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "ENABLE_DELAYED_START": bool(enable_delayed_start),
         "STARTING_MINUTE": delay_minutes_i,
         "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": bool(use_default_interval),
-        "INTERVAL_BETWEEN_REPEATS_MINUTES": interval_minutes_i,
+        "INTERVAL_BETWEEN_REPEATS_MINUTES": final_interval,
         "USE_CABLE_TRANSMISSION": bool(use_cable_transmission),
         "USE_SPEAKER_TRANSMISSION": bool(use_speaker_transmission),
         "SIGNAL_ATTENUATION": attenuation_i,
