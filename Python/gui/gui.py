@@ -586,7 +586,7 @@ class FlashToolApp(tk.Tk):
             fg=c["text"],
         ).grid(row=0, column=1, padx=(16, 6))
 
-        self.widgets["interval"] = tk.Spinbox(
+        self.widgets["base_interval"] = tk.Spinbox(
             row,
             from_=1,
             to=1440,
@@ -602,7 +602,7 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["interval"].grid(row=0, column=2, sticky="w")
+        self.widgets["base_interval"].grid(row=0, column=2, sticky="w")
 
         delay = self.section(left, "Initial Delay", 3)
         row = tk.Frame(delay, bg=c["surface"])
@@ -617,14 +617,14 @@ class FlashToolApp(tk.Tk):
             self.vars["use_start_minute"],
         )
 
-        self.widgets["start_minute"] = ttk.Spinbox(
+        self.widgets["base_start_minute"] = ttk.Spinbox(
             row,
             from_=0,
             to=59,
             width=6,
             textvariable=self.vars["start_minute"],
         )
-        self.widgets["start_minute"].grid(row=0, column=1, sticky="w")
+        self.widgets["base_start_minute"].grid(row=0, column=1, sticky="w")
 
     # -----------------------------------------------------
     # Receiver tab
@@ -653,10 +653,10 @@ class FlashToolApp(tk.Tk):
         self.widgets["receiver_user_string"] = self.entry_row(
             device, 0, "User String", self.vars["user_string"]
         )
-        self.widgets["device_id"] = self.entry_row(
+        self.widgets["receiver_device_id"] = self.entry_row(
             device, 1, "Device ID", self.vars["device_id"]
         )
-        self.widgets["location"] = self.entry_row(
+        self.widgets["receiver_location"] = self.entry_row(
             device, 2, "Location", self.vars["location"]
         )
 
@@ -692,24 +692,28 @@ class FlashToolApp(tk.Tk):
         row.grid(row=0, column=0, sticky="w")
 
         ttk.Label(row, text="Low (Hz):").grid(row=0, column=0, sticky="w")
-        self.widgets["frequency_low"] = ttk.Entry(
+        self.widgets["receiver_frequency_low"] = ttk.Entry(
             row, width=8, textvariable=self.vars["frequency_low"]
         )
-        self.widgets["frequency_low"].grid(row=0, column=1, padx=(8, 20), sticky="w")
+        self.widgets["receiver_frequency_low"].grid(
+            row=0, column=1, padx=(8, 20), sticky="w"
+        )
 
         ttk.Label(row, text="High (Hz):").grid(row=0, column=2, sticky="w")
-        self.widgets["frequency_high"] = ttk.Entry(
+        self.widgets["receiver_frequency_high"] = ttk.Entry(
             row, width=8, textvariable=self.vars["frequency_high"]
         )
-        self.widgets["frequency_high"].grid(row=0, column=3, padx=(8, 0), sticky="w")
+        self.widgets["receiver_frequency_high"].grid(
+            row=0, column=3, padx=(8, 0), sticky="w"
+        )
 
         ToolTip(
-            self.widgets["frequency_low"],
+            self.widgets["receiver_frequency_low"],
             "Lower FSK frequency (Hz). Must be < High frequency.\nValid range: 2000-24000 Hz.",
             self.colors,
         )
         ToolTip(
-            self.widgets["frequency_high"],
+            self.widgets["receiver_frequency_high"],
             "Higher FSK frequency (Hz). Must be > Low frequency.\nValid range: 2000-24000 Hz.",
             self.colors,
         )
@@ -729,14 +733,16 @@ class FlashToolApp(tk.Tk):
 
         ttk.Label(row, text="Level:").grid(row=0, column=0, sticky="w")
 
-        self.widgets["attenuation"] = ttk.Spinbox(
+        self.widgets["receiver_attenuation"] = ttk.Spinbox(
             row,
             from_=0,
             to=100,
             width=6,
             textvariable=self.vars["attenuation"],
         )
-        self.widgets["attenuation"].grid(row=0, column=1, padx=(8, 4), sticky="w")
+        self.widgets["receiver_attenuation"].grid(
+            row=0, column=1, padx=(8, 4), sticky="w"
+        )
 
         ttk.Label(row, text="%").grid(row=0, column=2, sticky="w", padx=(0, 12))
 
@@ -761,17 +767,19 @@ class FlashToolApp(tk.Tk):
             self.vars["ecc_enabled"],
         ).grid(row=0, column=0, sticky="w")
 
-        self.widgets["ecc_level"] = ttk.Spinbox(
+        self.widgets["receiver_ecc_level"] = ttk.Spinbox(
             row,
             from_=0,
             to=100,
             width=6,
             textvariable=self.vars["ecc_level"],
         )
-        self.widgets["ecc_level"].grid(row=0, column=1, padx=(8, 0), sticky="w")
+        self.widgets["receiver_ecc_level"].grid(
+            row=0, column=1, padx=(8, 0), sticky="w"
+        )
         ToolTip(
-            self.widgets["ecc_level"],
-            "Number of Reed-Solomon error-correction symbols (0–100).\nHigher = more robust, but longer transmissions.",
+            self.widgets["receiver_ecc_level"],
+            "Number of Reed-Solomon error-correction symbols (0-100).\nHigher = more robust, but longer transmissions.",
             self.colors,
         )
 
@@ -804,10 +812,10 @@ class FlashToolApp(tk.Tk):
         self.widgets["standalone_user_string"] = self.entry_row(
             device, 0, "User String", self.vars["user_string"]
         )
-        self.widgets["device_id"] = self.entry_row(
+        self.widgets["standalone_device_id"] = self.entry_row(
             device, 1, "Device ID", self.vars["device_id"]
         )
-        self.widgets["location"] = self.entry_row(
+        self.widgets["standalone_location"] = self.entry_row(
             device, 2, "Location", self.vars["location"]
         )
 
@@ -834,7 +842,7 @@ class FlashToolApp(tk.Tk):
             row=0, column=1, padx=(16, 6)
         )
 
-        self.widgets["sa_interval"] = tk.Spinbox(
+        self.widgets["standalone_interval"] = tk.Spinbox(
             irow,
             from_=1,
             to=1440,
@@ -850,7 +858,7 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["sa_interval"].grid(row=0, column=2, sticky="w")
+        self.widgets["standalone_interval"].grid(row=0, column=2, sticky="w")
 
         # Initial Delay  (from Base)
         delay = self.section(left, "Initial Delay", 3)
@@ -859,10 +867,10 @@ class FlashToolApp(tk.Tk):
         drow.grid_columnconfigure(0, weight=1)
 
         self.checkbox(drow, 0, 0, "Use Starting Minute", self.vars["use_start_minute"])
-        self.widgets["sa_start_minute"] = ttk.Spinbox(
+        self.widgets["standalone_start_minute"] = ttk.Spinbox(
             drow, from_=0, to=59, width=6, textvariable=self.vars["start_minute"]
         )
-        self.widgets["sa_start_minute"].grid(row=0, column=1, sticky="w")
+        self.widgets["standalone_start_minute"].grid(row=0, column=1, sticky="w")
 
         # Transmission settings
         tx = self.section(right, "Transmission Settings", 0)
@@ -885,24 +893,28 @@ class FlashToolApp(tk.Tk):
         row.grid(row=0, column=0, sticky="w")
 
         ttk.Label(row, text="Low (Hz):").grid(row=0, column=0, sticky="w")
-        self.widgets["frequency_low"] = ttk.Entry(
+        self.widgets["standalone_frequency_low"] = ttk.Entry(
             row, width=8, textvariable=self.vars["frequency_low"]
         )
-        self.widgets["frequency_low"].grid(row=0, column=1, padx=(8, 20), sticky="w")
+        self.widgets["standalone_frequency_low"].grid(
+            row=0, column=1, padx=(8, 20), sticky="w"
+        )
 
         ttk.Label(row, text="High (Hz):").grid(row=0, column=2, sticky="w")
-        self.widgets["frequency_high"] = ttk.Entry(
+        self.widgets["standalone_frequency_high"] = ttk.Entry(
             row, width=8, textvariable=self.vars["frequency_high"]
         )
-        self.widgets["frequency_high"].grid(row=0, column=3, padx=(8, 0), sticky="w")
+        self.widgets["standalone_frequency_high"].grid(
+            row=0, column=3, padx=(8, 0), sticky="w"
+        )
 
         ToolTip(
-            self.widgets["frequency_low"],
+            self.widgets["standalone_frequency_low"],
             "Lower FSK frequency (Hz). Must be < High frequency.\nValid range: 2000–24000 Hz.",
             self.colors,
         )
         ToolTip(
-            self.widgets["frequency_high"],
+            self.widgets["standalone_frequency_high"],
             "Higher FSK frequency (Hz). Must be > Low frequency.\nValid range: 2000–24000 Hz.",
             self.colors,
         )
@@ -920,10 +932,12 @@ class FlashToolApp(tk.Tk):
         row.grid(row=0, column=0, sticky="w")
 
         ttk.Label(row, text="Level:").grid(row=0, column=0, sticky="w")
-        self.widgets["attenuation"] = ttk.Spinbox(
+        self.widgets["standalone_attenuation"] = ttk.Spinbox(
             row, from_=0, to=100, width=6, textvariable=self.vars["attenuation"]
         )
-        self.widgets["attenuation"].grid(row=0, column=1, padx=(8, 4), sticky="w")
+        self.widgets["standalone_attenuation"].grid(
+            row=0, column=1, padx=(8, 4), sticky="w"
+        )
         ttk.Label(row, text="%").grid(row=0, column=2, sticky="w", padx=(0, 12))
 
         self.widgets["standalone_attenuation_db_label"] = ttk.Label(
@@ -941,12 +955,14 @@ class FlashToolApp(tk.Tk):
         self.checkbox(
             row, 0, 0, "Enable ECC (Recommended)", self.vars["ecc_enabled"]
         ).grid(row=0, column=0, sticky="w")
-        self.widgets["ecc_level"] = ttk.Spinbox(
+        self.widgets["standalone_ecc_level"] = ttk.Spinbox(
             row, from_=0, to=100, width=6, textvariable=self.vars["ecc_level"]
         )
-        self.widgets["ecc_level"].grid(row=0, column=1, padx=(8, 0), sticky="w")
+        self.widgets["standalone_ecc_level"].grid(
+            row=0, column=1, padx=(8, 0), sticky="w"
+        )
         ToolTip(
-            self.widgets["ecc_level"],
+            self.widgets["standalone_ecc_level"],
             "Number of Reed-Solomon error-correction symbols (0-100).\nHigher = more robust, but longer transmissions.",
             self.colors,
         )
@@ -1020,18 +1036,19 @@ class FlashToolApp(tk.Tk):
             "write", lambda *_: self.toggle_ecc_level_field()
         )
 
-        self.widgets["frequency_low"].bind(
-            "<FocusOut>", lambda e: self.update_low_frequency()
-        )
-        self.widgets["frequency_low"].bind(
-            "<Return>", lambda e: self.update_low_frequency()
-        )
-        self.widgets["frequency_high"].bind(
-            "<FocusOut>", lambda e: self.update_high_frequency()
-        )
-        self.widgets["frequency_high"].bind(
-            "<Return>", lambda e: self.update_high_frequency()
-        )
+        for prefix in ("receiver", "standalone"):
+            self.widgets[f"{prefix}_frequency_low"].bind(
+                "<FocusOut>", lambda e: self.update_low_frequency()
+            )
+            self.widgets[f"{prefix}_frequency_low"].bind(
+                "<Return>", lambda e: self.update_low_frequency()
+            )
+            self.widgets[f"{prefix}_frequency_high"].bind(
+                "<FocusOut>", lambda e: self.update_high_frequency()
+            )
+            self.widgets[f"{prefix}_frequency_high"].bind(
+                "<Return>", lambda e: self.update_high_frequency()
+            )
 
         self.bind_all("<Button-1>", self.defocus_all, add="+")
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
@@ -1047,15 +1064,18 @@ class FlashToolApp(tk.Tk):
 
     def toggle_interval_field(self):
         state = "disabled" if self.vars["default_interval"].get() else "normal"
-        self.widgets["interval"].config(state=state)
+        for key in ("base_interval", "standalone_interval"):
+            self.widgets[key].config(state=state)
 
     def toggle_delay_field(self):
         state = "normal" if self.vars["use_start_minute"].get() else "disabled"
-        self.widgets["start_minute"].config(state=state)
+        for key in ("base_start_minute", "standalone_start_minute"):
+            self.widgets[key].config(state=state)
 
     def toggle_ecc_level_field(self):
         state = "normal" if self.vars["ecc_enabled"].get() else "disabled"
-        self.widgets["ecc_level"].config(state=state)
+        for key in ("receiver_ecc_level", "standalone_ecc_level"):
+            self.widgets[key].config(state=state)
 
     def defocus_all(self, event):
         if isinstance(

@@ -31,6 +31,7 @@ int8_t Radio_InitRXMode(void) {
   }
 
   CC1101_Strobe(0x33, &status); // SCAL
+  HAL_Delay(2);
   CC1101_Strobe(0x38, &status); // SWOR
 
   HAL_Delay(10);
@@ -168,20 +169,18 @@ void Radio_Transmit(void) {
 
     CC1101_Strobe(0x35, &status); // STX
 
-    // Wait for IDLE with 2000 ms timeout
-    uint32_t tx_start = HAL_GetTick();
-    while (1) {
-      uint8_t marcstate = 0;
-      CC1101_ReadReg(0xF5, &marcstate, &status);
-      marcstate &= 0x1F;
-      if (marcstate == 0x01)
-        break; // IDLE — TX done
-      if (HAL_GetTick() - tx_start > 2000) {
-        LOGF("TX timeout on repeat %d, forcing IDLE.\r\n", tx_repeat + 1);
-        CC1101_Strobe(0x36, &status); // SIDLE
-        break;
-      }
-    }
+    // DEBUG: Check TX state
+    uint8_t marcstate = 0;
+    HAL_Delay(50);
+    CC1101_ReadReg(0xF5, &marcstate, &status);
+    marcstate &= 0x1F;
+    LOGF("DEBUG: After STX strobe, MARCSTATE=0x%02X ", marcstate);
+    if (marcstate == 0x13)
+      LOGF("(TX)\r\n");
+    else if (marcstate == 0x01)
+      LOGF("(IDLE - TX failed)\r\n");
+    else
+      LOGF("(UNKNOWN)\r\n");
 
     free((void *)payload_str);
   }
@@ -219,7 +218,7 @@ void Radio_EnterWOR(void) {
   uint8_t status = 0;
 
   CC1101_Strobe(0x36, &status); // SIDLE
-  HAL_Delay(1);
+  HAL_Delay(5);
   CC1101_Strobe(0x3A, &status); // SFRX
   HAL_Delay(10);
   CC1101_Strobe(0x38, &status); // SWOR
