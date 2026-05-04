@@ -137,7 +137,7 @@ rtc_time_t now = {.seconds = 0,
                   .month = 1,
                   .year = 1970};
 
-int8_t temp_int = 25;
+int8_t temp_int = 99;
 
 static uint32_t sine_val_low[LUT_LOW_SAMPLES];
 static uint32_t sine_val_high[LUT_HIGH_SAMPLES];
@@ -175,6 +175,8 @@ extern volatile uint8_t cdc_rx_len;
 uint32_t wake_up_tick = 0;
 
 bool first_boot = true;
+
+extern USBD_HandleTypeDef hUsbDeviceFS;
 
 /* USER CODE END PV */
 
@@ -316,6 +318,7 @@ int main(void) {
   }
 
   DS3231_PowerOn();
+  DS3231_Init();
   DS3231_GetTime(&now);
   DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
@@ -403,6 +406,15 @@ int main(void) {
     }
   } else {
     LOGF("No radio in standalone mode - skipping radio initialization\r\n");
+
+    // Power down CC1101 since we don't use it in standalone
+    HAL_Delay(20);
+    CC1101_PowerUpReset();
+    HAL_Delay(10);
+
+    // Put it in sleep to save power
+    Radio_EnterSleep();
+    LOGF("CC1101 powered down for standalone mode\r\n");
   }
 
   //-----------------------------------------------------------------------------//
@@ -462,7 +474,6 @@ int main(void) {
   uint32_t connection_tick = 0;
   uint32_t arm_tick = 0;
   uint32_t trigger_tick = 0;
-  uint32_t complete_tick = 0;
   uint32_t done_tick = 0;
   int32_t wait_ms = 0;
 
@@ -625,6 +636,7 @@ int main(void) {
 
     } else if (OPERATION_MODE == 1) {
       LOGF("Woke up for TX transmission\r\n");
+      Radio_EnterIdle();
 
       // Send transmission over radio
       LOGF("Starting transmission over radio...\r\n");
@@ -634,11 +646,14 @@ int main(void) {
 
       LED_ON();
       trigger_tick = HAL_GetTick() - wake_up_tick;
+
       Radio_Transmit();
 
       Relay_SetBypassMode();
       LED_OFF();
       done_tick = HAL_GetTick() - wake_up_tick;
+
+      Radio_EnterSleep();
     } else {
       LOGF("Woke up for Standalone mode\r\n");
 
@@ -724,7 +739,6 @@ int main(void) {
       // Stop transmission and go back to sleep
       stop_audio_transmission();
     }
-    complete_tick = HAL_GetTick() - wake_up_tick;
 
     if (OPERATION_MODE == 0) {
       LOGF("Has to wait for synchronization: %ld ms\r\n", (long)wait_ms);
@@ -770,6 +784,8 @@ int main(void) {
       LOGF("  Total ticks from wakeup to transmission start: %lu ms\r\n",
            (unsigned long)(done_tick - wake_up_tick));
     } else {
+      LOGF("RTC time at wakeup: %02d:%02d:%02d, %02d/%02d/%04d\r\n", now.hours,
+           now.minutes, now.seconds, now.date, now.month, now.year);
       LOGF("Timing for Standalone cycle:\r\n");
       LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
            (unsigned long)(while_tick - wake_up_tick));
@@ -796,9 +812,15 @@ int main(void) {
       LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
            (unsigned long)(trigger_tick - wake_up_tick));
     }
-    LOGF("Total ticks from wakeup to cycle complete: %lu ms\r\n",
-         (unsigned long)(complete_tick - wake_up_tick));
     LOGF("-------------------------\r\n");
+
+    // Get and print the time for drift analysis
+    DS3231_PowerOn();
+    DS3231_GetTime(&now);
+    DS3231_ReadTemperature(&temp_int);
+    DS3231_PowerOff();
+    LOGF("TRIGGER_TIME:%02d:%02d:%02d\r\n", now.hours, now.minutes,
+         now.seconds);
 
     /* USER CODE END WHILE */
 
@@ -1256,6 +1278,9 @@ void EnterStopMode(void) {
     HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
   }
 
+  USBD_Stop(&hUsbDeviceFS);
+  HAL_Delay(10);
+
   __DSB();
   __ISB();
   HAL_SuspendTick();
@@ -1266,6 +1291,11 @@ void EnterStopMode(void) {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
   MX_I2C2_Init();
   MX_USART2_UART_Init();
+
+  // Stop USB before sleep, reinit after wakeup
+  MX_USB_Device_Init();
+  HAL_Delay(200); // Wait for USB enumeration
+
   HAL_Delay(10);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
   wake_up_tick = HAL_GetTick();
@@ -1870,12 +1900,21 @@ static void RTC_SetWakeupTimer(uint32_t seconds) {
 }
 
 void TryReceiveTimeSync(void) {
+  DS3231_PowerOn();
+  HAL_Delay(10);
+
   LOGF("Waiting for time sync (10s)...\r\n");
 
   char buf[32] = {0};
   uint32_t start = HAL_GetTick();
+  uint32_t last_ready = 0;
 
   while (HAL_GetTick() - start < 10000) {
+    if (HAL_GetTick() - last_ready >= 500) {
+      LOGF("READY_FOR_TIME_SYNC\r\n");
+      last_ready = HAL_GetTick();
+    }
+
     if (cdc_rx_len > 0) {
       uint8_t len = cdc_rx_len;
       cdc_rx_len = 0;
@@ -1894,25 +1933,8 @@ void TryReceiveTimeSync(void) {
         if (sscanf(buf + 1, "%d:%d:%d %d %d/%d/%d", &h, &m, &s, &dow, &day,
                    &mon, &year) == 7) {
 
-          uint32_t t0 = HAL_GetTick();
-
-          DS3231_PowerOn();
-          uint32_t t1 = HAL_GetTick();
-          LOGF("[TIMING] PowerOn: %lu ms\r\n", t1 - t0);
-
-          HAL_Delay(5);
-          uint32_t t2 = HAL_GetTick();
-
           DS3231_Init();
-          uint32_t t3 = HAL_GetTick();
-          LOGF("[TIMING] Init: %lu ms\r\n", t3 - t2);
-
           DS3231_SetTime(s, m, h, dow, day, mon, year);
-          uint32_t t4 = HAL_GetTick();
-          LOGF("[TIMING] SetTime: %lu ms\r\n", t4 - t3);
-          LOGF("[TIMING] Total: %lu ms\r\n", t4 - t0);
-
-          DS3231_PowerOff();
 
           LOGF("Time synced: %02d:%02d:%02d %02d/%02d/%04d\r\n", h, m, s, day,
                mon, year);
@@ -1923,8 +1945,10 @@ void TryReceiveTimeSync(void) {
         }
       }
     }
+
     HAL_Delay(10);
   }
+
   LOGF("No time sync received\r\n");
   LED_Toggle();
   HAL_Delay(50);
@@ -1932,6 +1956,7 @@ void TryReceiveTimeSync(void) {
   LED_Toggle();
   HAL_Delay(50);
   LED_Toggle();
+  DS3231_PowerOff();
 }
 
 /* USER CODE END 4 */

@@ -10,7 +10,7 @@ import tempfile
 import pathlib
 import serial
 import serial.tools.list_ports
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from scripts.paths import *
 from scripts.user_config import *
@@ -243,45 +243,112 @@ def send_time_sync(root, safe_log):
 
     messagebox.showinfo(
         "Toggle BOOT0",
-        "Flash complete!\n\nNow set BOOT0 LOW and power-cycle or replug the device.\n\nClick OK when done.",
+        "Flash complete!\n\nSet BOOT0 LOW and power-cycle. Click OK when done.",
     )
-
-    time.sleep(3)
 
     port = None
-    all_ports = serial.tools.list_ports.comports()
-    safe_log(
-        f"[DEBUG] Available ports: {[(p.device, p.description) for p in all_ports]}"
-    )
-
-    for p in all_ports:
-        desc = (p.description or "").lower()
-        hwid = (p.hwid or "").lower()
-        device = (p.device or "").lower()
-        if any(
-            x in desc or x in hwid or x in device
-            for x in ["stm32", "usbmodem", "0483:5740"]
-        ):
-            port = p.device
+    for attempt in range(60):
+        all_ports = serial.tools.list_ports.comports()
+        for p in all_ports:
+            if any(
+                x in (p.description or p.hwid or p.device or "").lower()
+                for x in ["stm32", "usbmodem", "0483:5740"]
+            ):
+                port = p.device
+                break
+        if port:
             break
+        time.sleep(0.1)
 
     if not port:
         safe_log("[WARN] STM32 CDC port not found, skipping time sync")
-        safe_log(
-            "[INFO] You can set time manually by sending T<HH>:<MM>:<SS> <DOW> <DD>/<MM>/<YYYY> over serial"
-        )
         return
 
-    now = datetime.now()
-    dow = (now.weekday() + 1) % 7  # Convert Python's 0=Mon..6=Sun to 0=Sun..6=Sat
-    time_str = f"T{now.hour:02d}:{now.minute:02d}:{now.second:02d} {dow} {now.day:02d}/{now.month:02d}/{now.year}\n"
-
     try:
-        with serial.Serial(port, 115200, timeout=2) as ser:
-            time.sleep(0.5)  # let CDC settle before writing
-            safe_log(f"[INFO] Sending: {time_str.strip()} on {port}")
+        with serial.Serial(port, 115200, timeout=10) as ser:
+            time.sleep(2)
+            safe_log(f"[INFO] Listening on {port}...")
+
+            ready = False
+            start = time.time()
+            while time.time() - start < 10:
+                try:
+                    line = ser.readline().decode("utf-8", errors="ignore").strip()
+                    if line:
+                        safe_log(f"[DEBUG] {line}")
+                    if "READY_FOR_TIME_SYNC" in line:
+                        ready = True
+                        break
+                except:
+                    pass
+
+            if not ready:
+                safe_log("[WARN] Never received READY_FOR_TIME_SYNC")
+                return
+
+            # Sample time and send
+            sent_time = datetime.now()
+            dow = (sent_time.weekday() + 1) % 7
+            time_str = f"T{sent_time.hour:02d}:{sent_time.minute:02d}:{sent_time.second:02d} {dow} {sent_time.day:02d}/{sent_time.month:02d}/{sent_time.year}\n"
+
+            safe_log(
+                f"[INFO] Sent time: {sent_time.hour:02d}:{sent_time.minute:02d}:{sent_time.second:02d}"
+            )
             ser.write(time_str.encode())
-            safe_log("[OK] Time sync sent")
+
+            # Wait for readback
+            safe_log("[INFO] Waiting for readback (5s delay)...")
+            readback = None
+            start = time.time()
+            while time.time() - start < 10:
+                try:
+                    line = ser.readline().decode("utf-8", errors="ignore").strip()
+                    if line:
+                        safe_log(f"[DEBUG] {line}")
+                    if "READBACK:" in line:
+                        readback = line.split("READBACK:")[1]
+                        break
+                except:
+                    pass
+
+            if readback:
+                # Parse readback HH:MM:SS DD/MM/YYYY
+                parts = readback.split()
+                time_part = parts[0]  # HH:MM:SS
+                date_part = parts[1]  # DD/MM/YYYY
+
+                rb_h, rb_m, rb_s = map(int, time_part.split(":"))
+                rb_d, rb_mo, rb_y = map(int, date_part.split("/"))
+
+                # Calculate expected time (sent + 5 seconds)
+                expected_time = sent_time + timedelta(seconds=5)
+
+                # Compare
+                safe_log(
+                    f"[INFO] Sent:     {sent_time.hour:02d}:{sent_time.minute:02d}:{sent_time.second:02d}"
+                )
+                safe_log(
+                    f"[INFO] Expected: {expected_time.hour:02d}:{expected_time.minute:02d}:{expected_time.second:02d} (sent + 5s)"
+                )
+                safe_log(f"[INFO] Readback: {rb_h:02d}:{rb_m:02d}:{rb_s:02d}")
+
+                # Check if within 1 second
+                diff_s = abs(
+                    (rb_h * 3600 + rb_m * 60 + rb_s)
+                    - (
+                        expected_time.hour * 3600
+                        + expected_time.minute * 60
+                        + expected_time.second
+                    )
+                )
+
+                if diff_s <= 1:
+                    safe_log(f"[✓] SYNC OK - within 1 second (diff: {diff_s}s)")
+                else:
+                    safe_log(f"[✗] SYNC FAIL - off by {diff_s} seconds")
+            else:
+                safe_log("[WARN] No readback received")
+
     except Exception as e:
         safe_log(f"[WARN] Time sync failed: {e}")
 

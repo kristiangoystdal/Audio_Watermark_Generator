@@ -42,9 +42,14 @@ int Radio_Receive(uint8_t *out, size_t out_max);
 void Radio_EnterWOR(void);
 
 /**
- * @brief Start RX loop: continuously read RX FIFO and print.
+ * @brief Enter sleep mode.
  */
-void start_RX(void);
+void Radio_EnterSleep(void);
+
+/**
+ * @brief Enter idle mode.
+ */
+void Radio_EnterIdle(void);
 
 #ifdef __cplusplus
 }

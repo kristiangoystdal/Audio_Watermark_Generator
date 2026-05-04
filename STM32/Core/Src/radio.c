@@ -223,3 +223,15 @@ void Radio_EnterWOR(void) {
   HAL_Delay(10);
   CC1101_Strobe(0x38, &status); // SWOR
 }
+
+void Radio_EnterSleep(void) {
+  uint8_t status = 0;
+  CC1101_Strobe(0x36, &status); // SIDLE
+  HAL_Delay(5);
+  CC1101_Strobe(0x39, &status); // SPWD
+}
+
+void Radio_EnterIdle(void) {
+  uint8_t status = 0;
+  CC1101_Strobe(0x36, &status); // SIDLE
+}
