@@ -24,7 +24,8 @@ static const ism_reg_t cc1101_cfg_rx[] = {
     {0x18, 0x08}, // MCSM0: FS_AUTOCAL=00 (no autocalibration) ← CHANGE
     {0x1E, 0x10}, // WOREVT1: EVENT0 high byte (0x1080 = 264ms)
     {0x1F, 0x80}, // WOREVT0: EVENT0 low byte
-    {0x20, 0x78}, // WORCTRL: RC_PD=0 (RC osc ON for WOR timing)
+    {0x20,
+     0x70}, // WORCTRL: WOR_RES=0, EVENT1=7, RC_PD=0 (RC osc ON), WOR_DBG=0
 };
 
 static const ism_reg_t cc1101_cfg_tx[] = {

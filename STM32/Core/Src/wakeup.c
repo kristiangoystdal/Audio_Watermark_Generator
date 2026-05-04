@@ -25,13 +25,10 @@ void WakeUp_SetCurrentMinute(uint8_t minute) { current_minute = minute; }
 void WakeUp_CalculateNextValidMinute(void) {
   if (next_valid_minute == UNINITIALIZED) {
     if (ENABLE_DELAYED_START && current_minute != STARTING_MINUTE) {
-      // LOGF("Setting next valid minute to starting minute %02d\r\n",
-      //      STARTING_MINUTE);
       next_valid_minute = STARTING_MINUTE;
       return;
 
     } else {
-
       LOGF("No valid minute configured, setting next valid minute to current "
            "minute "
            "+ 1 (wraps around at 60)\r\n");
@@ -40,9 +37,6 @@ void WakeUp_CalculateNextValidMinute(void) {
       return;
     }
   } else {
-    // LOGF("Calculating next valid minute based on last valid minute %02d and "
-    //      "configured interval of %u minutes\r\n",
-    //      next_valid_minute, (unsigned int)INTERVAL_BETWEEN_REPEATS_MINUTES);
     next_valid_minute =
         (next_valid_minute + INTERVAL_BETWEEN_REPEATS_MINUTES) % 60;
   }
