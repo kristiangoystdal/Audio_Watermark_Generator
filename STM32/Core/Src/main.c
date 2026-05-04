@@ -739,7 +739,6 @@ int main(void) {
       // Stop transmission and go back to sleep
       stop_audio_transmission();
     }
-    complete_tick = HAL_GetTick() - wake_up_tick;
 
     if (OPERATION_MODE == 0) {
       LOGF("Has to wait for synchronization: %ld ms\r\n", (long)wait_ms);
