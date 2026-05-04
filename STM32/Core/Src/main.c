@@ -409,7 +409,6 @@ int main(void) {
 
     // Power down CC1101 since we don't use it in standalone
     HAL_Delay(20);
-    uint8_t status = 0;
     CC1101_PowerUpReset();
     HAL_Delay(10);
 
@@ -475,7 +474,6 @@ int main(void) {
   uint32_t connection_tick = 0;
   uint32_t arm_tick = 0;
   uint32_t trigger_tick = 0;
-  uint32_t complete_tick = 0;
   uint32_t done_tick = 0;
   int32_t wait_ms = 0;
 
