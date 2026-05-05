@@ -176,8 +176,6 @@ uint32_t wake_up_tick = 0;
 
 bool first_boot = true;
 
-extern USBD_HandleTypeDef hUsbDeviceFS;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -740,87 +738,80 @@ int main(void) {
       stop_audio_transmission();
     }
 
-    if (OPERATION_MODE == 0) {
-      LOGF("Has to wait for synchronization: %ld ms\r\n", (long)wait_ms);
-      LOGF("Timing for RX cycle:\r\n");
-      LOGF("  Ticks for battery check: %lu ms\r\n",
-           (unsigned long)(battery_tick));
-      LOGF("  Ticks for RTC read 1: %lu ms\r\n",
-           (unsigned long)(rtc1_tick - battery_tick));
-      LOGF("  Ticks for RX reception: %lu ms\r\n",
-           (unsigned long)(rx_tick - rtc1_tick));
-      LOGF("  Ticks for processing received data: %lu ms\r\n",
-           (unsigned long)(process_tick - rx_tick));
-      LOGF("  Ticks for RTC read 2: %lu ms\r\n",
-           (unsigned long)(rtc2_tick - process_tick));
-      LOGF("  Ticks for creating output string: %lu ms\r\n",
-           (unsigned long)(string_tick - rtc2_tick));
-      LOGF("  Ticks for Reed-Solomon encoding: %lu ms\r\n",
-           (unsigned long)(rs_tick - string_tick));
-      LOGF("  Ticks for making bitstream: %lu ms\r\n",
-           (unsigned long)(bitstream_tick - rs_tick));
-      LOGF("  Ticks for connection setup: %lu ms\r\n",
-           (unsigned long)(connection_tick - bitstream_tick));
-      LOGF("  Ticks for arming audio: %lu ms\r\n",
-           (unsigned long)(arm_tick - connection_tick));
-      LOGF("  Ticks for triggering audio: %lu ms\r\n",
-           (unsigned long)(trigger_tick - arm_tick));
-      LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
-           (unsigned long)(trigger_tick - wake_up_tick));
-    } else if (OPERATION_MODE == 1) {
-      LOGF("Timing for TX cycle:\r\n");
-      LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
-           (unsigned long)(while_tick - wake_up_tick));
-      LOGF("  Ticks for battery check: %lu ms\r\n",
-           (unsigned long)(battery_tick - while_tick));
-      LOGF("  Ticks for RTC read: %lu ms\r\n",
-           (unsigned long)(rtc1_tick - battery_tick));
-      LOGF("  Ticks for check active minute: %lu ms\r\n",
-           (unsigned long)(active_tick - rtc1_tick));
-      LOGF("  Ticks for starting transmission: %lu ms\r\n",
-           (unsigned long)(trigger_tick - active_tick));
-      LOGF("  Ticks for transmission to complete: %lu ms\r\n",
-           (unsigned long)(done_tick - trigger_tick));
-      LOGF("  Total ticks from wakeup to transmission start: %lu ms\r\n",
-           (unsigned long)(done_tick - wake_up_tick));
-    } else {
-      LOGF("RTC time at wakeup: %02d:%02d:%02d, %02d/%02d/%04d\r\n", now.hours,
-           now.minutes, now.seconds, now.date, now.month, now.year);
-      LOGF("Timing for Standalone cycle:\r\n");
-      LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
-           (unsigned long)(while_tick - wake_up_tick));
-      LOGF("  Ticks for battery check: %lu ms\r\n",
-           (unsigned long)(battery_tick - while_tick));
-      LOGF("  Ticks for RTC read: %lu ms\r\n",
-           (unsigned long)(rtc1_tick - battery_tick));
-      LOGF("  Ticks for check active minute: %lu ms\r\n",
-           (unsigned long)(active_tick - rtc1_tick));
-      LOGF("  Ticks for RTC read 2: %lu ms\r\n",
-           (unsigned long)(rtc2_tick - active_tick));
-      LOGF("  Ticks for creating output string: %lu ms\r\n",
-           (unsigned long)(string_tick - rtc2_tick));
-      LOGF("  Ticks for Reed-Solomon encoding: %lu ms\r\n",
-           (unsigned long)(rs_tick - string_tick));
-      LOGF("  Ticks for making bitstream: %lu ms\r\n",
-           (unsigned long)(bitstream_tick - rs_tick));
-      LOGF("  Ticks for connection setup: %lu ms\r\n",
-           (unsigned long)(connection_tick - bitstream_tick));
-      LOGF("  Ticks for arming audio: %lu ms\r\n",
-           (unsigned long)(arm_tick - connection_tick));
-      LOGF("  Ticks for triggering audio: %lu ms\r\n",
-           (unsigned long)(trigger_tick - arm_tick));
-      LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
-           (unsigned long)(trigger_tick - wake_up_tick));
-    }
-    LOGF("-------------------------\r\n");
-
-    // Get and print the time for drift analysis
-    DS3231_PowerOn();
-    DS3231_GetTime(&now);
-    DS3231_ReadTemperature(&temp_int);
-    DS3231_PowerOff();
-    LOGF("TRIGGER_TIME:%02d:%02d:%02d\r\n", now.hours, now.minutes,
-         now.seconds);
+    // if (OPERATION_MODE == 0) {
+    //   LOGF("Has to wait for synchronization: %ld ms\r\n", (long)wait_ms);
+    //   LOGF("Timing for RX cycle:\r\n");
+    //   LOGF("  Ticks for battery che∏ck: %lu ms\r\n",
+    //        (unsigned long)(battery_tick));
+    //   LOGF("  Ticks for RTC read 1: %lu ms\r\n",
+    //        (unsigned long)(rtc1_tick - battery_tick));
+    //   LOGF("  Ticks for RX reception: %lu ms\r\n",
+    //        (unsigned long)(rx_tick - rtc1_tick));
+    //   LOGF("  Ticks for processing received data: %lu ms\r\n",
+    //        (unsigned long)(process_tick - rx_tick));
+    //   LOGF("  Ticks for RTC read 2: %lu ms\r\n",
+    //        (unsigned long)(rtc2_tick - process_tick));
+    //   LOGF("  Ticks for creating output string: %lu ms\r\n",
+    //        (unsigned long)(string_tick - rtc2_tick));
+    //   LOGF("  Ticks for Reed-Solomon encoding: %lu ms\r\n",
+    //        (unsigned long)(rs_tick - string_tick));
+    //   LOGF("  Ticks for making bitstream: %lu ms\r\n",
+    //        (unsigned long)(bitstream_tick - rs_tick));
+    //   LOGF("  Ticks for connection setup: %lu ms\r\n",
+    //        (unsigned long)(connection_tick - bitstream_tick));
+    //   LOGF("  Ticks for arming audio: %lu ms\r\n",
+    //        (unsigned long)(arm_tick - connection_tick));
+    //   LOGF("  Ticks for triggering audio: %lu ms\r\n",
+    //        (unsigned long)(trigger_tick - arm_tick));
+    //   LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
+    //        (unsigned long)(trigger_tick - wake_up_tick));
+    // } else if (OPERATION_MODE == 1) {
+    //   LOGF("Timing for TX cycle:\r\n");
+    //   LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
+    //        (unsigned long)(while_tick - wake_up_tick));
+    //   LOGF("  Ticks for battery check: %lu ms\r\n",
+    //        (unsigned long)(battery_tick - while_tick));
+    //   LOGF("  Ticks for RTC read: %lu ms\r\n",
+    //        (unsigned long)(rtc1_tick - battery_tick));
+    //   LOGF("  Ticks for check active minute: %lu ms\r\n",
+    //        (unsigned long)(active_tick - rtc1_tick));
+    //   LOGF("  Ticks for starting transmission: %lu ms\r\n",
+    //        (unsigned long)(trigger_tick - active_tick));
+    //   LOGF("  Ticks for transmission to complete: %lu ms\r\n",
+    //        (unsigned long)(done_tick - trigger_tick));
+    //   LOGF("  Total ticks from wakeup to transmission start: %lu ms\r\n",
+    //        (unsigned long)(done_tick - wake_up_tick));
+    // } else {
+    //   LOGF("RTC time at wakeup: %02d:%02d:%02d, %02d/%02d/%04d\r\n",
+    //   now.hours,
+    //        now.minutes, now.seconds, now.date, now.month, now.year);
+    //   LOGF("Timing for Standalone cycle:\r\n");
+    //   LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
+    //        (unsigned long)(while_tick - wake_up_tick));
+    //   LOGF("  Ticks for battery check: %lu ms\r\n",
+    //        (unsigned long)(battery_tick - while_tick));
+    //   LOGF("  Ticks for RTC read: %lu ms\r\n",
+    //        (unsigned long)(rtc1_tick - battery_tick));
+    //   LOGF("  Ticks for check active minute: %lu ms\r\n",
+    //        (unsigned long)(active_tick - rtc1_tick));
+    //   LOGF("  Ticks for RTC read 2: %lu ms\r\n",
+    //        (unsigned long)(rtc2_tick - active_tick));
+    //   LOGF("  Ticks for creating output string: %lu ms\r\n",
+    //        (unsigned long)(string_tick - rtc2_tick));
+    //   LOGF("  Ticks for Reed-Solomon encoding: %lu ms\r\n",
+    //        (unsigned long)(rs_tick - string_tick));
+    //   LOGF("  Ticks for making bitstream: %lu ms\r\n",
+    //        (unsigned long)(bitstream_tick - rs_tick));
+    //   LOGF("  Ticks for connection setup: %lu ms\r\n",
+    //        (unsigned long)(connection_tick - bitstream_tick));
+    //   LOGF("  Ticks for arming audio: %lu ms\r\n",
+    //        (unsigned long)(arm_tick - connection_tick));
+    //   LOGF("  Ticks for triggering audio: %lu ms\r\n",
+    //        (unsigned long)(trigger_tick - arm_tick));
+    //   LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
+    //        (unsigned long)(trigger_tick - wake_up_tick));
+    // }
+    // LOGF("-------------------------\r\n");
 
     /* USER CODE END WHILE */
 
@@ -1278,9 +1269,6 @@ void EnterStopMode(void) {
     HAL_NVIC_EnableIRQ(RTC_WKUP_IRQn);
   }
 
-  USBD_Stop(&hUsbDeviceFS);
-  HAL_Delay(10);
-
   __DSB();
   __ISB();
   HAL_SuspendTick();
@@ -1291,10 +1279,6 @@ void EnterStopMode(void) {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
   MX_I2C2_Init();
   MX_USART2_UART_Init();
-
-  // Stop USB before sleep, reinit after wakeup
-  MX_USB_Device_Init();
-  HAL_Delay(200); // Wait for USB enumeration
 
   HAL_Delay(10);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
