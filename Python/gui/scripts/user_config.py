@@ -1,3 +1,4 @@
+from datetime import datetime, UTC
 import os
 import sys
 import tkinter as tk
@@ -172,6 +173,7 @@ def change_user_config(root, set_initial_time, safe_log=None):
         rs_error_correction_symbols_i = to_int(
             "RS_ERROR_CORRECTION_SYMBOLS", rs_error_correction_symbols, 0, 100
         )
+
     except ValueError as e:
         if safe_log:
             safe_log(f"[ERROR] {e}")

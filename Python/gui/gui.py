@@ -631,7 +631,7 @@ class FlashToolApp(tk.Tk):
         self.widgets["sleep_duration"].grid(row=0, column=3, sticky="w")
 
         # Schedule Settings section
-        schedule = self.section(left, "Schedule Settings", 3)
+        schedule = self.section(left, "Schedule Settings (UTC)", 3)
         schedule.grid_columnconfigure(0, weight=1)
 
         time_row = tk.Frame(schedule, bg=c["surface"])
