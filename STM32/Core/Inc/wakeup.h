@@ -11,8 +11,8 @@
 #define UNINITIALIZED 0xFF
 
 void WakeUp_Init(rtc_time_t now);
-void WakeUp_SetCurrentMinute(uint8_t minute);
-void WakeUp_CalculateNextValidMinute(void);
+void WakeUp_SetCurrentTime(uint8_t hour, uint8_t minute);
+void WakeUp_CalculateNextValidTime(void);
 bool WakeUp_CheckCurrentMinute(rtc_time_t now);
 
 #endif // WAKEUP_H
