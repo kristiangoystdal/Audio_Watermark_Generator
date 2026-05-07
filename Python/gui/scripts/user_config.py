@@ -98,21 +98,23 @@ def change_user_config(root, set_initial_time, safe_log=None):
     config_path = ensure_user_config(False, safe_log)
 
     try:
-        # Read values from GUI vars
         user_string = root.vars["user_string"].get().strip()
         device_id = root.vars["device_id"].get().strip()
         location = root.vars["location"].get().strip()
-        delay_minutes = str(root.vars["start_minute"].get()).strip()
-        interval_minutes = str(root.vars["interval"].get()).strip()
+
+        starting_hour = str(root.vars["starting_hour"].get()).strip()
+        starting_minute = str(root.vars["starting_minute"].get()).strip()
+        end_hour = str(root.vars["end_hour"].get()).strip()
+        end_minute = str(root.vars["end_minute"].get()).strip()
+
+        run_minutes = str(root.vars["run_minutes"].get()).strip()
+        sleep_minutes = str(root.vars["sleep_minutes"].get()).strip()
 
         include_user_string = root.vars["include_user_string"].get()
         include_device_id = root.vars["include_device_id"].get()
         include_location = root.vars["include_location"].get()
         include_temperature = root.vars["include_temperature"].get()
         include_time = root.vars["include_time"].get()
-
-        enable_delayed_start = root.vars["use_start_minute"].get()
-        use_default_interval = root.vars["default_interval"].get()
 
         transmission = root.vars["transmission"].get()
         use_cable_transmission = transmission == "cable"
@@ -122,8 +124,8 @@ def change_user_config(root, set_initial_time, safe_log=None):
         frequency_higher = root.vars["frequency_high"].get()
 
         attenuation = root.vars["attenuation"].get()
-
         rs_error_correction_symbols = root.vars["ecc_level"].get()
+        ecc_enabled = root.vars["ecc_enabled"].get()
 
         operation_mode = root.vars["operation_mode"].get()
 
@@ -138,7 +140,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
         messagebox.showerror("Error", "Please enter a valid string.")
         return False
 
-    # Helper converters
     def to_int(name: str, v, min_v=None, max_v=None):
         try:
             iv = int(str(v).strip())
@@ -151,25 +152,23 @@ def change_user_config(root, set_initial_time, safe_log=None):
         return iv
 
     def to_str(v):
-        # remove any quotes user might have typed
         return str(v).strip().replace('"', "")
 
-    # Get current time
     current_time = read_current_time()
 
-    # Normalize numeric inputs (IMPORTANT)
     try:
         device_id_i = to_int("DEVICE_ID", device_id, 0, 65535)
-        delay_minutes_i = to_int("STARTING_MINUTE", delay_minutes, 0, 59)
-        interval_minutes_i = to_int(
-            "INTERVAL_BETWEEN_REPEATS_MINUTES", interval_minutes, 1, 1440
-        )
+        starting_hour_i = to_int("STARTING_HOUR", starting_hour, 0, 23)
+        starting_minute_i = to_int("STARTING_MINUTE", starting_minute, 0, 59)
+        end_hour_i = to_int("END_HOUR", end_hour, 0, 23)
+        end_minute_i = to_int("END_MINUTE", end_minute, 0, 59)
+        run_minutes_i = to_int("RUN_MINUTES", run_minutes, 1, 1440)
+        sleep_minutes_i = to_int("SLEEP_MINUTES", sleep_minutes, 1, 1440)
 
         fsk_low_i = to_int("FSK_LOWER_FREQUENCY", frequency_lower, 1, 50000)
         fsk_high_i = to_int("FSK_HIGHER_FREQUENCY", frequency_higher, 1, 50000)
 
         attenuation_i = to_int("SIGNAL_ATTENUATION", attenuation, 0, 120)
-
         rs_error_correction_symbols_i = to_int(
             "RS_ERROR_CORRECTION_SYMBOLS", rs_error_correction_symbols, 0, 100
         )
@@ -179,7 +178,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
         messagebox.showerror("Error", str(e))
         return False
 
-    # Define types
     bool_vars = {
         "INCLUDE_USER_STRING",
         "INCLUDE_DEVICE_ID",
@@ -187,10 +185,9 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INCLUDE_TEMPERATURE",
         "INCLUDE_TIME",
         "SET_INITIAL_TIME",
-        "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS",
-        "ENABLE_DELAYED_START",
         "USE_CABLE_TRANSMISSION",
         "USE_SPEAKER_TRANSMISSION",
+        "USE_REED_SOLOMON_ERROR_CORRECTION",
     }
 
     int_vars = {
@@ -203,18 +200,18 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INITIAL_HOUR",
         "INITIAL_MIN",
         "INITIAL_SEC",
+        "STARTING_HOUR",
         "STARTING_MINUTE",
-        "INTERVAL_BETWEEN_REPEATS_MINUTES",
+        "END_HOUR",
+        "END_MINUTE",
+        "RUN_MINUTES",
+        "SLEEP_MINUTES",
         "FSK_LOWER_FREQUENCY",
         "FSK_HIGHER_FREQUENCY",
         "SIGNAL_ATTENUATION",
         "RS_ERROR_CORRECTION_SYMBOLS",
         "OPERATION_MODE",
     }
-
-    # Values to apply (use normalized ints)
-    # Set interval to 1 if using default interval, otherwise use the provided value
-    final_interval = 1 if use_default_interval else interval_minutes_i
 
     variables = {
         "USER_STRING": to_str(user_string),
@@ -233,14 +230,17 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INITIAL_HOUR": current_time[4],
         "INITIAL_MIN": current_time[5],
         "INITIAL_SEC": current_time[6],
+        "STARTING_HOUR": starting_hour_i,
+        "STARTING_MINUTE": starting_minute_i,
+        "END_HOUR": end_hour_i,
+        "END_MINUTE": end_minute_i,
+        "RUN_MINUTES": run_minutes_i,
+        "SLEEP_MINUTES": sleep_minutes_i,
         "FSK_LOWER_FREQUENCY": fsk_low_i,
         "FSK_HIGHER_FREQUENCY": fsk_high_i,
-        "ENABLE_DELAYED_START": bool(enable_delayed_start),
-        "STARTING_MINUTE": delay_minutes_i,
-        "USE_DEFAULT_INTERVAL_BETWEEN_REPEATS": bool(use_default_interval),
-        "INTERVAL_BETWEEN_REPEATS_MINUTES": final_interval,
         "USE_CABLE_TRANSMISSION": bool(use_cable_transmission),
         "USE_SPEAKER_TRANSMISSION": bool(use_speaker_transmission),
+        "USE_REED_SOLOMON_ERROR_CORRECTION": bool(ecc_enabled),
         "SIGNAL_ATTENUATION": attenuation_i,
         "RS_ERROR_CORRECTION_SYMBOLS": rs_error_correction_symbols_i,
         "OPERATION_MODE": operation_mode,
@@ -251,14 +251,12 @@ def change_user_config(root, set_initial_time, safe_log=None):
             return f"#define {var} {'true' if val else 'false'}\n"
         if var in int_vars:
             return f"#define {var} {int(val)}\n"
-        # default: string
         return f'#define {var} "{to_str(val)}"\n'
 
     try:
         with open(config_path, "r") as file:
             lines = file.readlines()
 
-        # Replace existing defines
         for i, line in enumerate(lines):
             stripped = line.lstrip()
             if not stripped.startswith("#define "):
@@ -269,12 +267,10 @@ def change_user_config(root, set_initial_time, safe_log=None):
                     lines[i] = format_define(var, val)
                     break
 
-        # Append missing defines
         for var, val in variables.items():
             if not any(l.lstrip().startswith(f"#define {var}") for l in lines):
                 lines.append(format_define(var, val))
 
-        # Ensure endif exists
         if not any(l.strip().startswith("#endif") for l in lines):
             lines.append("\n#endif // USER_CONFIG_H\n")
 
