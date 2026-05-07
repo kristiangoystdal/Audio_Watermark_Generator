@@ -56,15 +56,16 @@
 // timer without radio)
 #define OPERATION_MODE 0 // 0=RX, 1=TX, 2=Standalone
 
-// Configuration for base station transmission intervals and timing
-// If delayed start is enabled, the device will wait until the specified
-// starting time is reached
-#define ENABLE_DELAYED_START false
+// Confirguration for active window timing
+#define STARTING_HOUR 0
 #define STARTING_MINUTE 0
+#define END_HOUR 23
+#define END_MINUTE 59
 
-// Configuration for the interval between repeats
-#define USE_DEFAULT_INTERVAL_BETWEEN_REPEATS true // Default is 60 seconds
-#define INTERVAL_BETWEEN_REPEATS_MINUTES 10
+// Configuration for how long the device should stay active during each active
+// minute before going back to sleep, in minutes
+#define RUN_MINUTES 5
+#define SLEEP_MINUTES 55
 
 #define LUT_LOW_SAMPLES (1920000u / FSK_LOWER_FREQUENCY)
 #define LUT_HIGH_SAMPLES (1920000u / FSK_HIGHER_FREQUENCY)
