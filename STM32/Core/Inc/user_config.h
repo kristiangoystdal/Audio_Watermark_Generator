@@ -37,8 +37,8 @@
 // Configuration for FSK frequencies (in Hz) - these will be adjusted by the
 // algorithm if they don't meet the sample count requirements, but should be set
 // close to the desired frequencies to minimize adjustments
-#define FSK_LOWER_FREQUENCY 18113
-#define FSK_HIGHER_FREQUENCY 20000
+#define FSK_LOWER_FREQUENCY 15000
+#define FSK_HIGHER_FREQUENCY 16000
 
 // Configuration for attenuation of the signal in percent (0-100), where 100 is
 // no attenuation and 0 is maximum attenuation (silence)
@@ -64,8 +64,8 @@
 
 // Configuration for how long the device should stay active during each active
 // minute before going back to sleep, in minutes
-#define RUN_MINUTES 5
-#define SLEEP_MINUTES 55
+#define RUN_MINUTES 3
+#define SLEEP_MINUTES 4
 
 #define LUT_LOW_SAMPLES (1920000u / FSK_LOWER_FREQUENCY)
 #define LUT_HIGH_SAMPLES (1920000u / FSK_HIGHER_FREQUENCY)
