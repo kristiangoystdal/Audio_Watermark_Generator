@@ -2474,7 +2474,7 @@
 	)
 	(wire
 		(pts
-			(xy 52.07 113.03) (xy 52.07 115.57)
+			(xy 60.96 113.03) (xy 60.96 115.57)
 		)
 		(stroke
 			(width 0)
@@ -2554,7 +2554,7 @@
 	)
 	(wire
 		(pts
-			(xy 21.59 105.41) (xy 24.13 105.41)
+			(xy 30.48 105.41) (xy 33.02 105.41)
 		)
 		(stroke
 			(width 0)
@@ -2604,7 +2604,7 @@
 	)
 	(wire
 		(pts
-			(xy 52.07 113.03) (xy 49.53 113.03)
+			(xy 60.96 113.03) (xy 58.42 113.03)
 		)
 		(stroke
 			(width 0)
@@ -2624,7 +2624,7 @@
 	)
 	(wire
 		(pts
-			(xy 52.07 100.33) (xy 49.53 100.33)
+			(xy 60.96 100.33) (xy 58.42 100.33)
 		)
 		(stroke
 			(width 0)
@@ -2664,7 +2664,7 @@
 	)
 	(wire
 		(pts
-			(xy 49.53 107.95) (xy 55.88 107.95)
+			(xy 58.42 107.95) (xy 64.77 107.95)
 		)
 		(stroke
 			(width 0)
@@ -2764,7 +2764,7 @@
 	)
 	(wire
 		(pts
-			(xy 24.13 107.95) (xy 21.59 107.95)
+			(xy 33.02 107.95) (xy 30.48 107.95)
 		)
 		(stroke
 			(width 0)
@@ -2794,7 +2794,7 @@
 	)
 	(wire
 		(pts
-			(xy 52.07 97.79) (xy 52.07 100.33)
+			(xy 60.96 97.79) (xy 60.96 100.33)
 		)
 		(stroke
 			(width 0)
@@ -2944,7 +2944,7 @@
 	)
 	(wire
 		(pts
-			(xy 49.53 105.41) (xy 55.88 105.41)
+			(xy 58.42 105.41) (xy 64.77 105.41)
 		)
 		(stroke
 			(width 0)
@@ -3063,7 +3063,7 @@
 		(uuid "24f66ad8-9278-485a-a884-d76dd14aa212")
 	)
 	(label "RELAY_2"
-		(at 55.88 107.95 180)
+		(at 64.77 107.95 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -3113,7 +3113,7 @@
 		(uuid "be3f54ae-1548-45bb-ad92-91e95e662c1c")
 	)
 	(label "RELAY_1"
-		(at 55.88 105.41 180)
+		(at 64.77 105.41 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -3135,7 +3135,7 @@
 	)
 	(hierarchical_label "RELAY_2_CTR"
 		(shape input)
-		(at 21.59 107.95 180)
+		(at 30.48 107.95 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -3146,7 +3146,7 @@
 	)
 	(hierarchical_label "RELAY_1_CTR"
 		(shape input)
-		(at 21.59 105.41 180)
+		(at 30.48 105.41 180)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -3169,7 +3169,7 @@
 	(rule_area
 		(polyline
 			(pts
-				(xy 57.15 120.65) (xy 15.24 120.65) (xy 15.24 90.17) (xy 57.15 90.17)
+				(xy 66.04 120.65) (xy 15.24 120.65) (xy 15.24 90.17) (xy 66.04 90.17)
 			)
 			(stroke
 				(width 0)
@@ -3362,7 +3362,7 @@
 	)
 	(symbol
 		(lib_id "Driver_Relay:L9110S")
-		(at 36.83 107.95 0)
+		(at 45.72 107.95 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -3370,7 +3370,7 @@
 		(dnp no)
 		(uuid "18e8bd4f-8e62-497a-a488-e2ae2324bd0e")
 		(property "Reference" "U2"
-			(at 36.83 92.71 0)
+			(at 45.72 92.71 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3378,7 +3378,7 @@
 			)
 		)
 		(property "Value" "L9110S"
-			(at 36.83 95.25 0)
+			(at 45.72 95.25 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3386,7 +3386,7 @@
 			)
 		)
 		(property "Footprint" "Driver:SOIC127P599X172-8N"
-			(at 36.83 79.502 0)
+			(at 45.72 79.502 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3396,7 +3396,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 36.83 107.95 0)
+			(at 45.72 107.95 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3405,7 +3405,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 36.83 107.95 0)
+			(at 45.72 107.95 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3414,7 +3414,7 @@
 			)
 		)
 		(property "MF" "ON Semiconductor"
-			(at 55.626 71.628 0)
+			(at 64.516 71.628 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3424,7 +3424,7 @@
 			)
 		)
 		(property "MAXIMUM_PACKAGE_HEIGHT" "1.7272mm"
-			(at 36.83 72.644 0)
+			(at 45.72 72.644 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3434,7 +3434,7 @@
 			)
 		)
 		(property "Package" "None"
-			(at 36.83 85.598 0)
+			(at 45.72 85.598 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3444,7 +3444,7 @@
 			)
 		)
 		(property "Price" "None"
-			(at 58.928 78.74 0)
+			(at 67.818 78.74 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3454,7 +3454,7 @@
 			)
 		)
 		(property "Check_prices" "https://www.snapeda.com/parts/L9110S/Onsemi/view-part/?ref=eda"
-			(at 36.83 76.708 0)
+			(at 45.72 76.708 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3464,7 +3464,7 @@
 			)
 		)
 		(property "STANDARD" "IPC-7351B"
-			(at 22.86 84.328 0)
+			(at 31.75 84.328 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3474,7 +3474,7 @@
 			)
 		)
 		(property "PARTREV" "NA"
-			(at 23.368 68.072 0)
+			(at 32.258 68.072 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3484,7 +3484,7 @@
 			)
 		)
 		(property "SnapEDA_Link" "https://www.snapeda.com/parts/L9110S/Onsemi/view-part/?ref=snap"
-			(at 37.084 93.218 0)
+			(at 45.974 93.218 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3494,7 +3494,7 @@
 			)
 		)
 		(property "MP" "L9110S"
-			(at 36.83 83.566 0)
+			(at 45.72 83.566 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3504,7 +3504,7 @@
 			)
 		)
 		(property "Description_1" "SOP-8 MOTOR DRIVER ICS ROHS"
-			(at 16.764 72.644 0)
+			(at 25.654 72.644 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3514,7 +3514,7 @@
 			)
 		)
 		(property "Availability" "Not in stock"
-			(at 49.276 84.836 0)
+			(at 58.166 84.836 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3524,7 +3524,7 @@
 			)
 		)
 		(property "MANUFACTURER" "UMW"
-			(at 37.084 93.472 0)
+			(at 45.974 93.472 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3534,7 +3534,7 @@
 			)
 		)
 		(property "LCSC Part #" "C725793"
-			(at 36.83 107.95 0)
+			(at 45.72 107.95 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4624,7 +4624,7 @@
 	)
 	(symbol
 		(lib_id "power:+3.3V")
-		(at 52.07 97.79 0)
+		(at 60.96 97.79 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -4633,7 +4633,7 @@
 		(fields_autoplaced yes)
 		(uuid "7d75c6f9-2171-4a22-90b4-74e0b8f2101f")
 		(property "Reference" "#PWR022"
-			(at 52.07 101.6 0)
+			(at 60.96 101.6 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4642,7 +4642,7 @@
 			)
 		)
 		(property "Value" "+3.3V"
-			(at 52.07 92.71 0)
+			(at 60.96 92.71 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4650,7 +4650,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 52.07 97.79 0)
+			(at 60.96 97.79 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4659,7 +4659,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 52.07 97.79 0)
+			(at 60.96 97.79 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -4668,7 +4668,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"+3.3V\""
-			(at 52.07 97.79 0)
+			(at 60.96 97.79 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5428,7 +5428,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 52.07 115.57 0)
+		(at 60.96 115.57 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -5437,7 +5437,7 @@
 		(fields_autoplaced yes)
 		(uuid "c68eeacb-7f9a-4284-936f-532da1c6c6c9")
 		(property "Reference" "#PWR028"
-			(at 52.07 121.92 0)
+			(at 60.96 121.92 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5446,7 +5446,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 52.07 119.38 0)
+			(at 60.96 119.38 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5455,7 +5455,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 52.07 115.57 0)
+			(at 60.96 115.57 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5464,7 +5464,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 52.07 115.57 0)
+			(at 60.96 115.57 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -5473,7 +5473,7 @@
 			)
 		)
 		(property "Description" "Power symbol creates a global label with name \"GND\" , ground"
-			(at 52.07 115.57 0)
+			(at 60.96 115.57 0)
 			(effects
 				(font
 					(size 1.27 1.27)
