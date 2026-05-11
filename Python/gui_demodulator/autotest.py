@@ -24,8 +24,7 @@ def main():
         print(f"No matching WAV files found in {AUTOTEST_DIR}")
         sys.exit(1)
 
-    passed = 0
-    failed = 0
+    results = []
     t_start = time.monotonic()
 
     for filename in wav_files:
@@ -39,6 +38,7 @@ def main():
         print(f"f0={f0:.2f} Hz  f1={f1:.2f} Hz")
         print(f"{'='*60}")
 
+        t_file = time.monotonic()
         try:
             count = decode_fsk(
                 filepath,
@@ -49,16 +49,43 @@ def main():
                 use_ecc=True,
                 ecc_nsym=20,
             )
+            elapsed_file = time.monotonic() - t_file
             print(f"Result : {count} message(s) decoded")
-            passed += 1
+            if count > 0:
+                results.append((filename, "PASS", count, elapsed_file, ""))
+            else:
+                print("FAIL   : no messages decoded")
+                results.append((filename, "FAIL", 0, elapsed_file, "No messages decoded"))
         except Exception as exc:
+            elapsed_file = time.monotonic() - t_file
             print(f"ERROR  : {exc}")
-            failed += 1
+            results.append((filename, "FAIL", 0, elapsed_file, str(exc)))
 
     elapsed = time.monotonic() - t_start
-    print(f"\n{'='*60}")
-    print(f"Done — {passed} file(s) OK, {failed} file(s) failed")
-    print(f"Total time: {elapsed:.1f}s\n")
+    passed = sum(1 for r in results if r[1] == "PASS")
+    failed = len(results) - passed
+
+    col_file = max(len("File"), max(len(r[0]) for r in results))
+    col_status = len("Status")
+    col_msgs = len("Messages")
+    col_time = len("Time (s)")
+    col_note = max(len("Note"), max(len(r[4]) for r in results))
+
+    sep = f"+{'-'*(col_file+2)}+{'-'*(col_status+2)}+{'-'*(col_msgs+2)}+{'-'*(col_time+2)}+{'-'*(col_note+2)}+"
+    header = f"| {'File':<{col_file}} | {'Status':<{col_status}} | {'Messages':>{col_msgs}} | {'Time (s)':>{col_time}} | {'Note':<{col_note}} |"
+
+    print(f"\n{sep}")
+    print(header)
+    print(sep)
+    for filename, status, count, t, note in results:
+        print(f"| {filename:<{col_file}} | {status:<{col_status}} | {count:>{col_msgs}} | {t:>{col_time}.1f} | {note:<{col_note}} |")
+    print(sep)
+
+    if failed == 0:
+        print(f"\nALL {passed} TESTS PASSED  ({elapsed:.1f}s)\n")
+    else:
+        failed_files = ", ".join(r[0] for r in results if r[1] == "FAIL")
+        print(f"\n{passed} PASSED, {failed} FAILED: {failed_files}  ({elapsed:.1f}s)\n")
 
 
 if __name__ == "__main__":
