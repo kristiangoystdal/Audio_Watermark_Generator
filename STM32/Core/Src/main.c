@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "stm32g4xx_hal_rcc.h"
 #include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -237,10 +236,11 @@ void TryReceiveTimeSync(void);
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
-int main(void) {
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
 
   /* USER CODE BEGIN 1 */
 
@@ -248,8 +248,7 @@ int main(void) {
 
   /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick.
-   */
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
@@ -428,23 +427,7 @@ int main(void) {
   Relay_SetBypassMode();
   if (OPERATION_MODE != 0) {
     LOGF("Setting first alarm for TX and Standalone mode\r\n");
-    RTC_SetWakeupTimer(10); // 1 minute
-
-    if (ENABLE_DELAYED_START) {
-      LOGF("Delayed start enabled - device will wait until minute %u to start "
-           "TX and Standalone modes\r\n",
-           (unsigned int)STARTING_MINUTE);
-    } else {
-      LOGF("Delayed start disabled - device will start TX and Standalone modes "
-           "immediately\r\n");
-    }
-
-    if (USE_DEFAULT_INTERVAL_BETWEEN_REPEATS) {
-      LOGF("Using default interval of 1 minute between repeats\r\n");
-    } else {
-      LOGF("Using user-configured interval of %u minutes between repeats\r\n",
-           (unsigned int)INTERVAL_BETWEEN_REPEATS_MINUTES);
-    }
+    RTC_SetWakeupTimer(1); // 1 minute
   }
 
   //-----------------------------------------------------------------------------//
@@ -459,20 +442,6 @@ int main(void) {
   DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
 
-  uint32_t while_tick = 0;
-  uint32_t battery_tick = 0;
-  uint32_t rtc1_tick = 0;
-  uint32_t rtc2_tick = 0;
-  uint32_t active_tick = 0;
-  uint32_t rx_tick = 0;
-  uint32_t process_tick = 0;
-  uint32_t string_tick = 0;
-  uint32_t rs_tick = 0;
-  uint32_t bitstream_tick = 0;
-  uint32_t connection_tick = 0;
-  uint32_t arm_tick = 0;
-  uint32_t trigger_tick = 0;
-  uint32_t done_tick = 0;
   int32_t wait_ms = 0;
 
   while (1) {
@@ -488,21 +457,16 @@ int main(void) {
     // timing variations
     if (OPERATION_MODE != 0) {
       uint32_t sleep_seconds = 55;
-      // LOGF("Sleeping for %lu s\r\n", (unsigned long)sleep_seconds);
       RTC_SetWakeupTimer(sleep_seconds);
     }
 
     // 2) Check battery voltage and go back to sleep if low
-
     Battery_IsLow(&hadc1);
-    battery_tick = HAL_GetTick() - wake_up_tick;
 
     // Update current minute from RTC
     DS3231_PowerOn();
     DS3231_GetTime(&now);
     DS3231_ReadTemperature(&temp_int);
-
-    rtc1_tick = HAL_GetTick() - wake_up_tick;
 
     // Check if we are in the active window based on the current minute and
     // configured intervals, and if not, go back to sleep
@@ -515,7 +479,6 @@ int main(void) {
         DS3231_PowerOff();
         continue;
       }
-      active_tick = HAL_GetTick() - wake_up_tick;
     }
 
     if (OPERATION_MODE == 0) {
@@ -530,17 +493,14 @@ int main(void) {
         Radio_EnterWOR();
         continue;
       }
-      rx_tick = HAL_GetTick() - wake_up_tick;
 
       // Process received transmission
       process_transmission(transmission, &dBm_value);
-      process_tick = HAL_GetTick() - wake_up_tick;
 
       // 2) Get current time from RTC
       DS3231_GetTime(&now);
       DS3231_ReadTemperature(&temp_int);
       DS3231_PowerOff();
-      rtc2_tick = HAL_GetTick() - wake_up_tick;
 
       // Create output string based on received data (e.g.
       // "/TIM.../STR.../DID.../LOC.../TMP...")
@@ -548,7 +508,6 @@ int main(void) {
       create_string_from_received_data(transmission, dBm_value, output_str,
                                        sizeof(output_str));
 
-      string_tick = HAL_GetTick() - wake_up_tick;
       size_t payload_len = strlen((char *)output_str);
 
       if (USE_REED_SOLOMON_ERROR_CORRECTION) {
@@ -570,11 +529,8 @@ int main(void) {
         payload_len = codeword_len;
       }
 
-      rs_tick = HAL_GetTick() - wake_up_tick;
-
       // Make bitstream from output string
       make_bitstream_from_bytes(output_str, payload_len);
-      bitstream_tick = HAL_GetTick() - wake_up_tick;
 
       calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
@@ -586,10 +542,8 @@ int main(void) {
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
         HAL_Delay(100);
       }
-      connection_tick = HAL_GetTick() - wake_up_tick;
 
       start_audio_arm();
-      arm_tick = HAL_GetTick() - wake_up_tick;
 
       uint32_t target_tick = wake_up_tick + SYNC_DELAY_MS;
       wait_ms = (int32_t)(target_tick - HAL_GetTick());
@@ -607,7 +561,7 @@ int main(void) {
       // moment
       while ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) == 0)
         ;
-      trigger_tick = HAL_GetTick() - wake_up_tick;
+
       start_audio_trigger();
       __HAL_UART_ENABLE(&huart2);
 
@@ -643,13 +597,11 @@ int main(void) {
       Relay_SetMixingMode();
 
       LED_ON();
-      trigger_tick = HAL_GetTick() - wake_up_tick;
 
       Radio_Transmit();
 
       Relay_SetBypassMode();
       LED_OFF();
-      done_tick = HAL_GetTick() - wake_up_tick;
 
       Radio_EnterSleep();
     } else {
@@ -660,7 +612,6 @@ int main(void) {
       DS3231_GetTime(&now);
       DS3231_ReadTemperature(&temp_int);
       DS3231_PowerOff();
-      rtc2_tick = HAL_GetTick() - wake_up_tick;
 
       // Create output string based on received data (e.g.
       // "/TIM.../STR.../DID.../LOC.../TMP...")
@@ -670,7 +621,6 @@ int main(void) {
                             INCLUDE_LOCATION ? LOCATION : NULL,
                             INCLUDE_TEMPERATURE ? temp_int : -1, now, false, -1,
                             output_str, sizeof(output_str));
-      string_tick = HAL_GetTick() - wake_up_tick;
 
       size_t payload_len = strlen((char *)output_str);
 
@@ -692,11 +642,9 @@ int main(void) {
         memcpy(output_str, codeword, codeword_len);
         payload_len = codeword_len;
       }
-      rs_tick = HAL_GetTick() - wake_up_tick;
 
       // Make bitstream from output string
       make_bitstream_from_bytes(output_str, payload_len);
-      bitstream_tick = HAL_GetTick() - wake_up_tick;
 
       calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
@@ -709,12 +657,8 @@ int main(void) {
         HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET);
         HAL_Delay(100);
       }
-      connection_tick = HAL_GetTick() - wake_up_tick;
 
       start_audio_arm();
-      arm_tick = HAL_GetTick() - wake_up_tick;
-
-      trigger_tick = HAL_GetTick() - wake_up_tick;
       start_audio_trigger();
 
       // Wait for active window to complete (enters low-power sleep while
@@ -738,81 +682,6 @@ int main(void) {
       stop_audio_transmission();
     }
 
-    // if (OPERATION_MODE == 0) {
-    //   LOGF("Has to wait for synchronization: %ld ms\r\n", (long)wait_ms);
-    //   LOGF("Timing for RX cycle:\r\n");
-    //   LOGF("  Ticks for battery che∏ck: %lu ms\r\n",
-    //        (unsigned long)(battery_tick));
-    //   LOGF("  Ticks for RTC read 1: %lu ms\r\n",
-    //        (unsigned long)(rtc1_tick - battery_tick));
-    //   LOGF("  Ticks for RX reception: %lu ms\r\n",
-    //        (unsigned long)(rx_tick - rtc1_tick));
-    //   LOGF("  Ticks for processing received data: %lu ms\r\n",
-    //        (unsigned long)(process_tick - rx_tick));
-    //   LOGF("  Ticks for RTC read 2: %lu ms\r\n",
-    //        (unsigned long)(rtc2_tick - process_tick));
-    //   LOGF("  Ticks for creating output string: %lu ms\r\n",
-    //        (unsigned long)(string_tick - rtc2_tick));
-    //   LOGF("  Ticks for Reed-Solomon encoding: %lu ms\r\n",
-    //        (unsigned long)(rs_tick - string_tick));
-    //   LOGF("  Ticks for making bitstream: %lu ms\r\n",
-    //        (unsigned long)(bitstream_tick - rs_tick));
-    //   LOGF("  Ticks for connection setup: %lu ms\r\n",
-    //        (unsigned long)(connection_tick - bitstream_tick));
-    //   LOGF("  Ticks for arming audio: %lu ms\r\n",
-    //        (unsigned long)(arm_tick - connection_tick));
-    //   LOGF("  Ticks for triggering audio: %lu ms\r\n",
-    //        (unsigned long)(trigger_tick - arm_tick));
-    //   LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
-    //        (unsigned long)(trigger_tick - wake_up_tick));
-    // } else if (OPERATION_MODE == 1) {
-    //   LOGF("Timing for TX cycle:\r\n");
-    //   LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
-    //        (unsigned long)(while_tick - wake_up_tick));
-    //   LOGF("  Ticks for battery check: %lu ms\r\n",
-    //        (unsigned long)(battery_tick - while_tick));
-    //   LOGF("  Ticks for RTC read: %lu ms\r\n",
-    //        (unsigned long)(rtc1_tick - battery_tick));
-    //   LOGF("  Ticks for check active minute: %lu ms\r\n",
-    //        (unsigned long)(active_tick - rtc1_tick));
-    //   LOGF("  Ticks for starting transmission: %lu ms\r\n",
-    //        (unsigned long)(trigger_tick - active_tick));
-    //   LOGF("  Ticks for transmission to complete: %lu ms\r\n",
-    //        (unsigned long)(done_tick - trigger_tick));
-    //   LOGF("  Total ticks from wakeup to transmission start: %lu ms\r\n",
-    //        (unsigned long)(done_tick - wake_up_tick));
-    // } else {
-    //   LOGF("RTC time at wakeup: %02d:%02d:%02d, %02d/%02d/%04d\r\n",
-    //   now.hours,
-    //        now.minutes, now.seconds, now.date, now.month, now.year);
-    //   LOGF("Timing for Standalone cycle:\r\n");
-    //   LOGF("  Ticks from wakeup to while loop start: %lu ms\r\n",
-    //        (unsigned long)(while_tick - wake_up_tick));
-    //   LOGF("  Ticks for battery check: %lu ms\r\n",
-    //        (unsigned long)(battery_tick - while_tick));
-    //   LOGF("  Ticks for RTC read: %lu ms\r\n",
-    //        (unsigned long)(rtc1_tick - battery_tick));
-    //   LOGF("  Ticks for check active minute: %lu ms\r\n",
-    //        (unsigned long)(active_tick - rtc1_tick));
-    //   LOGF("  Ticks for RTC read 2: %lu ms\r\n",
-    //        (unsigned long)(rtc2_tick - active_tick));
-    //   LOGF("  Ticks for creating output string: %lu ms\r\n",
-    //        (unsigned long)(string_tick - rtc2_tick));
-    //   LOGF("  Ticks for Reed-Solomon encoding: %lu ms\r\n",
-    //        (unsigned long)(rs_tick - string_tick));
-    //   LOGF("  Ticks for making bitstream: %lu ms\r\n",
-    //        (unsigned long)(bitstream_tick - rs_tick));
-    //   LOGF("  Ticks for connection setup: %lu ms\r\n",
-    //        (unsigned long)(connection_tick - bitstream_tick));
-    //   LOGF("  Ticks for arming audio: %lu ms\r\n",
-    //        (unsigned long)(arm_tick - connection_tick));
-    //   LOGF("  Ticks for triggering audio: %lu ms\r\n",
-    //        (unsigned long)(trigger_tick - arm_tick));
-    //   LOGF("  Total ticks from wakeup to audio trigger: %lu ms\r\n",
-    //        (unsigned long)(trigger_tick - wake_up_tick));
-    // }
-    // LOGF("-------------------------\r\n");
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -821,22 +690,22 @@ int main(void) {
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
-void SystemClock_Config(void) {
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-   */
+  */
   HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1);
 
   /** Initializes the RCC Oscillators according to the specified parameters
-   * in the RCC_OscInitTypeDef structure.
-   */
-  RCC_OscInitStruct.OscillatorType =
-      RCC_OSCILLATORTYPE_HSI | RCC_OSCILLATORTYPE_LSI;
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.LSIState = RCC_LSI_ON;
@@ -847,30 +716,33 @@ void SystemClock_Config(void) {
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV4;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-   */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK |
-                                RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV2;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK) {
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
     Error_Handler();
   }
 }
 
 /**
- * @brief ADC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_ADC1_Init(void) {
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
 
   /* USER CODE BEGIN ADC1_Init 0 */
 
@@ -884,7 +756,7 @@ static void MX_ADC1_Init(void) {
   /* USER CODE END ADC1_Init 1 */
 
   /** Common config
-   */
+  */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV2;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
@@ -901,39 +773,44 @@ static void MX_ADC1_Init(void) {
   hadc1.Init.DMAContinuousRequests = DISABLE;
   hadc1.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc1.Init.OversamplingMode = DISABLE;
-  if (HAL_ADC_Init(&hadc1) != HAL_OK) {
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure the ADC multi-mode
-   */
+  */
   multimode.Mode = ADC_MODE_INDEPENDENT;
-  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK) {
+  if (HAL_ADCEx_MultiModeConfigChannel(&hadc1, &multimode) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure Regular Channel
-   */
+  */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_640CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
- * @brief DAC1 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_DAC1_Init(void) {
+  * @brief DAC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_DAC1_Init(void)
+{
 
   /* USER CODE BEGIN DAC1_Init 0 */
 
@@ -946,14 +823,15 @@ static void MX_DAC1_Init(void) {
   /* USER CODE END DAC1_Init 1 */
 
   /** DAC Initialization
-   */
+  */
   hdac1.Instance = DAC1;
-  if (HAL_DAC_Init(&hdac1) != HAL_OK) {
+  if (HAL_DAC_Init(&hdac1) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** DAC channel OUT1 config
-   */
+  */
   sConfig.DAC_HighFrequency = DAC_HIGH_FREQUENCY_INTERFACE_MODE_AUTOMATIC;
   sConfig.DAC_DMADoubleDataMode = DISABLE;
   sConfig.DAC_SignedFormat = DISABLE;
@@ -963,20 +841,23 @@ static void MX_DAC1_Init(void) {
   sConfig.DAC_OutputBuffer = DAC_OUTPUTBUFFER_ENABLE;
   sConfig.DAC_ConnectOnChipPeripheral = DAC_CHIPCONNECT_EXTERNAL;
   sConfig.DAC_UserTrimming = DAC_TRIMMING_FACTORY;
-  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK) {
+  if (HAL_DAC_ConfigChannel(&hdac1, &sConfig, DAC_CHANNEL_1) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN DAC1_Init 2 */
 
   /* USER CODE END DAC1_Init 2 */
+
 }
 
 /**
- * @brief I2C2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_I2C2_Init(void) {
+  * @brief I2C2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C2_Init(void)
+{
 
   /* USER CODE BEGIN I2C2_Init 0 */
 
@@ -994,32 +875,37 @@ static void MX_I2C2_Init(void) {
   hi2c2.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
   hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
   hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c2) != HAL_OK) {
+  if (HAL_I2C_Init(&hi2c2) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure Analogue filter
-   */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK) {
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c2, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Configure Digital filter
-   */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK) {
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c2, 0) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+
 }
 
 /**
- * @brief RTC Initialization Function
- * @param None
- * @retval None
- */
-static void MX_RTC_Init(void) {
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
 
   /* USER CODE BEGIN RTC_Init 0 */
 
@@ -1030,7 +916,7 @@ static void MX_RTC_Init(void) {
   /* USER CODE END RTC_Init 1 */
 
   /** Initialize RTC Only
-   */
+  */
   hrtc.Instance = RTC;
   hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
   hrtc.Init.AsynchPrediv = 127;
@@ -1040,14 +926,15 @@ static void MX_RTC_Init(void) {
   hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
   hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
   hrtc.Init.OutPutPullUp = RTC_OUTPUT_PULLUP_NONE;
-  if (HAL_RTC_Init(&hrtc) != HAL_OK) {
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
     Error_Handler();
   }
 
   /** Enable the WakeUp
-   */
-  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 59, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) !=
-      HAL_OK) {
+  */
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 59, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN RTC_Init 2 */
@@ -1056,14 +943,16 @@ static void MX_RTC_Init(void) {
   HAL_RTCEx_DeactivateWakeUpTimer(&hrtc);
 
   /* USER CODE END RTC_Init 2 */
+
 }
 
 /**
- * @brief TIM2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TIM2_Init(void) {
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
 
   /* USER CODE BEGIN TIM2_Init 0 */
 
@@ -1078,32 +967,37 @@ static void MX_TIM2_Init(void) {
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 49;
+  htim2.Init.Period = 24;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim2) != HAL_OK) {
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
     Error_Handler();
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK) {
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK) {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
 }
 
 /**
- * @brief TIM6 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_TIM6_Init(void) {
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
 
   /* USER CODE BEGIN TIM6_Init 0 */
 
@@ -1119,25 +1013,29 @@ static void MX_TIM6_Init(void) {
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK) {
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK) {
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN TIM6_Init 2 */
 
   /* USER CODE END TIM6_Init 2 */
+
 }
 
 /**
- * @brief USART2 Initialization Function
- * @param None
- * @retval None
- */
-static void MX_USART2_UART_Init(void) {
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
 
   /* USER CODE BEGIN USART2_Init 0 */
 
@@ -1157,29 +1055,33 @@ static void MX_USART2_UART_Init(void) {
   huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
   huart2.Init.ClockPrescaler = UART_PRESCALER_DIV1;
   huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK) {
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) !=
-      HAL_OK) {
+  if (HAL_UARTEx_SetTxFifoThreshold(&huart2, UART_TXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
     Error_Handler();
   }
-  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) !=
-      HAL_OK) {
+  if (HAL_UARTEx_SetRxFifoThreshold(&huart2, UART_RXFIFO_THRESHOLD_1_8) != HAL_OK)
+  {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK) {
+  if (HAL_UARTEx_DisableFifoMode(&huart2) != HAL_OK)
+  {
     Error_Handler();
   }
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
+
 }
 
 /**
- * Enable DMA controller clock
- */
-static void MX_DMA_Init(void) {
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
 
   /* DMA controller clock enable */
   __HAL_RCC_DMAMUX1_CLK_ENABLE();
@@ -1189,14 +1091,16 @@ static void MX_DMA_Init(void) {
   /* DMA1_Channel1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+
 }
 
 /**
- * @brief GPIO Initialization Function
- * @param None
- * @retval None
- */
-static void MX_GPIO_Init(void) {
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
+{
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
@@ -1208,26 +1112,23 @@ static void MX_GPIO_Init(void) {
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA,
-                    GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
-                        GPIO_PIN_10 | GPIO_PIN_15,
-                    GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7
+                          |GPIO_PIN_10|GPIO_PIN_15, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6,
-                    GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PA1 PA5 PA6 PA7
                            PA10 PA15 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 |
-                        GPIO_PIN_10 | GPIO_PIN_15;
+  GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_5|GPIO_PIN_6|GPIO_PIN_7
+                          |GPIO_PIN_10|GPIO_PIN_15;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pins : PB0 PB3 PB4 PB6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_6;
+  GPIO_InitStruct.Pin = GPIO_PIN_0|GPIO_PIN_3|GPIO_PIN_4|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -1946,10 +1847,11 @@ void TryReceiveTimeSync(void) {
 /* USER CODE END 4 */
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
-void Error_Handler(void) {
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
   /* USER CODE BEGIN Error_Handler_Debug */
   LOGF("Error_Handler: code=%d\r\n", (int)g_error_code);
 
@@ -1967,16 +1869,16 @@ void Error_Handler(void) {
   }
   /* USER CODE END Error_Handler_Debug */
 }
-
 #ifdef USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line) {
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line
      number, ex: printf("Wrong parameters value: file %s on line %d\r\n",

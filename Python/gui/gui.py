@@ -7,7 +7,6 @@ from scripts.paths import *
 from scripts.user_config import *
 from scripts.build import *
 
-
 # ---------------------------------------------------------
 # Constants
 # ---------------------------------------------------------
@@ -19,7 +18,7 @@ SECTION_WIDTH = 460
 ENTRY_WIDTH = 28
 SMALL_ENTRY_WIDTH = 12
 
-FS_HZ = 960000
+FS_HZ = 1920000
 MIN_BIT_US = 3000
 FREQ_MIN = 2000
 FREQ_MAX = 24000
@@ -498,13 +497,23 @@ class FlashToolApp(tk.Tk):
         self.vars["include_location"] = tk.IntVar(value=1)
 
         self.vars["default_interval"] = tk.IntVar(value=1)
-        self.vars["interval"] = tk.IntVar(
-            value=int(read_user_config_value("INTERVAL_BETWEEN_REPEATS_MINUTES"))
+        self.vars["run_minutes"] = tk.IntVar(
+            value=int(read_user_config_value("RUN_MINUTES"))
         )
 
-        self.vars["use_start_minute"] = tk.IntVar(value=0)
-        self.vars["start_minute"] = tk.IntVar(
+        self.vars["sleep_minutes"] = tk.IntVar(
+            value=int(read_user_config_value("SLEEP_MINUTES"))
+        )
+
+        self.vars["starting_hour"] = tk.IntVar(
+            value=int(read_user_config_value("STARTING_HOUR"))
+        )
+        self.vars["starting_minute"] = tk.IntVar(
             value=int(read_user_config_value("STARTING_MINUTE"))
+        )
+        self.vars["end_hour"] = tk.IntVar(value=int(read_user_config_value("END_HOUR")))
+        self.vars["end_minute"] = tk.IntVar(
+            value=int(read_user_config_value("END_MINUTE"))
         )
 
         self.vars["transmission"] = tk.StringVar(value="cable")
@@ -571,27 +580,19 @@ class FlashToolApp(tk.Tk):
         row.grid(row=0, column=0, sticky="ew")
         row.grid_columnconfigure(0, weight=1)
 
-        self.checkbox(
-            row,
-            0,
-            0,
-            "Use Default Interval (1 minute)",
-            self.vars["default_interval"],
-        ).grid(row=0, column=0, sticky="w")
-
         tk.Label(
             row,
-            text="Minutes:",
+            text="Run Duration:",
             bg=c["surface"],
             fg=c["text"],
-        ).grid(row=0, column=1, padx=(16, 6))
+        ).grid(row=0, column=0, sticky="w", padx=(16, 6))
 
-        self.widgets["base_interval"] = tk.Spinbox(
+        self.widgets["run_duration"] = tk.Spinbox(
             row,
             from_=1,
             to=1440,
             width=6,
-            textvariable=self.vars["interval"],
+            textvariable=self.vars["run_minutes"],
             bg=c["surface"],
             fg=c["text"],
             buttonbackground=c["surface_2"],
@@ -602,29 +603,81 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["base_interval"].grid(row=0, column=2, sticky="w")
+        self.widgets["run_duration"].grid(row=0, column=1, sticky="w")
 
-        delay = self.section(left, "Initial Delay", 3)
-        row = tk.Frame(delay, bg=c["surface"])
-        row.grid(row=0, column=0, sticky="ew")
-        row.grid_columnconfigure(0, weight=1)
-
-        self.checkbox(
+        tk.Label(
             row,
-            0,
-            0,
-            "Use Starting Minute",
-            self.vars["use_start_minute"],
+            text="Sleep Duration:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).grid(row=0, column=2, sticky="w", padx=(16, 6))
+
+        self.widgets["sleep_duration"] = tk.Spinbox(
+            row,
+            from_=1,
+            to=1440,
+            width=6,
+            textvariable=self.vars["sleep_minutes"],
+            bg=c["surface"],
+            fg=c["text"],
+            buttonbackground=c["surface_2"],
+            insertbackground=c["text"],
+            highlightbackground=c["surface_2"],
+            highlightcolor=c["accent"],
+            highlightthickness=1,
+            relief="solid",
+            bd=1,
+        )
+        self.widgets["sleep_duration"].grid(row=0, column=3, sticky="w")
+
+        # Schedule Settings section
+        schedule = self.section(left, "Schedule Settings (UTC)", 3)
+        schedule.grid_columnconfigure(0, weight=1)
+
+        time_row = tk.Frame(schedule, bg=c["surface"])
+        time_row.grid(row=0, column=0, sticky="ew")
+
+        tk.Label(
+            time_row,
+            text="Start:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).pack(side="left", padx=(0, 4))
+
+        self.widgets["base_start_hour"] = ttk.Spinbox(
+            time_row, from_=0, to=23, width=3, textvariable=self.vars["starting_hour"]
+        )
+        self.widgets["base_start_hour"].pack(side="left")
+
+        tk.Label(time_row, text=":", bg=c["surface"], fg=c["text"]).pack(
+            side="left", padx=(2, 2)
         )
 
         self.widgets["base_start_minute"] = ttk.Spinbox(
-            row,
-            from_=0,
-            to=59,
-            width=6,
-            textvariable=self.vars["start_minute"],
+            time_row, from_=0, to=59, width=3, textvariable=self.vars["starting_minute"]
         )
-        self.widgets["base_start_minute"].grid(row=0, column=1, sticky="w")
+        self.widgets["base_start_minute"].pack(side="left", padx=(0, 20))
+
+        tk.Label(
+            time_row,
+            text="End:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).pack(side="left", padx=(0, 4))
+
+        self.widgets["base_end_hour"] = ttk.Spinbox(
+            time_row, from_=0, to=23, width=3, textvariable=self.vars["end_hour"]
+        )
+        self.widgets["base_end_hour"].pack(side="left")
+
+        tk.Label(time_row, text=":", bg=c["surface"], fg=c["text"]).pack(
+            side="left", padx=(2, 2)
+        )
+
+        self.widgets["base_end_minute"] = ttk.Spinbox(
+            time_row, from_=0, to=59, width=3, textvariable=self.vars["end_minute"]
+        )
+        self.widgets["base_end_minute"].pack(side="left")
 
     # -----------------------------------------------------
     # Receiver tab
@@ -831,23 +884,23 @@ class FlashToolApp(tk.Tk):
 
         # Interval Settings  (from Base)
         interval = self.section(left, "Interval Settings", 2)
-        irow = tk.Frame(interval, bg=c["surface"])
-        irow.grid(row=0, column=0, sticky="ew")
-        irow.grid_columnconfigure(0, weight=1)
+        row = tk.Frame(interval, bg=c["surface"])
+        row.grid(row=0, column=0, sticky="ew")
+        row.grid_columnconfigure(0, weight=1)
 
-        self.checkbox(
-            irow, 0, 0, "Use Default Interval (1 minute)", self.vars["default_interval"]
-        ).grid(row=0, column=0, sticky="w")
-        tk.Label(irow, text="Minutes:", bg=c["surface"], fg=c["text"]).grid(
-            row=0, column=1, padx=(16, 6)
-        )
+        tk.Label(
+            row,
+            text="Run Duration:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).grid(row=0, column=0, sticky="w", padx=(16, 6))
 
-        self.widgets["standalone_interval"] = tk.Spinbox(
-            irow,
+        self.widgets["run_duration"] = tk.Spinbox(
+            row,
             from_=1,
             to=1440,
             width=6,
-            textvariable=self.vars["interval"],
+            textvariable=self.vars["run_minutes"],
             bg=c["surface"],
             fg=c["text"],
             buttonbackground=c["surface_2"],
@@ -858,19 +911,81 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["standalone_interval"].grid(row=0, column=2, sticky="w")
+        self.widgets["run_duration"].grid(row=0, column=1, sticky="w")
 
-        # Initial Delay  (from Base)
-        delay = self.section(left, "Initial Delay", 3)
-        drow = tk.Frame(delay, bg=c["surface"])
-        drow.grid(row=0, column=0, sticky="ew")
-        drow.grid_columnconfigure(0, weight=1)
+        tk.Label(
+            row,
+            text="Sleep Duration:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).grid(row=0, column=2, sticky="w", padx=(16, 6))
 
-        self.checkbox(drow, 0, 0, "Use Starting Minute", self.vars["use_start_minute"])
-        self.widgets["standalone_start_minute"] = ttk.Spinbox(
-            drow, from_=0, to=59, width=6, textvariable=self.vars["start_minute"]
+        self.widgets["sleep_duration"] = tk.Spinbox(
+            row,
+            from_=1,
+            to=1440,
+            width=6,
+            textvariable=self.vars["sleep_minutes"],
+            bg=c["surface"],
+            fg=c["text"],
+            buttonbackground=c["surface_2"],
+            insertbackground=c["text"],
+            highlightbackground=c["surface_2"],
+            highlightcolor=c["accent"],
+            highlightthickness=1,
+            relief="solid",
+            bd=1,
         )
-        self.widgets["standalone_start_minute"].grid(row=0, column=1, sticky="w")
+        self.widgets["sleep_duration"].grid(row=0, column=3, sticky="w")
+
+        # Schedule Settings section
+        schedule = self.section(left, "Schedule Settings", 3)
+        schedule.grid_columnconfigure(0, weight=1)
+
+        time_row = tk.Frame(schedule, bg=c["surface"])
+        time_row.grid(row=0, column=0, sticky="ew")
+
+        tk.Label(
+            time_row,
+            text="Start:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).pack(side="left", padx=(0, 4))
+
+        self.widgets["standalone_start_hour"] = ttk.Spinbox(
+            time_row, from_=0, to=23, width=3, textvariable=self.vars["starting_hour"]
+        )
+        self.widgets["standalone_start_hour"].pack(side="left")
+
+        tk.Label(time_row, text=":", bg=c["surface"], fg=c["text"]).pack(
+            side="left", padx=(2, 2)
+        )
+
+        self.widgets["standalone_start_minute"] = ttk.Spinbox(
+            time_row, from_=0, to=59, width=3, textvariable=self.vars["starting_minute"]
+        )
+        self.widgets["standalone_start_minute"].pack(side="left", padx=(0, 20))
+
+        tk.Label(
+            time_row,
+            text="End:",
+            bg=c["surface"],
+            fg=c["text"],
+        ).pack(side="left", padx=(0, 4))
+
+        self.widgets["standalone_end_hour"] = ttk.Spinbox(
+            time_row, from_=0, to=23, width=3, textvariable=self.vars["end_hour"]
+        )
+        self.widgets["standalone_end_hour"].pack(side="left")
+
+        tk.Label(time_row, text=":", bg=c["surface"], fg=c["text"]).pack(
+            side="left", padx=(2, 2)
+        )
+
+        self.widgets["standalone_end_minute"] = ttk.Spinbox(
+            time_row, from_=0, to=59, width=3, textvariable=self.vars["end_minute"]
+        )
+        self.widgets["standalone_end_minute"].pack(side="left")
 
         # Transmission settings
         tx = self.section(right, "Transmission Settings", 0)
@@ -1023,12 +1138,6 @@ class FlashToolApp(tk.Tk):
     # Events / dynamic state
     # -----------------------------------------------------
     def _bind_events(self):
-        self.vars["default_interval"].trace_add(
-            "write", lambda *_: self.toggle_interval_field()
-        )
-        self.vars["use_start_minute"].trace_add(
-            "write", lambda *_: self.toggle_delay_field()
-        )
         self.vars["attenuation"].trace_add(
             "write", lambda *_: self.update_attenuation_db_label()
         )
@@ -1054,23 +1163,11 @@ class FlashToolApp(tk.Tk):
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
     def _init_dynamic_state(self):
-        self.toggle_interval_field()
-        self.toggle_delay_field()
         self.toggle_ecc_level_field()
         self.update_low_frequency()
         self.update_high_frequency()
         self.update_attenuation_db_label()
         self.on_tab_changed()
-
-    def toggle_interval_field(self):
-        state = "disabled" if self.vars["default_interval"].get() else "normal"
-        for key in ("base_interval", "standalone_interval"):
-            self.widgets[key].config(state=state)
-
-    def toggle_delay_field(self):
-        state = "normal" if self.vars["use_start_minute"].get() else "disabled"
-        for key in ("base_start_minute", "standalone_start_minute"):
-            self.widgets[key].config(state=state)
 
     def toggle_ecc_level_field(self):
         state = "normal" if self.vars["ecc_enabled"].get() else "disabled"
@@ -1291,14 +1388,8 @@ class FlashToolApp(tk.Tk):
             errors.append("Location must be 1–18 characters")
 
         if not self.vars["default_interval"].get():
-            if not self.valid_int(self.vars["interval"].get(), 1, 1440):
+            if not self.valid_int(self.vars["run_minutes"].get(), 1, 1440):
                 errors.append("Interval must be an integer between 1 and 1440 minutes")
-
-        if self.vars["use_start_minute"].get():
-            if not self.valid_int(self.vars["start_minute"].get(), 0, 59):
-                errors.append(
-                    "Initial Delay must be an integer between 0 and 59 minutes"
-                )
 
         low = self.vars["frequency_low"].get()
         high = self.vars["frequency_high"].get()

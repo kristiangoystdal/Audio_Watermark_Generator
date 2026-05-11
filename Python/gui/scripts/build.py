@@ -10,7 +10,7 @@ import tempfile
 import pathlib
 import serial
 import serial.tools.list_ports
-from datetime import datetime, timedelta
+from datetime import datetime, UTC
 
 from scripts.paths import *
 from scripts.user_config import *
@@ -287,7 +287,7 @@ def send_time_sync(root, safe_log):
                 return
 
             # Sample time and send
-            sent_time = datetime.now()
+            sent_time = datetime.now(UTC)
             dow = (sent_time.weekday() + 1) % 7
             time_str = f"T{sent_time.hour:02d}:{sent_time.minute:02d}:{sent_time.second:02d} {dow} {sent_time.day:02d}/{sent_time.month:02d}/{sent_time.year}\n"
 
@@ -296,58 +296,18 @@ def send_time_sync(root, safe_log):
             )
             ser.write(time_str.encode())
 
-            # Wait for readback
-            safe_log("[INFO] Waiting for readback (5s delay)...")
-            readback = None
+            # Wait for confirmation
             start = time.time()
             while time.time() - start < 10:
                 try:
                     line = ser.readline().decode("utf-8", errors="ignore").strip()
                     if line:
                         safe_log(f"[DEBUG] {line}")
-                    if "READBACK:" in line:
-                        readback = line.split("READBACK:")[1]
-                        break
+                    if "Time synced:" in line:
+                        safe_log("[INFO] Time sync successful!")
+                        return
                 except:
                     pass
-
-            if readback:
-                # Parse readback HH:MM:SS DD/MM/YYYY
-                parts = readback.split()
-                time_part = parts[0]  # HH:MM:SS
-                date_part = parts[1]  # DD/MM/YYYY
-
-                rb_h, rb_m, rb_s = map(int, time_part.split(":"))
-                rb_d, rb_mo, rb_y = map(int, date_part.split("/"))
-
-                # Calculate expected time (sent + 5 seconds)
-                expected_time = sent_time + timedelta(seconds=5)
-
-                # Compare
-                safe_log(
-                    f"[INFO] Sent:     {sent_time.hour:02d}:{sent_time.minute:02d}:{sent_time.second:02d}"
-                )
-                safe_log(
-                    f"[INFO] Expected: {expected_time.hour:02d}:{expected_time.minute:02d}:{expected_time.second:02d} (sent + 5s)"
-                )
-                safe_log(f"[INFO] Readback: {rb_h:02d}:{rb_m:02d}:{rb_s:02d}")
-
-                # Check if within 1 second
-                diff_s = abs(
-                    (rb_h * 3600 + rb_m * 60 + rb_s)
-                    - (
-                        expected_time.hour * 3600
-                        + expected_time.minute * 60
-                        + expected_time.second
-                    )
-                )
-
-                if diff_s <= 1:
-                    safe_log(f"[✓] SYNC OK - within 1 second (diff: {diff_s}s)")
-                else:
-                    safe_log(f"[✗] SYNC FAIL - off by {diff_s} seconds")
-            else:
-                safe_log("[WARN] No readback received")
 
     except Exception as e:
         safe_log(f"[WARN] Time sync failed: {e}")
