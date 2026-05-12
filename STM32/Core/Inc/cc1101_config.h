@@ -5,8 +5,7 @@ typedef struct {
 } ism_reg_t;
 
 static const ism_reg_t cc1101_cfg_rx[] = {
-    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received with CRC OK,
-                  // deasserts on first FIFO byte read
+    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received
     {0x04, 0xD3}, // SYNC1
     {0x05, 0x91}, // SYNC0
     {0x06, 0x3D}, // PKTLEN
@@ -19,18 +18,17 @@ static const ism_reg_t cc1101_cfg_rx[] = {
     {0x10, 0x85}, // MDMCFG4
     {0x11, 0x83}, // MDMCFG3
     {0x12, 0x02}, // MDMCFG2
-    {0x13, 0xF2}, // MDMCFG1: FEC enabled (bit 7 = 1)
+    {0x13, 0xF2}, // MDMCFG1: FEC enabled
+    {0x14, 0x01}, // MDMCFG0: bit 0 = 1 enables external XTAL
     {0x17, 0x37}, // MCSM2: RX_TIME=7, EXITMASK enabled
-    {0x18, 0x18}, // MCSM0: FS_AUTOCAL=01 (auto-calibrate when going from IDLE
-                  // to RX or TX), PO_TIMEOUT=0 (no timeout from RX/TX to IDLE)
+    {0x18, 0x18}, // MCSM0: FS_AUTOCAL=01 (auto-calibrate on state transitions)
     {0x1E, 0x10}, // WOREVT1: EVENT0 high byte (0x1080 = 264ms)
     {0x1F, 0x80}, // WOREVT0: EVENT0 low byte
-    {0x20,
-     0x70}, // WORCTRL: WOR_RES=0, EVENT1=7, RC_PD=0 (RC osc ON), WOR_DBG=0
+    {0x20, 0x70}, // WORCTRL: WOR_RES=0, EVENT1=7, RC_PD=0 (RC osc OFF)
 };
 
 static const ism_reg_t cc1101_cfg_tx[] = {
-    {0x02, 0x07}, // IOCFG0
+    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received
     {0x04, 0xD3}, // SYNC1
     {0x05, 0x91}, // SYNC0
     {0x06, 0x3D}, // PKTLEN
@@ -44,8 +42,6 @@ static const ism_reg_t cc1101_cfg_tx[] = {
     {0x11, 0x83}, // MDMCFG3
     {0x12, 0x02}, // MDMCFG2
     {0x13, 0xF2}, // MDMCFG1
-    {0x18, 0x18}, // AUTO_CAL=01 (auto-calibrate when going from IDLE to RX or
-                  // TX), PO_TIMEOUT=0
-                  // {0x3E, 0xC0}, // PA_TABLE0: 0xC0 = +10dBm
-                  // {0x22, 0x10}, // TEST2: 0x10 = +10dBm PA test setting
+    {0x14, 0x01}, // MDMCFG0: bit 0 = 1 enables external XTAL
+    {0x18, 0x18}, // MCSM0: FS_AUTOCAL=01 (auto-calibrate on state transitions)
 };
