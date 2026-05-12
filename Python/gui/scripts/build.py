@@ -262,7 +262,7 @@ def send_time_sync(root, safe_log):
 
     if not port:
         safe_log("[WARN] STM32 CDC port not found, skipping time sync")
-        return
+        return False
 
     try:
         with serial.Serial(port, 115200, timeout=10) as ser:
@@ -284,7 +284,7 @@ def send_time_sync(root, safe_log):
 
             if not ready:
                 safe_log("[WARN] Never received READY_FOR_TIME_SYNC")
-                return
+                return False
 
             # Sample time and send
             sent_time = datetime.now(UTC)
@@ -305,12 +305,15 @@ def send_time_sync(root, safe_log):
                         safe_log(f"[DEBUG] {line}")
                     if "Time synced:" in line:
                         safe_log("[INFO] Time sync successful!")
-                        return
+                        return True
                 except:
                     pass
 
+            return False
+
     except Exception as e:
         safe_log(f"[WARN] Time sync failed: {e}")
+        return False
 
 
 def build_flash(root, show_log_var, build_btn):
@@ -343,15 +346,19 @@ def build_flash(root, show_log_var, build_btn):
         build_only(log_text, safe_log)
         clear_flash_flag(log_text, safe_log)
         flash_only(log_text, safe_log, leave=True)  # don't leave, we detach manually
-        send_time_sync(root, safe_log)
+        time_sync_ok = send_time_sync(root, safe_log)
 
         safe_log("\n[SUCCESS] ✅ Build & flash complete!")
+
+        if not time_sync_ok:
+            build_btn.config(state="normal")
+            return 1
 
     except Exception as e:
         safe_log(f"\n[ERROR] ❌ {e}")
         messagebox.showerror("Error", f"Build/flash failed: {e}")
         build_btn.config(state="normal")
-        return False
+        return 2
 
     build_btn.config(state="normal")
-    return True
+    return 0
