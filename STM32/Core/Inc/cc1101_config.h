@@ -44,5 +44,8 @@ static const ism_reg_t cc1101_cfg_tx[] = {
     {0x11, 0x83}, // MDMCFG3
     {0x12, 0x02}, // MDMCFG2
     {0x13, 0xF2}, // MDMCFG1
-    {0x18, 0x18}, // ← ADD THIS: MCSM0 - autocalibrate on TX→RX/RX→TX
+    {0x18, 0x18}, // AUTO_CAL=01 (auto-calibrate when going from IDLE to RX or
+                  // TX), PO_TIMEOUT=0
+                  // {0x3E, 0xC0}, // PA_TABLE0: 0xC0 = +10dBm
+                  // {0x22, 0x10}, // TEST2: 0x10 = +10dBm PA test setting
 };
