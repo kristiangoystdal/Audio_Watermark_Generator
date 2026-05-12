@@ -169,21 +169,37 @@ void Radio_Transmit(void) {
 
     CC1101_Strobe(0x35, &status); // STX
 
-    // DEBUG: Check TX state
+    // Wait for TX to complete
+    uint32_t tx_timeout = HAL_GetTick() + 2000; // 2 second timeout
     uint8_t marcstate = 0;
-    HAL_Delay(50);
-    CC1101_ReadReg(0xF5, &marcstate, &status);
-    marcstate &= 0x1F;
-    LOGF("DEBUG: After STX strobe, MARCSTATE=0x%02X ", marcstate);
-    if (marcstate == 0x13)
-      LOGF("(TX)\r\n");
-    else if (marcstate == 0x01)
-      LOGF("(IDLE - TX failed)\r\n");
-    else
-      LOGF("(UNKNOWN)\r\n");
+
+    while (HAL_GetTick() < tx_timeout) {
+      CC1101_ReadReg(0xF5, &marcstate, &status);
+      marcstate &= 0x1F;
+
+      // 0x13 = TX, 0x0D = RX (TX finished, transitioned back), 0x01 = IDLE
+      if (marcstate != 0x13) {
+        LOGF("TX complete, MARCSTATE=0x%02X\r\n", marcstate);
+        break;
+      }
+      HAL_Delay(10);
+    }
+
+    if (marcstate == 0x13) {
+      LOGF("TX timeout - packet may not have sent\r\n");
+    }
 
     free((void *)payload_str);
   }
+
+  // ← ADD FROM HERE
+  HAL_Delay(100);
+  uint8_t post_tx_marcstate = 0;
+  CC1101_ReadReg(0xF5, &post_tx_marcstate, &status);
+  post_tx_marcstate &= 0x1F;
+  LOGF("Post-TX MARCSTATE: 0x%02X (should be 0x0D or 0x01)\r\n",
+       post_tx_marcstate);
+  // ← TO HERE
 }
 
 int Radio_Receive(uint8_t *out, size_t out_max_len) {
