@@ -1830,6 +1830,8 @@ void Error_Handler(void) {
   // Blink error code
   LED_BlinkStatusCode((uint8_t)g_error_code);
 
+  LED_ON();
+
   __disable_irq();
   while (1) {
     // Stay here - reset or power cycle needed
