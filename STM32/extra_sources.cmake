@@ -12,6 +12,7 @@ file(GLOB USER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/radio.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/reed_solomon.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/relay.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/speaker.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/wakeup.c
 )
 

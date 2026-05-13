@@ -1457,44 +1457,62 @@ class FlashToolApp(tk.Tk):
 
     def _run_build(self):
         try:
-            ok = build_flash(
+            status_code = build_flash(
                 self,
                 self.vars["show_log"],
                 self.widgets["build_btn"],
             )
 
-            if not ok:
-                self.after(0, lambda: self._finish_build(False, "❌ Build failed"))
-                return
-
-            self.after(
-                0,
-                lambda: self._finish_build(
-                    True,
-                    "✅ Build & Flash completed successfully!",
-                    show_popup=True,
-                ),
-            )
+            if status_code == 0:
+                self.after(
+                    0,
+                    lambda: self._finish_build(
+                        "success",
+                        "✅ Build & Flash completed successfully!",
+                    ),
+                )
+            elif status_code == 1:
+                self.after(
+                    0,
+                    lambda: self._finish_build(
+                        "time_sync_failed",
+                        "⚠️ Build & Flash succeeded, time sync failed",
+                    ),
+                )
+            else:
+                # Should not reach here, but handle gracefully
+                self.after(
+                    0,
+                    lambda: self._finish_build("failed", "❌ Build failed"),
+                )
 
         except Exception as e:
             self.after(
                 0,
-                lambda: self._finish_build(False, "❌ Build failed", error=str(e)),
+                lambda: self._finish_build("failed", "❌ Build failed", error=str(e)),
             )
 
-    def _finish_build(self, success, status_text, show_popup=False, error=None):
+    def _finish_build(self, result, status_text, error=None):
         self.widgets["progress"].stop()
-        dot = self.colors["success"] if success else "#ff5555"
-        self._set_status(status_text, dot_color=dot)
-        self.widgets["build_btn"].config(state="normal")
 
-        if show_popup:
-            messagebox.showinfo(
-                "Build & Flash", "Build and Flash completed successfully!"
+        if result == "success":
+            dot = self.colors["success"]
+            self.widgets["build_btn"].config(state="normal")
+            messagebox.showinfo("Success", "Build & Flash completed successfully!")
+        elif result == "time_sync_failed":
+            dot = "#ffaa33"  # Orange/amber warning
+            self.widgets["build_btn"].config(state="normal")
+            messagebox.showwarning(
+                "Partial Success",
+                "Build & Flash succeeded, but time sync failed.\nDevice time was not synchronized.",
             )
+        else:  # "failed"
+            dot = "#ff5555"
+            self.widgets["build_btn"].config(state="normal")
+            if error:
+                messagebox.showerror("Error", f"❌ {error}")
 
-        if error:
-            messagebox.showerror("Error", f"❌ {error}")
+        self._set_status(status_text, dot_color=dot)
 
         self.after(
             4000, lambda: self._set_status("Idle", dot_color=self.colors["muted"])

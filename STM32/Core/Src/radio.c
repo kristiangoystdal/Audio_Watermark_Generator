@@ -138,52 +138,83 @@ char *Radio_BuildPayload(uint32_t offset_ms) {
 
   return strdup(temp_buf);
 }
-
 void Radio_Transmit(void) {
   LOGF("Starting radio transmission...\r\n");
   uint8_t status = 0;
-  uint32_t t0 = HAL_GetTick(); // Capture once before loop
+  uint32_t t0 = HAL_GetTick();
 
   for (int tx_repeat = 0; tx_repeat < 1; tx_repeat++) {
     const char *payload_str = Radio_BuildPayload(HAL_GetTick() - t0);
     size_t payload_len = strlen(payload_str);
 
-    LOGF("TX %d payload: %s\r\n", tx_repeat + 1, payload_str);
+    LOGF("TX payload: %s\r\n", payload_str);
 
     uint8_t pkt[2 + payload_len];
     pkt[0] = payload_len + 1;
     pkt[1] = 0xEB;
     memcpy(&pkt[2], payload_str, payload_len);
 
-    LOGF("TX payload_len=%d pkt_size=%d\r\n", payload_len, 2 + payload_len);
-    LOGF("TX payload: %s\r\n", payload_str);
+    LOGF("Packet size: %zu bytes\r\n", sizeof(pkt));
 
-    CC1101_Strobe(0x3B, &status); // SFTX: flush TX FIFO
+    // Flush FIFO
+    CC1101_Strobe(0x3B, &status);
+    HAL_Delay(2);
 
+    // Check TXBYTES before write
+    uint8_t txbytes_before = 0;
+    CC1101_ReadReg(0xFA, &txbytes_before, &status);
+    LOGF("TXBYTES before write: 0x%02X\r\n", txbytes_before);
+
+    // Write FIFO
     CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
-    if (status != 0x0F) {
-      LOGF("Error writing to TX FIFO, status: 0x%02X\r\n", status);
-      Error_Handler_Code(STATUS_CODE_TRANSMISSION_ERROR);
+    LOGF("WriteBurstReg status: 0x%02X\r\n", status);
+
+    // Check TXBYTES after write
+    uint8_t txbytes_after = 0;
+    CC1101_ReadReg(0xFA, &txbytes_after, &status);
+    LOGF("TXBYTES after write: 0x%02X (expect 0x%02X)\r\n", txbytes_after,
+         sizeof(pkt));
+
+    if ((txbytes_after & 0x7F) == 0) {
+      LOGF("ERROR: FIFO write failed!\r\n");
       return;
     }
 
-    CC1101_Strobe(0x35, &status); // STX
+    // Issue STX
+    LOGF("Issuing STX...\r\n");
+    CC1101_Strobe(0x35, &status);
 
-    // DEBUG: Check TX state
+    HAL_Delay(5);
     uint8_t marcstate = 0;
-    HAL_Delay(50);
     CC1101_ReadReg(0xF5, &marcstate, &status);
     marcstate &= 0x1F;
-    LOGF("DEBUG: After STX strobe, MARCSTATE=0x%02X ", marcstate);
-    if (marcstate == 0x13)
-      LOGF("(TX)\r\n");
-    else if (marcstate == 0x01)
-      LOGF("(IDLE - TX failed)\r\n");
-    else
-      LOGF("(UNKNOWN)\r\n");
+    LOGF("MARCSTATE after STX: 0x%02X\r\n", marcstate);
+
+    // Wait for TX to complete
+    uint32_t tx_timeout = HAL_GetTick() + 2000;
+    while (HAL_GetTick() < tx_timeout) {
+      CC1101_ReadReg(0xF5, &marcstate, &status);
+      marcstate &= 0x1F;
+
+      if (marcstate != 0x13) {
+        LOGF("TX complete, MARCSTATE=0x%02X\r\n", marcstate);
+        break;
+      }
+      HAL_Delay(10);
+    }
+
+    if (marcstate == 0x13) {
+      LOGF("TX timeout\r\n");
+    }
 
     free((void *)payload_str);
   }
+
+  HAL_Delay(100);
+  uint8_t post_tx_marcstate = 0;
+  CC1101_ReadReg(0xF5, &post_tx_marcstate, &status);
+  post_tx_marcstate &= 0x1F;
+  LOGF("Post-TX MARCSTATE: 0x%02X\r\n", post_tx_marcstate);
 }
 
 int Radio_Receive(uint8_t *out, size_t out_max_len) {

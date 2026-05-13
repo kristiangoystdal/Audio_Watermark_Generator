@@ -6,7 +6,7 @@
 #define RELAY_GPIO_Port GPIOA
 #define RELAY_PIN_ON GPIO_PIN_6
 #define RELAY_PIN_OFF GPIO_PIN_5
-#define RELAY_TOGGLE_DELAY_MS 100
+#define RELAY_TOGGLE_DELAY_MS 140
 
 void Relay_ResetBoth(void) {
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_ON, GPIO_PIN_RESET);

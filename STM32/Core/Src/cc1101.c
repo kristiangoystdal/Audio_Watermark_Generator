@@ -5,7 +5,10 @@
 #include <string.h>
 
 static inline void cs_low(void) { GPIOB->BSRR = ((uint32_t)BB_CS << 16); }
-static inline void cs_high(void) { GPIOB->BSRR = BB_CS; }
+static inline void cs_high(void) {
+  GPIOB->BSRR = BB_CS;
+  HAL_Delay(1); // Let MISO release
+}
 
 static bool is_miso_low(void) { return (GPIOB->IDR & BB_MISO) == 0; }
 
@@ -50,11 +53,13 @@ bool CC1101_PowerUpReset(void) {
   HAL_Delay(100);
 
   cs_low();
+  wait_miso_low(100);
   HAL_Delay(1);
   cs_high();
   HAL_Delay(10);
 
   cs_low();
+  wait_miso_low(100);
   bb_byte(0x30); // SRES
 
   // Try up to 5 times with increasing delays
@@ -75,6 +80,8 @@ bool CC1101_PowerUpReset(void) {
 
 HAL_StatusTypeDef CC1101_Strobe(uint8_t strobe, uint8_t *status) {
   cs_low();
+  wait_miso_low(100);
+
   uint8_t rx = bb_byte(strobe);
   cs_high();
   if (status)
@@ -84,6 +91,8 @@ HAL_StatusTypeDef CC1101_Strobe(uint8_t strobe, uint8_t *status) {
 
 HAL_StatusTypeDef CC1101_ReadReg(uint8_t addr, uint8_t *val, uint8_t *status) {
   cs_low();
+  wait_miso_low(100);
+
   uint8_t rx_status = bb_byte(addr | 0x80);
   uint8_t rx_val = bb_byte(0xFF);
   cs_high();
@@ -96,6 +105,8 @@ HAL_StatusTypeDef CC1101_ReadReg(uint8_t addr, uint8_t *val, uint8_t *status) {
 
 HAL_StatusTypeDef CC1101_WriteReg(uint8_t addr, uint8_t val, uint8_t *status) {
   cs_low();
+  wait_miso_low(100);
+
   uint8_t rx_status = bb_byte(addr & 0x7F);
   bb_byte(val);
   cs_high();
@@ -109,6 +120,8 @@ HAL_StatusTypeDef CC1101_WriteBurstReg(uint8_t addr, uint8_t *vals, size_t len,
   if (!vals || len == 0)
     return HAL_OK;
   cs_low();
+  wait_miso_low(100);
+
   uint8_t rx_status = bb_byte(addr | 0x40);
   for (size_t i = 0; i < len; i++)
     bb_byte(vals[i]);
@@ -123,6 +136,7 @@ HAL_StatusTypeDef CC1101_ReadBurstReg(uint8_t addr, uint8_t *vals, size_t len,
   if (!vals || len == 0)
     return HAL_OK;
   cs_low();
+  wait_miso_low(100);
   uint8_t rx_status = bb_byte(addr | 0xC0);
   for (size_t i = 0; i < len; i++)
     vals[i] = bb_byte(0xFF);

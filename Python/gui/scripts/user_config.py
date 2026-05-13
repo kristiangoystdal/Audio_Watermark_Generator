@@ -163,8 +163,8 @@ def change_user_config(root, set_initial_time, safe_log=None):
         starting_minute_i = to_int("STARTING_MINUTE", starting_minute, 0, 59)
         end_hour_i = to_int("END_HOUR", end_hour, 0, 23)
         end_minute_i = to_int("END_MINUTE", end_minute, 0, 59)
-        run_minutes_i = to_int("RUN_MINUTES", run_minutes, 1, 1440)
-        sleep_minutes_i = to_int("SLEEP_MINUTES", sleep_minutes, 1, 1440)
+        run_minutes_i = to_int("RUN_MINUTES", run_minutes, 0, 1440)
+        sleep_minutes_i = to_int("SLEEP_MINUTES", sleep_minutes, 0, 1440)
 
         fsk_low_i = to_int("FSK_LOWER_FREQUENCY", frequency_lower, 1, 50000)
         fsk_high_i = to_int("FSK_HIGHER_FREQUENCY", frequency_higher, 1, 50000)
