@@ -98,7 +98,7 @@
 #define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
-#define SYNC_DELAY_MS 250
+#define SYNC_DELAY_MS 200
 
 /* USER CODE END PD */
 
@@ -317,7 +317,6 @@ int main(void) {
   }
 
   DS3231_PowerOn();
-  DS3231_Init();
   DS3231_GetTime(&now);
   DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
@@ -440,6 +439,7 @@ int main(void) {
   LOGF("\r\n");
 
   DS3231_PowerOn();
+  HAL_Delay(40);
   DS3231_GetTime(&now);
   DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
@@ -452,6 +452,7 @@ int main(void) {
     LOGF("Entering STOP mode...\r\n");
     EnterStopMode();
     wake_up_tick = HAL_GetTick();
+    DS3231_PowerOn();
 
     // Set new wake up alarm for next cycle immediately after waking up
     // 55 seconds ensure we wake up in every minute to check if it's the valid
@@ -466,7 +467,6 @@ int main(void) {
     Battery_IsLow(&hadc1);
 
     // Update current minute from RTC
-    DS3231_PowerOn();
     DS3231_GetTime(&now);
     DS3231_ReadTemperature(&temp_int);
 
@@ -485,6 +485,14 @@ int main(void) {
 
     if (OPERATION_MODE == 0) {
       LOGF("Woke up for RX reception\r\n");
+      DS3231_PowerOn();
+
+      if (USE_CABLE_TRANSMISSION) {
+        Opamps_Enable(&hdac1);
+        Relay_SetMixingMode();
+      } else {
+        Speaker_TurnOn();
+      }
 
       // RX mode: read from radio and store in string
       int rx_len = Radio_Receive(transmission, sizeof(transmission));
@@ -536,13 +544,6 @@ int main(void) {
 
       calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
-
-      if (USE_CABLE_TRANSMISSION) {
-        Opamps_Enable(&hdac1);
-        Relay_SetMixingMode();
-      } else {
-        Speaker_TurnOn();
-      }
 
       start_audio_arm();
 
@@ -607,9 +608,16 @@ int main(void) {
       Radio_EnterSleep();
     } else {
       LOGF("Woke up for Standalone mode\r\n");
+      DS3231_PowerOn();
+
+      if (USE_CABLE_TRANSMISSION) {
+        Opamps_Enable(&hdac1);
+        Relay_SetMixingMode();
+      } else {
+        Speaker_TurnOn();
+      }
 
       // 1) Get current time and temperature from RTC
-      DS3231_PowerOn();
       DS3231_GetTime(&now);
       DS3231_ReadTemperature(&temp_int);
       DS3231_PowerOff();
@@ -650,15 +658,25 @@ int main(void) {
       calculate_active_duration_ms(BITSTREAM_LENGTH);
       uint32_t total_ms = (uint32_t)(total_time * 1000.0f);
 
-      if (USE_CABLE_TRANSMISSION) {
-        Opamps_Enable(&hdac1);
-        HAL_Delay(20);
-        Relay_SetMixingMode();
-      } else {
-        Speaker_TurnOn();
-      }
-
       start_audio_arm();
+
+      uint32_t target_tick = wake_up_tick + SYNC_DELAY_MS;
+      wait_ms = (int32_t)(target_tick - HAL_GetTick());
+      if (wait_ms > 1) {
+        HAL_Delay((uint32_t)(wait_ms - 1));
+      }
+      while (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_TC) == RESET)
+        ;
+      __HAL_UART_DISABLE(&huart2);
+      while (HAL_GetTick() < target_tick)
+        ;
+      (void)SysTick->CTRL; // clear COUNTFLAG by reading it
+      // Now align to the next SysTick rollover for sub-ms precision
+      // SysTick counts DOWN from LOAD to 0, then reloads - catch the reload
+      // moment
+      while ((SysTick->CTRL & SysTick_CTRL_COUNTFLAG_Msk) == 0)
+        ;
+
       start_audio_trigger();
 
       // Wait for active window to complete (enters low-power sleep while
@@ -848,6 +866,7 @@ static void MX_DAC1_Init(void) {
 static void MX_I2C2_Init(void) {
 
   /* USER CODE BEGIN I2C2_Init 0 */
+  __HAL_RCC_I2C2_CLK_ENABLE(); // <-- ADD THIS
 
   /* USER CODE END I2C2_Init 0 */
 
