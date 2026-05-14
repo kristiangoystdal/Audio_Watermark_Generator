@@ -2,7 +2,7 @@
 FSK demodulator utilities for extracting bitstreams and messages from audio files.
 
 Example command-line usage:
-python demodulator.py -i test.wav --f0 21333 --f1 22325 --use-ecc --ecc-parity-bytes 20 --generate-debug --minutes-per-segment -1
+python demodulator.py -i test.wav --f0 21333 --f1 22325 --use-ecc --ecc-parity-bytes 20 --generate-debug --segmentation
 """
 
 import math
@@ -14,8 +14,10 @@ from scipy.signal import windows
 from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 
 MIN_MESSAGE_BITS = 16
+MIN_REGION_INTERVAL = 56.0  # Minimum expected interval between FSK transmissions (seconds)
 
 DEBUG_PLOTS = False
+DEBUG_PLOTS_ALL_COMBINATIONS = False  # Plot every N/offset candidate in select_best_symbol_timing_and_offset
 
 if DEBUG_PLOTS:
     import matplotlib.pyplot as plt
@@ -36,30 +38,17 @@ days_of_week = [
     "Sunday",
 ]
 
-def find_likely_fsk_region(
-    x,
-    fs,
-    f0,
-    f1,
-    window_duration=0.25,
-    hop_duration=0.1,
-    threshold_sigma=3.0,
+def _compute_fsk_window_scores(
+    x, fs, f0, f1,
+    window_duration=0.25, hop_duration=0.1, threshold_sigma=3.0,
     progress_callback=None,
 ):
-    """
-    Find the time region most likely to contain the FSK signal.
-
-    The signal is scanned in overlapping windows. Each window is scored by the
-    matched tone power at `f0` and `f1`. Contiguous windows with
-    unusually high tone power are merged into candidate regions, and the region
-    with the highest average score is returned.
-    """
+    """Score overlapping windows by FSK tone power. Returns (window_times, window_scores, active, threshold)."""
     if window_duration <= 0 or hop_duration <= 0:
         raise ValueError("window_duration and hop_duration must be > 0")
     x = np.asarray(x, dtype=float)
     if x.ndim != 1:
         raise ValueError("x must be a 1D audio signal")
-
     window_size = max(1024, int(round(window_duration * fs)))
     hop_size = max(1, int(round(hop_duration * fs)))
     if len(x) < window_size:
@@ -70,7 +59,6 @@ def find_likely_fsk_region(
     frames = np.lib.stride_tricks.sliding_window_view(x, window_size)[::hop_size]
     n = np.arange(window_size, dtype=float)
     window_energy = float(np.sum(window ** 2))
-
     osc_f0 = np.exp(-1j * 2 * np.pi * f0 * n / fs)
     osc_f1 = np.exp(-1j * 2 * np.pi * f1 * n / fs)
 
@@ -99,30 +87,62 @@ def find_likely_fsk_region(
         window_scores[batch_start:batch_end] = np.maximum(tone0_power, tone1_power)
         print_progress(batch_end)
     sys.stdout.write("\n")
-    window_times = (starts + 0.5 * window_size) / fs
 
+    window_times = (starts + 0.5 * window_size) / fs
     baseline = float(np.median(window_scores))
     mad = float(np.median(np.abs(window_scores - baseline)))
     robust_sigma = 1.4826 * mad
-    if robust_sigma == 0.0:
-        threshold = baseline
-    else:
-        threshold = baseline + threshold_sigma * robust_sigma
-
+    threshold = baseline if robust_sigma == 0.0 else baseline + threshold_sigma * robust_sigma
     active = window_scores >= threshold
+    return window_times, window_scores, active, threshold
+
+
+def _groups_to_regions(groups, window_scores, window_times, window_duration, duration):
+    """Convert index groups from flatnonzero into region dicts."""
+    regions = []
+    for group in groups:
+        regions.append({
+            "start_time": float(max(0.0, window_times[group[0]] - 0.5 * window_duration)),
+            "end_time": float(min(duration, window_times[group[-1]] + 0.5 * window_duration)),
+            "center_time": float(np.mean(window_times[group])),
+            "score": float(np.mean(window_scores[group])),
+        })
+    return regions
+
+
+def find_likely_fsk_region(
+    x,
+    fs,
+    f0,
+    f1,
+    window_duration=0.25,
+    hop_duration=0.1,
+    threshold_sigma=3.0,
+    progress_callback=None,
+):
+    """
+    Find the time region most likely to contain the FSK signal.
+
+    The signal is scanned in overlapping windows. Each window is scored by the
+    matched tone power at `f0` and `f1`. Contiguous windows with
+    unusually high tone power are merged into candidate regions, and the region
+    with the highest average score is returned.
+    """
+    x = np.asarray(x, dtype=float)
+    duration = len(x) / fs
+    window_times, window_scores, active, threshold = _compute_fsk_window_scores(
+        x, fs, f0, f1, window_duration, hop_duration, threshold_sigma, progress_callback
+    )
+
     if not np.any(active):
         print("Warning: No active FSK windows found above threshold; falling back to peak window")
         best_idx = int(np.argmax(window_scores))
-        start_time = max(0.0, window_times[best_idx] - 0.5 * window_duration)
-        end_time = min(len(x) / fs, window_times[best_idx] + 0.5 * window_duration)
         result = {
-            "start_time": float(start_time),
-            "end_time": float(end_time),
+            "start_time": float(max(0.0, window_times[best_idx] - 0.5 * window_duration)),
+            "end_time": float(min(duration, window_times[best_idx] + 0.5 * window_duration)),
             "center_time": float(window_times[best_idx]),
             "score": float(window_scores[best_idx]),
             "threshold": float(threshold),
-            "window_times": window_times,
-            "window_scores": window_scores,
         }
     else:
         if np.all(active):
@@ -130,31 +150,105 @@ def find_likely_fsk_region(
         active_idx = np.flatnonzero(active)
         split_points = np.where(np.diff(active_idx) > 1)[0] + 1
         groups = np.split(active_idx, split_points)
-
-        best_region = None
-        for group in groups:
-            region_score = float(np.mean(window_scores[group]))
-            region_start = max(0.0, window_times[group[0]] - 0.5 * window_duration)
-            region_end = min(len(x) / fs, window_times[group[-1]] + 0.5 * window_duration)
-            if best_region is None or region_score > best_region["score"]:
-                best_region = {
-                    "start_time": float(region_start),
-                    "end_time": float(region_end),
-                    "center_time": float(np.mean(window_times[group])),
-                    "score": region_score,
-                    "threshold": float(threshold),
-                    "window_times": window_times,
-                    "window_scores": window_scores,
-                }
-        result = best_region
+        regions = _groups_to_regions(groups, window_scores, window_times, window_duration, duration)
+        result = max(regions, key=lambda r: r["score"])
+        result["threshold"] = float(threshold)
 
     print(
         "Active FSK region found: "
         f"{result['start_time']:.3f}s to {result['end_time']:.3f}s "
         f"(center {result['center_time']:.3f}s, score {result['score']:.6f})"
     )
-
     return result
+
+
+def find_all_fsk_regions(
+    x,
+    fs,
+    f0,
+    f1,
+    window_duration=0.25,
+    hop_duration=0.1,
+    threshold_sigma=3.0,
+    progress_callback=None,
+):
+    """
+    Find all FSK-active regions in the audio signal.
+
+    Returns a list of region dicts sorted by start_time, each with keys:
+    start_time, end_time, center_time, score, threshold.
+    Falls back to a single region around the peak window if no active windows
+    are found above the threshold.
+    """
+    x = np.asarray(x, dtype=float)
+    duration = len(x) / fs
+    window_times, window_scores, active, threshold = _compute_fsk_window_scores(
+        x, fs, f0, f1, window_duration, hop_duration, threshold_sigma, progress_callback
+    )
+
+    if not np.any(active):
+        print("Warning: No active FSK windows found above threshold; treating full file as one region")
+        best_idx = int(np.argmax(window_scores))
+        return [{
+            "start_time": float(max(0.0, window_times[best_idx] - 0.5 * window_duration)),
+            "end_time": float(min(duration, window_times[best_idx] + 0.5 * window_duration)),
+            "center_time": float(window_times[best_idx]),
+            "score": float(window_scores[best_idx]),
+            "threshold": float(threshold),
+        }]
+
+    active_idx = np.flatnonzero(active)
+    split_points = np.where(np.diff(active_idx) > 1)[0] + 1
+    groups = np.split(active_idx, split_points)
+    regions = _groups_to_regions(groups, window_scores, window_times, window_duration, duration)
+
+    # Discard regions that are much weaker than the strongest one.
+    # Genuine FSK regions should be in the same ballpark; noise hits that
+    # just barely crossed the window threshold are orders of magnitude weaker.
+    # The sigma-based filter fails here because extreme outliers inflate the MAD,
+    # so we use a ratio against the best score instead.
+    print(f"Window threshold: {threshold:.6f} (baseline={float(np.median(window_scores)):.6f}, "
+          f"{np.sum(active)}/{len(window_scores)} windows active)")
+
+    if len(regions) > 1:
+        max_score = max(r["score"] for r in regions)
+        ratio_threshold = max_score * 0.05
+        print(f"Ratio filter threshold: {ratio_threshold:.6f} (5% of best region score {max_score:.6f}), "
+              f"{len(regions)} candidate region(s) before filter")
+        strong = [r for r in regions if r["score"] >= ratio_threshold]
+        if strong:
+            regions = strong
+        print(f"{len(regions)} region(s) after ratio filter")
+
+    # Cap regions using the known minimum transmission interval, enforcing
+    # a minimum spacing between selected regions (non-maximum suppression).
+    # Picking top-N by score alone can select nearby false-positive pairs,
+    # placing a split point inside a real transmission.
+    if MIN_REGION_INTERVAL > 0 and len(regions) > 1:
+        max_regions = max(1, math.ceil(duration / MIN_REGION_INTERVAL))
+        min_spacing = MIN_REGION_INTERVAL / 2
+        print(f"Interval filter: max {max_regions} region(s) allowed "
+              f"(≤1 per {MIN_REGION_INTERVAL:.0f}s, min spacing {min_spacing:.0f}s, "
+              f"{duration:.0f}s file), {len(regions)} before filter")
+        if len(regions) > max_regions:
+            # Greedy NMS: pick strongest region, then next strongest that is
+            # at least min_spacing away from every already-selected region.
+            candidates = sorted(regions, key=lambda r: r["score"], reverse=True)
+            selected = []
+            for r in candidates:
+                if all(abs(r["center_time"] - s["center_time"]) >= min_spacing
+                       for s in selected):
+                    selected.append(r)
+                if len(selected) >= max_regions:
+                    break
+            regions = selected
+        print(f"{len(regions)} region(s) after interval filter")
+
+    for r in regions:
+        r["threshold"] = float(threshold)
+    regions.sort(key=lambda r: r["start_time"])
+    print(f"Found {len(regions)} FSK-active region(s).")
+    return regions
 
 def fsk_symbol_metrics(
     x,
@@ -208,20 +302,23 @@ def compute_symbol_start_samples(num_symbols, N_samples, N_err, start=0):
     return starts
 
 def define_thresholds(scores, region_mask=None):
-    """Derive loose thresholds from symbol score distribution to mask noise.
+    """Derive thresholds from symbol score distribution to mask noise.
 
     Thresholds are computed from scores within the active region only
-    (region_mask), so that silence outside the watermark does not dilute
-    the mean separation estimate. The thresholds are kept separate for
-    positive and negative scores because the two FSK tones may have
-    unequal amplitudes, making one side systematically stronger.
+    (region_mask). Signal strength is estimated from the 75th percentile of
+    each tail (robust against noise contamination of the low tail), and the
+    threshold is placed at a fraction of that estimate. This avoids the failure
+    mode where a low percentile falls into near-zero noise values when the
+    region contains a mix of signal and silence symbols.
     """
+    SIGNAL_PERCENTILE = 75   # use upper portion of each tail to estimate signal level
+    THRESHOLD_FRACTION = 0.25  # threshold as fraction of that signal-level estimate
     scores = np.asarray(scores, dtype=float)
     ref = scores[region_mask] if region_mask is not None else scores
-    pos_vals = ref[ref > 0.0003]
-    neg_vals = ref[ref < -0.0003]
-    th1 = 0.2 * float(np.mean(pos_vals)) if len(pos_vals) else 0.0
-    th0 = 0.2 * float(np.mean(neg_vals)) if len(neg_vals) else 0.0
+    pos_vals = ref[ref > 0]
+    neg_vals = ref[ref < 0]
+    th1 = float(np.percentile(pos_vals, SIGNAL_PERCENTILE)) * THRESHOLD_FRACTION if len(pos_vals) >= 5 else 0.0
+    th0 = float(np.percentile(neg_vals, 100 - SIGNAL_PERCENTILE)) * THRESHOLD_FRACTION if len(neg_vals) >= 5 else 0.0
     return th0, th1
 
 def generate_mask(th0, th1, scores):
@@ -253,30 +350,25 @@ def print_message(message, start_time, end_time, debug, label_track):
         else:
             debug.write("Warning: Message might be corrupted (missing '/' termination)\n")
             return False
-    label_track.write(f"{start_time:.6f}\t{end_time:.6f}\t")
-    messages_lines = message.split("/")
-    first_field = True
-    for line in messages_lines:
+    fields = []
+    for line in message.split("/"):
         if line[0:3] == "STR":
-            content = "Message: " + line[3:]
+            fields.append("Message: " + line[3:])
         elif line[0:3] == "LOC":
-            content = "Location: " + line[3:]
+            fields.append("Location: " + line[3:])
         elif line[0:3] == "MID":
-            content = "Message ID: " + line[3:]
+            fields.append("Message ID: " + line[3:])
         elif line[0:3] == "DID":
-            content = "Device ID: " + line[3:]
+            fields.append("Device ID: " + line[3:])
         elif line[0:3] == "TMP":
-            content = "Temperature: " + line[3:] + "°C"
+            fields.append("Temperature: " + line[3:] + "°C")
         elif line[0:3] == "TIM":
-            content = "Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}"
-        else:
-            continue
-        if not first_field:
-            label_track.write(" | ")
-        label_track.write(content)
-        first_field = False
+            fields.append("Time: " + f"{line[3:5]}:{line[5:7]}:{line[7:9]} on {days_of_week[int(line[9:11]) - 1]} {line[11:13]}/{line[13:15]}/{line[15:19]}")
     debug.write("\n")
-    label_track.write("\n")
+    if not fields:
+        debug.write("Warning: Message contains no recognised identifiers, skipping label track\n")
+        return False
+    label_track.write(f"{start_time:.6f}\t{end_time:.6f}\t" + " | ".join(fields) + "\n")
     return True
 
 def seconds_to_hms(total_seconds):
@@ -377,6 +469,30 @@ def refine_fsk_tones_fft(
 
     f0_new = peak_in_band(f0)
     f1_new = peak_in_band(f1)
+
+    if DEBUG_PLOTS:
+        freqs = np.fft.rfftfreq(len(xw), d=1.0 / fs)
+        magnitude_db = 10 * np.log10(power + 1e-30)
+        fig, ax = plt.subplots(figsize=(12, 4))
+        ax.plot(freqs, magnitude_db, color="steelblue", linewidth=0.7, label="FFT magnitude")
+        # Shade search bands
+        for f_in, f_out, color in [(f0, f0_new, "tab:orange"), (f1, f1_new, "tab:green")]:
+            band_lo = max(0.0, f_in - search_width_hz)
+            band_hi = min(nyq, f_in + search_width_hz)
+            ax.axvspan(band_lo, band_hi, alpha=0.15, color=color)
+            ax.axvline(f_in, color=color, linestyle="--", linewidth=1.2, label=f"in {f_in:.1f} Hz")
+            ax.axvline(f_out, color=color, linestyle="-", linewidth=1.5, label=f"out {f_out:.1f} Hz")
+        ax.set_xlabel("Frequency (Hz)")
+        ax.set_ylabel("Power (dB)")
+        ax.set_title("refine_fsk_tones_fft — FFT with input/output tone markers")
+        ax.legend(fontsize=8)
+        ax.set_xlim(
+            max(0, min(f0, f1) - search_width_hz * 3),
+            min(nyq, max(f0, f1) + search_width_hz * 3),
+        )
+        plt.tight_layout()
+        plt.savefig(f"PLOTS/refine_fsk_fft_f0_{f0:.0f}_f1_{f1:.0f}.png", dpi=150)
+        plt.close(fig)
 
     return f0_new, f1_new
 
@@ -497,8 +613,8 @@ def select_best_symbol_timing_and_offset(
     f1,
     p0,
     region_info,
-    n_true_search_radius=1,
-    n_true_step=0.1,
+    n_true_search_radius=5,
+    n_true_step=0.05,
     stepsize=25,
     progress_callback=None,
 ):
@@ -598,6 +714,19 @@ def select_best_symbol_timing_and_offset(
         for offset in offsets:
             score, scores = score_offset(N, N_err, offset)
             done_candidates += 1
+            if DEBUG_PLOTS and DEBUG_PLOTS_ALL_COMBINATIONS and len(scores) > 0:
+                fig, ax = plt.subplots(figsize=(10, 4))
+                ax.scatter(range(len(scores)), scores, s=10)
+                ax.set_title(
+                    f"N_true={candidate_N_true:.4f}, N={N}, offset={offset} — "
+                    f"score={score if np.isfinite(score) else 0:.6f}"
+                )
+                ax.set_xlabel("Symbol Index")
+                ax.set_ylabel("Score (E1 - E0)")
+                ax.grid()
+                plt.tight_layout()
+                plt.savefig(f"PLOTS/timing_Ntrue_{candidate_N_true:.4f}_offset_{offset}.png", dpi=100)
+                plt.close(fig)
             if score > best_score:
                 best_score = score
                 best_offset = offset
@@ -634,7 +763,7 @@ def select_best_symbol_timing_and_offset(
         plt.ylabel("Score (E1 - E0)")
         plt.grid()
         plt.savefig(f"PLOTS/Ntrue_{candidate_N_true:.4f}_N_{N}_offset_{offset}_scores.png")
-        plt.clf()
+        plt.close()
 
     print(
         "Best timing/offset found: "
@@ -649,7 +778,7 @@ def decode_fsk(input_filename: str,
                f0: float = 20833.33,
                f1: float = 22222.22,
                generate_debug: bool = False,
-               minutes_per_segment: int = -1,
+               segmentation: bool = False,
                use_ecc: bool = True,
                ecc_nsym: int = DEFAULT_ECC_NSYM,
                progress_callback=None):
@@ -664,8 +793,10 @@ def decode_fsk(input_filename: str,
         Carrier frequencies representing bits 0 and 1.
     generate_debug : bool
         Whether to write debug metrics to a companion text file.
-    minutes_per_segment : int
-        Length in minutes of each processed segment (-1 processes the whole file).
+    segmentation : bool
+        When True, all FSK-active regions are detected automatically and the
+        audio is split at the midpoints between them.  Each resulting segment
+        is processed independently.  When False the whole file is one segment.
     use_ecc : bool
         Enable Reed-Solomon error correction on each decoded message segment.
     ecc_nsym : int
@@ -712,29 +843,38 @@ def decode_fsk(input_filename: str,
             decode_codeword_fn = decode_codeword
             rs_error_type = ReedSolomonError
         report(0.0, "Reading audio file")
-        print(f"Reading audio from {input_filename}...")
+        print(f"\nReading audio from {input_filename}...")
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio[:, 0] # take right channel if stereo
-        report(0.05, "Finding active FSK region")
-        print("Locating likely FSK-active region...")
+        report(0.05, "Finding active FSK region(s)")
+        print("Locating likely FSK-active region(s)...")
 
         def _region_progress(frac, msg):
             report(0.05 + frac * 0.20, msg)
 
-        region_info = find_likely_fsk_region(audio, fs, f0, f1, progress_callback=_region_progress)
+        if segmentation:
+            all_regions = find_all_fsk_regions(audio, fs, f0, f1, progress_callback=_region_progress)
+            region_info = max(all_regions, key=lambda r: r["score"])
+        else:
+            all_regions = None
+            region_info = find_likely_fsk_region(audio, fs, f0, f1, progress_callback=_region_progress)
 
         if DEBUG_PLOTS:
-            #plot audio and highlight detected region for debugging
             times = np.arange(len(audio)) / fs
             plt.plot(times, audio, label="Audio Signal")
-            plt.axvspan(region_info["start_time"], region_info["end_time"], color="orange", alpha=0.3, label="Detected FSK Region")
-            plt.title("Audio Signal with Detected FSK Region")
+            if all_regions:
+                for r in all_regions:
+                    plt.axvspan(r["start_time"], r["end_time"], color="orange", alpha=0.3)
+                plt.axvspan(0, 0, color="orange", alpha=0.3, label="Detected FSK Regions")
+            else:
+                plt.axvspan(region_info["start_time"], region_info["end_time"], color="orange", alpha=0.3, label="Detected FSK Region")
+            plt.title("Audio Signal with Detected FSK Region(s)")
             plt.xlabel("Time (s)")
             plt.ylabel("Amplitude")
             plt.grid()
             plt.savefig("PLOTS/detected_fsk_region.png")
-            plt.clf()
+            plt.close()
 
         active_region_start_sample = max(0, int(round(region_info["start_time"] * fs)))
         active_region_end_sample = min(len(audio), int(round(region_info["end_time"] * fs)))
@@ -748,15 +888,27 @@ def decode_fsk(input_filename: str,
             f"Demodulation parameters: f0={f0:.2f} Hz, f1={f1:.2f} Hz, p0={p0}, "
             f"search-region={region_info['start_time']:.3f}s-{region_info['end_time']:.3f}s"
         )
-        if minutes_per_segment <= 0:
-            minutes_per_segment = len(audio) / fs / 60          
-        seg_len = int(round(minutes_per_segment * 60 * fs))
         audio_len = audio.shape[0]
-        segments = [(i, audio[i : i + seg_len]) for i in range(0, audio_len, seg_len)]
+        if segmentation and all_regions:
+            split_times = [
+                (all_regions[i]["end_time"] + all_regions[i + 1]["start_time"]) / 2
+                for i in range(len(all_regions) - 1)
+            ]
+            split_samples = [0] + [int(round(t * fs)) for t in split_times] + [audio_len]
+            segments = [
+                (split_samples[i], audio[split_samples[i] : split_samples[i + 1]])
+                for i in range(len(split_samples) - 1)
+            ]
+            print(f"Auto-segmentation: {len(all_regions)} FSK region(s) → {len(segments)} segment(s).")
+        else:
+            segments = [(0, audio)]
         report(0.30, "Processing audio segments")
         print(f"Processing {len(segments)} audio segment(s) for demodulation...")
         num_segments = len(segments)
         segmentindex = 0
+        _all_scores_t: list = []
+        _all_scores_v: list = []
+        _segment_split_times: list = split_times if (segmentation and all_regions and len(all_regions) > 1) else []
         for segment_start_sample, audio in segments:
             seg_base = 0.30 + (segmentindex / num_segments) * 0.70
             seg_span = 0.70 / num_segments
@@ -765,11 +917,17 @@ def decode_fsk(input_filename: str,
             def _seg_region_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + frac * _span * 0.30, msg)
 
+            min_window_samples = max(1024, int(round(0.25 * fs)))
+            if len(audio) < min_window_samples:
+                print(f"Segment {segmentindex+1} too short ({len(audio)} samples), skipping.")
+                segmentindex += 1
+                continue
+
             seg_region_info = find_likely_fsk_region(
                 audio, fs, f0, f1, progress_callback=_seg_region_progress
             )
 
-            print(f"Finding the best timing/offset for segment {segmentindex}...")
+            print(f"Finding the best timing/offset for segment {segmentindex+1}...")
 
             def _timing_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + _span * 0.30 + frac * _span * 0.55, msg)
@@ -796,6 +954,9 @@ def decode_fsk(input_filename: str,
                 segmentindex += 1
                 continue
             start_samples = compute_symbol_start_samples(len(bits), N, N_err, start=best_offset)
+            if DEBUG_PLOTS:
+                _all_scores_t.extend((start_samples + segment_start_sample) / fs)
+                _all_scores_v.extend(scores)
             if len(start_samples) > 1:
                 next_start_samples = np.empty_like(start_samples)
                 next_start_samples[:-1] = start_samples[1:]
@@ -819,6 +980,7 @@ def decode_fsk(input_filename: str,
             region_end_sample = min(len(audio), int(round(seg_region_info["end_time"] * fs)))
             region_mask = (start_samples >= region_start_sample) & (start_samples < region_end_sample)
             th0, th1 = define_thresholds(scores, region_mask=region_mask)
+            print(f"Segment {segmentindex} thresholds: th0={th0:.6f} (f0), th1={th1:.6f} (f1)")
             if DEBUG_PLOTS:
                 plt.scatter(range(len(scores)), scores, s=10)
                 plt.axhline(th0, color="red", linestyle="--", label=f"th0={th0:.4f}")
@@ -829,7 +991,7 @@ def decode_fsk(input_filename: str,
                 plt.legend()
                 plt.grid()
                 plt.savefig(f"PLOTS/segment_{segmentindex}_scores.png")
-                plt.clf()
+                plt.close()
             mask = generate_mask(th0, th1, scores)
             msg_ranges = find_message_ranges(mask, ecc_nsym)
             num_msg_ranges = max(len(msg_ranges), 1)
@@ -883,7 +1045,7 @@ def decode_fsk(input_filename: str,
                             mid_bit_idx = start_idx + ecc_bit_offset
                             if mid_bit_idx < len(start_samples):
                                 start_time = (segment_start_sample + start_samples[mid_bit_idx]) / fs
-                        print("ECC decode successful:" + decoded_payload.decode("ascii", errors="replace"))
+                        print("ECC decode successful")
                     else:
                         print("ECC decode failed")
                         debug.write("Warning: RS decode failed for this message segment\n")
@@ -894,9 +1056,6 @@ def decode_fsk(input_filename: str,
                         if not decoded_payload:
                             debug.write("Warning: Could not decode bytes for this message segment\n")
                             continue
-                        print("Attempting to decode without ECC...")
-                        print("message: " + decoded_payload.decode("ascii", errors="replace") + "\n")
-                        print("Bytes: " + str(bits_to_bytes(msg_bits)) + "\n")
                 else:
                     decoded_payload = decode_message_without_ecc(msg_bits)
                     if not decoded_payload:
@@ -908,6 +1067,18 @@ def decode_fsk(input_filename: str,
                     message_count += 1
 
             segmentindex += 1
+
+        if DEBUG_PLOTS and _all_scores_t:
+            _, ax = plt.subplots(figsize=(14, 4))
+            ax.scatter(_all_scores_t, _all_scores_v, s=5)
+            for t in _segment_split_times:
+                ax.axvline(t, color="red", linewidth=0.8, linestyle="--")
+            ax.set_title("Symbol Scores — Full Audio File")
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Score (E1 - E0)")
+            ax.grid()
+            plt.tight_layout()
+            plt.show()
 
         report(1.0, "Done")
         return message_count
@@ -923,8 +1094,12 @@ if __name__ == "__main__":
     parser.add_argument("--f1", type=float, default=22222.22, help="Frequency for bit 1 [Hz]")
     parser.add_argument("--generate-debug", action="store_true",
                         help="Generate debug file (.txt)")
-    parser.add_argument("--minutes-per-segment", type=int, default=-1,
-                        help="Length of each segment in minutes (-1 = process full file)")
+    parser.add_argument(
+        "--segmentation",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Auto-detect all FSK regions and split audio at midpoints between them",
+    )
     parser.add_argument(
         "--use-ecc",
         action=argparse.BooleanOptionalAction,
@@ -945,7 +1120,7 @@ if __name__ == "__main__":
         f0=args.f0,
         f1=args.f1,
         generate_debug=args.generate_debug,
-        minutes_per_segment=args.minutes_per_segment,
+        segmentation=args.segmentation,
         use_ecc=args.use_ecc,
         ecc_nsym=args.ecc_parity_bytes,
     )
