@@ -17,7 +17,7 @@ from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 # ------------------------------
 # Frequency helpers constants
 # ------------------------------
-FS_HZ = 1920000
+DAC_FS = 1920000
 MIN_BIT_US = 3000
 FREQ_MIN = 2000
 FREQ_MAX = 24000
@@ -526,7 +526,7 @@ class App(tk.Tk):
     def min_required_diff_hz(self, lower_freq: int) -> int:
         return 300 + (400000 // lower_freq)
 
-    def quantized_params(self, freq: float, fs: int = FS_HZ):
+    def quantized_params(self, freq: float, fs: int = DAC_FS):
         samples_per_period = max(1, int(math.floor(fs / freq)))
         min_bit_samples = self.rounded_min_bit_samples(fs)
         period_count = self.period_count_from_samples(
@@ -537,17 +537,17 @@ class App(tk.Tk):
         return quantized_freq, samples_per_period, period_count, total_samples
 
     def adjust_low_frequency_to_valid(self, low_freq: float, high_freq: float):
-        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+        min_bit_samples = self.rounded_min_bit_samples(DAC_FS)
 
-        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+        low_n = max(1, int(math.floor(DAC_FS / low_freq)))
+        high_n = max(1, int(math.floor(DAC_FS / high_freq)))
 
-        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_q = self.quantized_freq_from_samples(DAC_FS, high_n)
         high_p = self.period_count_from_samples(min_bit_samples, high_n)
         high_total = high_n * high_p
 
         while True:
-            low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+            low_q = self.quantized_freq_from_samples(DAC_FS, low_n)
             low_p = self.period_count_from_samples(min_bit_samples, low_n)
             low_total = low_n * low_p
 
@@ -572,31 +572,31 @@ class App(tk.Tk):
                 break
 
             candidate_low_n = low_n + 1
-            candidate_low_q = self.quantized_freq_from_samples(FS_HZ, candidate_low_n)
+            candidate_low_q = self.quantized_freq_from_samples(DAC_FS, candidate_low_n)
 
             if candidate_low_q < FREQ_MIN:
                 break
 
             low_n = candidate_low_n
 
-        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_q = self.quantized_freq_from_samples(DAC_FS, low_n)
         low_p = self.period_count_from_samples(min_bit_samples, low_n)
         low_total = low_n * low_p
 
         return low_q, low_n, low_p, low_total
 
     def adjust_high_frequency_to_valid(self, low_freq: float, high_freq: float):
-        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+        min_bit_samples = self.rounded_min_bit_samples(DAC_FS)
 
-        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+        low_n = max(1, int(math.floor(DAC_FS / low_freq)))
+        high_n = max(1, int(math.floor(DAC_FS / high_freq)))
 
-        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_q = self.quantized_freq_from_samples(DAC_FS, low_n)
         low_p = self.period_count_from_samples(min_bit_samples, low_n)
         low_total = low_n * low_p
 
         while True:
-            high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+            high_q = self.quantized_freq_from_samples(DAC_FS, high_n)
             high_p = self.period_count_from_samples(min_bit_samples, high_n)
             high_total = high_n * high_p
 
@@ -624,14 +624,14 @@ class App(tk.Tk):
                 break
 
             candidate_high_n = high_n - 1
-            candidate_high_q = self.quantized_freq_from_samples(FS_HZ, candidate_high_n)
+            candidate_high_q = self.quantized_freq_from_samples(DAC_FS, candidate_high_n)
 
             if candidate_high_q > FREQ_MAX:
                 break
 
             high_n = candidate_high_n
 
-        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_q = self.quantized_freq_from_samples(DAC_FS, high_n)
         high_p = self.period_count_from_samples(min_bit_samples, high_n)
         high_total = high_n * high_p
 
@@ -639,8 +639,8 @@ class App(tk.Tk):
 
     def _snap_to_nearest_freq(self, freq: float) -> int:
         freq = max(FREQ_MIN, min(FREQ_MAX, freq))
-        n = max(1, int(round(FS_HZ / freq)))
-        return int(self.quantized_freq_from_samples(FS_HZ, n))
+        n = max(1, int(round(DAC_FS / freq)))
+        return int(self.quantized_freq_from_samples(DAC_FS, n))
 
     def update_low_frequency(self):
         try:
