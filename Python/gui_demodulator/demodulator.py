@@ -15,7 +15,9 @@ from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 
 MIN_MESSAGE_BITS = 16
 MIN_REGION_INTERVAL = 56.0  # Minimum expected interval between FSK transmissions (seconds)
+DAC_FS = 1920000
 
+DEBUG_PRINTS = True
 DEBUG_PLOTS = False
 DEBUG_PLOTS_ALL_COMBINATIONS = False  # Plot every N/offset candidate in select_best_symbol_timing_and_offset
 
@@ -37,6 +39,15 @@ days_of_week = [
     "Saturday",
     "Sunday",
 ]
+
+def _dprint(*args, **kwargs):
+    if DEBUG_PRINTS:
+        print(*args, **kwargs)  # noqa: T201
+
+def _dwrite(text: str):
+    if DEBUG_PRINTS:
+        sys.stdout.write(text)
+        sys.stdout.flush()
 
 def _compute_fsk_window_scores(
     x, fs, f0, f1,
@@ -71,10 +82,7 @@ def _compute_fsk_window_scores(
         fraction = done_windows / total_windows if total_windows else 1.0
         filled = int(round(progress_width * fraction))
         bar = "#" * filled + "-" * (progress_width - filled)
-        sys.stdout.write(
-            f"\rFinding active FSK region [{bar}] {fraction * 100:5.1f}%"
-        )
-        sys.stdout.flush()
+        _dwrite(f"\rFinding active FSK region [{bar}] {fraction * 100:5.1f}%")
         if progress_callback is not None:
             progress_callback(fraction, "Finding active FSK region")
 
@@ -86,7 +94,7 @@ def _compute_fsk_window_scores(
         tone1_power = np.abs(batch_frames @ np.conjugate(osc_f1)) ** 2 / window_energy
         window_scores[batch_start:batch_end] = np.maximum(tone0_power, tone1_power)
         print_progress(batch_end)
-    sys.stdout.write("\n")
+    _dwrite("\n")
 
     window_times = (starts + 0.5 * window_size) / fs
     baseline = float(np.median(window_scores))
@@ -135,7 +143,7 @@ def find_likely_fsk_region(
     )
 
     if not np.any(active):
-        print("Warning: No active FSK windows found above threshold; falling back to peak window")
+        _dprint("Warning: No active FSK windows found above threshold; falling back to peak window")
         best_idx = int(np.argmax(window_scores))
         result = {
             "start_time": float(max(0.0, window_times[best_idx] - 0.5 * window_duration)),
@@ -146,7 +154,7 @@ def find_likely_fsk_region(
         }
     else:
         if np.all(active):
-            print("Warning: All windows are above threshold; FSK region spans the entire file")
+            _dprint("Warning: All windows are above threshold; FSK region spans the entire file")
         active_idx = np.flatnonzero(active)
         split_points = np.where(np.diff(active_idx) > 1)[0] + 1
         groups = np.split(active_idx, split_points)
@@ -154,7 +162,7 @@ def find_likely_fsk_region(
         result = max(regions, key=lambda r: r["score"])
         result["threshold"] = float(threshold)
 
-    print(
+    _dprint(
         "Active FSK region found: "
         f"{result['start_time']:.3f}s to {result['end_time']:.3f}s "
         f"(center {result['center_time']:.3f}s, score {result['score']:.6f})"
@@ -187,7 +195,7 @@ def find_all_fsk_regions(
     )
 
     if not np.any(active):
-        print("Warning: No active FSK windows found above threshold; treating full file as one region")
+        _dprint("Warning: No active FSK windows found above threshold; treating full file as one region")
         best_idx = int(np.argmax(window_scores))
         return [{
             "start_time": float(max(0.0, window_times[best_idx] - 0.5 * window_duration)),
@@ -207,18 +215,18 @@ def find_all_fsk_regions(
     # just barely crossed the window threshold are orders of magnitude weaker.
     # The sigma-based filter fails here because extreme outliers inflate the MAD,
     # so we use a ratio against the best score instead.
-    print(f"Window threshold: {threshold:.6f} (baseline={float(np.median(window_scores)):.6f}, "
+    _dprint(f"Window threshold: {threshold:.6f} (baseline={float(np.median(window_scores)):.6f}, "
           f"{np.sum(active)}/{len(window_scores)} windows active)")
 
     if len(regions) > 1:
         max_score = max(r["score"] for r in regions)
         ratio_threshold = max_score * 0.05
-        print(f"Ratio filter threshold: {ratio_threshold:.6f} (5% of best region score {max_score:.6f}), "
+        _dprint(f"Ratio filter threshold: {ratio_threshold:.6f} (5% of best region score {max_score:.6f}), "
               f"{len(regions)} candidate region(s) before filter")
         strong = [r for r in regions if r["score"] >= ratio_threshold]
         if strong:
             regions = strong
-        print(f"{len(regions)} region(s) after ratio filter")
+        _dprint(f"{len(regions)} region(s) after ratio filter")
 
     # Cap regions using the known minimum transmission interval, enforcing
     # a minimum spacing between selected regions (non-maximum suppression).
@@ -227,7 +235,7 @@ def find_all_fsk_regions(
     if MIN_REGION_INTERVAL > 0 and len(regions) > 1:
         max_regions = max(1, math.ceil(duration / MIN_REGION_INTERVAL))
         min_spacing = MIN_REGION_INTERVAL / 2
-        print(f"Interval filter: max {max_regions} region(s) allowed "
+        _dprint(f"Interval filter: max {max_regions} region(s) allowed "
               f"(≤1 per {MIN_REGION_INTERVAL:.0f}s, min spacing {min_spacing:.0f}s, "
               f"{duration:.0f}s file), {len(regions)} before filter")
         if len(regions) > max_regions:
@@ -242,12 +250,12 @@ def find_all_fsk_regions(
                 if len(selected) >= max_regions:
                     break
             regions = selected
-        print(f"{len(regions)} region(s) after interval filter")
+        _dprint(f"{len(regions)} region(s) after interval filter")
 
     for r in regions:
         r["threshold"] = float(threshold)
     regions.sort(key=lambda r: r["start_time"])
-    print(f"Found {len(regions)} FSK-active region(s).")
+    _dprint(f"Found {len(regions)} FSK-active region(s).")
     return regions
 
 def fsk_symbol_metrics(
@@ -496,10 +504,47 @@ def refine_fsk_tones_fft(
 
     return f0_new, f1_new
 
-def compute_p0(f0, DAC_fs=960000):
-    m = DAC_fs * (3000 / 1_000_000)
-    n0 = np.floor(DAC_fs / f0)
+def compute_p0(f0):
+    m = np.round(DAC_FS * (3000 / 1_000_000))
+    n0 = np.floor(DAC_FS / f0)
     return int(np.round(m / n0))
+
+def _trim_sparse_flanks(group, min_isolation_gap=20, min_flank=None):
+    """
+    Trim sparse noise clusters from the leading and trailing edges of a group.
+
+    If the cluster of reliable symbols on one side of a gap >= min_isolation_gap
+    has fewer than min_flank symbols, that cluster is stripped from the group.
+    Internal gaps with enough mass on both sides are left untouched so a real
+    message with an occasional weak stretch is not split.
+    """
+    if min_flank is None:
+        min_flank = MIN_MESSAGE_BITS * 2
+    if len(group) < 2:
+        return group
+
+    diffs = np.diff(group)
+    big_gaps = np.where(diffs >= min_isolation_gap)[0]
+    if len(big_gaps) == 0:
+        return group
+
+    start = 0
+    end = len(group)
+
+    # Trim left: if the cluster before the first big gap is too small
+    first_big = big_gaps[0]
+    if first_big + 1 < min_flank:
+        start = first_big + 1
+
+    # Trim right: if the cluster after the last big gap is too small
+    valid_gaps = big_gaps[big_gaps >= start]
+    if len(valid_gaps) > 0:
+        last_big = valid_gaps[-1]
+        if end - (last_big + 1) < min_flank:
+            end = last_big + 1
+
+    return group[start:end]
+
 
 def find_message_ranges(mask, ecc_nsym):
     """
@@ -511,10 +556,17 @@ def find_message_ranges(mask, ecc_nsym):
     if len(reliable_idx) == 0:
         return []
 
-    max_gap = ecc_nsym * 16
+    max_gap = ecc_nsym * 8
+    min_reliable = MIN_MESSAGE_BITS * 2  # reject ranges backed by only a handful of noise hits
+    max_bits = 256 * 8  # 256 bytes — no valid codeword can be longer than this
     split_at = np.where(np.diff(reliable_idx) > max_gap)[0] + 1
     groups = np.split(reliable_idx, split_at)
-    return [(int(group[0]), int(group[-1])) for group in groups if len(group) > 0]
+    trimmed = [_trim_sparse_flanks(g) for g in groups]
+    return [
+        (int(g[0]), int(g[-1]))
+        for g in trimmed
+        if len(g) >= min_reliable and (g[-1] - g[0] + 1) <= max_bits
+    ]
 
 def bits_to_bytes(bits, bit_offset=0):
     """Pack a bit array into bytes, optionally skipping an initial bit offset."""
@@ -549,25 +601,30 @@ def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_typ
     """
     Attempt RS decode from a bit segment.
 
-    Tries all bit alignments [0..7] and, for each, trims trailing bytes one at
-    a time up to nsym bytes. This handles cases where the captured bit range is
-    slightly longer than the actual codeword (e.g. trailing silence appended to
-    ensure full parity coverage), because RS decode fails if extra bytes shift
-    the parity window.
+    Tries all bit alignments [0..7] and, for each, trims leading and trailing
+    bytes up to nsym bytes each. Leading-byte trimming handles ranges extended
+    from the front by noise hits near the message start (which shift the codeword
+    start beyond the 0-7 bit-offset search). Trailing-byte trimming handles
+    ranges extended from the back by trailing silence or noise.
     """
-    for bit_offset in range(8):
-        codeword = bits_to_bytes(msg_bits, bit_offset=bit_offset)
-        max_trim = min(nsym, max(0, len(codeword) - nsym - 1))
-        for trim in range(max_trim + 1):
-            trimmed = codeword if trim == 0 else codeword[: len(codeword) - trim]
-            if len(trimmed) <= nsym:
-                break
-            try:
-                payload = decode_codeword_fn(trimmed, codec=rsc)
-                if payload and payload[:1] == b"/" and payload[-1:] == b"/":
-                    return payload, bit_offset
-            except rs_error_type:
-                pass
+    max_len_bytes = len(msg_bits) // 8
+    max_trim = min(nsym, max(0, max_len_bytes - nsym - 1))
+    for head_trim in range(max_trim + 1):
+        for bit_offset in range(8):
+            codeword = bits_to_bytes(
+                msg_bits[head_trim * 8:], bit_offset=bit_offset
+            )
+            tail_max = min(nsym, max(0, len(codeword) - nsym - 1))
+            for tail_trim in range(tail_max + 1):
+                trimmed = codeword if tail_trim == 0 else codeword[: len(codeword) - tail_trim]
+                if len(trimmed) <= nsym:
+                    break
+                try:
+                    payload = decode_codeword_fn(trimmed, codec=rsc)
+                    if payload and payload[:1] == b"/" and payload[-1:] == b"/":
+                        return payload, bit_offset
+                except rs_error_type:
+                    pass
     return None
 
 def decode_message_without_ecc(
@@ -613,8 +670,8 @@ def select_best_symbol_timing_and_offset(
     f1,
     p0,
     region_info,
-    n_true_search_radius=5,
-    n_true_step=0.05,
+    n_true_search_radius=1,
+    n_true_step=0.1,
     stepsize=25,
     progress_callback=None,
 ):
@@ -643,7 +700,7 @@ def select_best_symbol_timing_and_offset(
         dtype=float,
     )
 
-    print(
+    _dprint(
         f"Testing {len(candidate_N_trues)} N_true candidates around "
         f"N_true={nominal_N_true:.4f} samples using refined f0={refined_f0:.2f} Hz..."
     )
@@ -658,10 +715,7 @@ def select_best_symbol_timing_and_offset(
         fraction = done_candidates / total_candidates if total_candidates else 1.0
         filled = int(round(progress_width * fraction))
         bar = "#" * filled + "-" * (progress_width - filled)
-        sys.stdout.write(
-            f"\rFinding best timing/offset [{bar}] {fraction * 100:5.1f}%"
-        )
-        sys.stdout.flush()
+        _dwrite(f"\rFinding best timing/offset [{bar}] {fraction * 100:5.1f}%")
         if progress_callback is not None:
             progress_callback(fraction, "Finding best timing/offset")
 
@@ -748,7 +802,7 @@ def select_best_symbol_timing_and_offset(
                 "region_end_time": float(region_info["end_time"]),
             }
 
-    sys.stdout.write("\n")
+    _dwrite("\n")
     if best_setup is None:
         raise ValueError("No valid N/offset candidate produced demodulation scores")
 
@@ -765,7 +819,7 @@ def select_best_symbol_timing_and_offset(
         plt.savefig(f"PLOTS/Ntrue_{candidate_N_true:.4f}_N_{N}_offset_{offset}_scores.png")
         plt.close()
 
-    print(
+    _dprint(
         "Best timing/offset found: "
         f"N={best_setup['N']}, "
         f"N_true={best_setup['N_true']:.4f}, "
@@ -843,12 +897,12 @@ def decode_fsk(input_filename: str,
             decode_codeword_fn = decode_codeword
             rs_error_type = ReedSolomonError
         report(0.0, "Reading audio file")
-        print(f"\nReading audio from {input_filename}...")
+        _dprint(f"\nReading audio from {input_filename}...")
         audio, fs = sf.read(input_filename)
         if audio.ndim > 1:
             audio = audio[:, 0] # take right channel if stereo
         report(0.05, "Finding active FSK region(s)")
-        print("Locating likely FSK-active region(s)...")
+        _dprint("Locating likely FSK-active region(s)...")
 
         def _region_progress(frac, msg):
             report(0.05 + frac * 0.20, msg)
@@ -882,10 +936,11 @@ def decode_fsk(input_filename: str,
         if len(active_audio) == 0:
             active_audio = audio
         report(0.25, "Refining FSK tones")
-        print("Refining FSK tones from detected active region...")
+        _dprint("Refining FSK tones from detected active region...")
         f0, f1 = refine_fsk_tones_fft(active_audio, fs, f0, f1)
-        print(
-            f"Demodulation parameters: f0={f0:.2f} Hz, f1={f1:.2f} Hz, p0={p0}, "
+        _dprint(
+            f"Demodulation parameters: f0={f0:.2f} Hz, f1={f1:.2f} Hz, "
+            f"p0={p0} ({p0} period(s) per symbol, symbol_time={p0/f0*1000:.3f} ms), "
             f"search-region={region_info['start_time']:.3f}s-{region_info['end_time']:.3f}s"
         )
         audio_len = audio.shape[0]
@@ -899,27 +954,28 @@ def decode_fsk(input_filename: str,
                 (split_samples[i], audio[split_samples[i] : split_samples[i + 1]])
                 for i in range(len(split_samples) - 1)
             ]
-            print(f"Auto-segmentation: {len(all_regions)} FSK region(s) → {len(segments)} segment(s).")
+            _dprint(f"Auto-segmentation: {len(all_regions)} FSK region(s) → {len(segments)} segment(s).")
         else:
             segments = [(0, audio)]
         report(0.30, "Processing audio segments")
-        print(f"Processing {len(segments)} audio segment(s) for demodulation...")
+        _dprint(f"Processing {len(segments)} audio segment(s) for demodulation...")
         num_segments = len(segments)
         segmentindex = 0
         _all_scores_t: list = []
         _all_scores_v: list = []
+        _segment_thresholds: list = []  # (t_start, t_end, th0, th1)
         _segment_split_times: list = split_times if (segmentation and all_regions and len(all_regions) > 1) else []
         for segment_start_sample, audio in segments:
             seg_base = 0.30 + (segmentindex / num_segments) * 0.70
             seg_span = 0.70 / num_segments
-            print(f"\nProcessing segment {segmentindex+1}...")
+            _dprint(f"\nProcessing segment {segmentindex+1}...")
 
             def _seg_region_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + frac * _span * 0.30, msg)
 
             min_window_samples = max(1024, int(round(0.25 * fs)))
             if len(audio) < min_window_samples:
-                print(f"Segment {segmentindex+1} too short ({len(audio)} samples), skipping.")
+                _dprint(f"Segment {segmentindex+1} too short ({len(audio)} samples), skipping.")
                 segmentindex += 1
                 continue
 
@@ -927,7 +983,7 @@ def decode_fsk(input_filename: str,
                 audio, fs, f0, f1, progress_callback=_seg_region_progress
             )
 
-            print(f"Finding the best timing/offset for segment {segmentindex+1}...")
+            _dprint(f"Finding the best timing/offset for segment {segmentindex+1}...")
 
             def _timing_progress(frac, msg, _base=seg_base, _span=seg_span):
                 report(_base + _span * 0.30 + frac * _span * 0.55, msg)
@@ -941,8 +997,8 @@ def decode_fsk(input_filename: str,
             N_err = best_setup["N_err"]
             best_offset = best_setup["offset"]
             best_offset_score = best_setup["avg_abs_score"]
-            print(
-                f"Decoding bits for segment {segmentindex} with N={N}, offset {best_offset} "
+            _dprint(
+                f"Decoding bits for segment {segmentindex+1} with N={N}, offset {best_offset} "
                 f"(avg separation {best_offset_score:.6f})..."
             )
             report(seg_base + seg_span * 0.85, "Decoding bits")
@@ -980,17 +1036,20 @@ def decode_fsk(input_filename: str,
             region_end_sample = min(len(audio), int(round(seg_region_info["end_time"] * fs)))
             region_mask = (start_samples >= region_start_sample) & (start_samples < region_end_sample)
             th0, th1 = define_thresholds(scores, region_mask=region_mask)
-            print(f"Segment {segmentindex} thresholds: th0={th0:.6f} (f0), th1={th1:.6f} (f1)")
+            _dprint(f"Segment {segmentindex+1} thresholds: th0={th0:.6f} (f0), th1={th1:.6f} (f1)")
+            if DEBUG_PLOTS:
+                seg_t = (start_samples + segment_start_sample) / fs
+                _segment_thresholds.append((float(seg_t[0]), float(seg_t[-1]), th0, th1))
             if DEBUG_PLOTS:
                 plt.scatter(range(len(scores)), scores, s=10)
                 plt.axhline(th0, color="red", linestyle="--", label=f"th0={th0:.4f}")
                 plt.axhline(th1, color="green", linestyle="--", label=f"th1={th1:.4f}")
-                plt.title(f"Segment {segmentindex} Symbol Scores")
+                plt.title(f"Segment {segmentindex+1} Symbol Scores")
                 plt.xlabel("Symbol Index")
                 plt.ylabel("Score (E1 - E0)")
                 plt.legend()
                 plt.grid()
-                plt.savefig(f"PLOTS/segment_{segmentindex}_scores.png")
+                plt.savefig(f"PLOTS/segment_{segmentindex+1}_scores.png")
                 plt.close()
             mask = generate_mask(th0, th1, scores)
             msg_ranges = find_message_ranges(mask, ecc_nsym)
@@ -1011,8 +1070,8 @@ def decode_fsk(input_filename: str,
                 if len(msg_bits) < MIN_MESSAGE_BITS:
                     continue
                 else:
-                    debug.write("Time in recording: " + seconds_to_hms(time_in_recording) + "\n")
-                    print(f"Decoded message bits: {len(msg_bits)}\n")
+                    debug.write("\nTime in recording: " + seconds_to_hms(time_in_recording) + "\n")
+                    _dprint(f"Decoded message bits: {len(msg_bits)}\n")
                 start_time = time_in_recording
                 end_time = (
                     message_end_sample / fs
@@ -1045,9 +1104,9 @@ def decode_fsk(input_filename: str,
                             mid_bit_idx = start_idx + ecc_bit_offset
                             if mid_bit_idx < len(start_samples):
                                 start_time = (segment_start_sample + start_samples[mid_bit_idx]) / fs
-                        print("ECC decode successful")
+                        _dprint("ECC decode successful")
                     else:
-                        print("ECC decode failed")
+                        _dprint("ECC decode failed")
                         debug.write("Warning: RS decode failed for this message segment\n")
                         decoded_payload = decode_message_without_ecc(
                             msg_bits=msg_bits,
@@ -1073,6 +1132,15 @@ def decode_fsk(input_filename: str,
             ax.scatter(_all_scores_t, _all_scores_v, s=5)
             for t in _segment_split_times:
                 ax.axvline(t, color="red", linewidth=0.8, linestyle="--")
+            th0_labeled = th1_labeled = False
+            for t_start, t_end, th0, th1 in _segment_thresholds:
+                ax.hlines(th1, t_start, t_end, colors="tab:green", linewidths=1.5,
+                          label="th1 (f1)" if not th1_labeled else "_nolegend_")
+                ax.hlines(th0, t_start, t_end, colors="tab:orange", linewidths=1.5,
+                          label="th0 (f0)" if not th0_labeled else "_nolegend_")
+                th0_labeled = th1_labeled = True
+            if _segment_thresholds:
+                ax.legend(fontsize=8)
             ax.set_title("Symbol Scores — Full Audio File")
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Score (E1 - E0)")
