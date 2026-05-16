@@ -51,6 +51,20 @@ void Radio_EnterSleep(void);
  */
 void Radio_EnterIdle(void);
 
+/**
+ * @brief Calibrate the crystal frequency trim by estimating the error from the
+ * known capacitive load mismatch and adjusting the FREQ registers accordingly.
+ * This is a workaround for the fact that the CC1101 doesn't have a built-in
+ * crystal trim calibration routine, and the frequency error from the load
+ * mismatch can cause significant frequency offset. By applying an empirical
+ * correction based on the estimated ppm error, we can improve frequency
+ * accuracy without needing to measure the actual frequency offset with test
+ * equipment.
+ *
+ * @return 0 on success, nonzero error code on failure
+ */
+int8_t Radio_CalibrateXtalFrequency(void);
+
 #ifdef __cplusplus
 }
 #endif
