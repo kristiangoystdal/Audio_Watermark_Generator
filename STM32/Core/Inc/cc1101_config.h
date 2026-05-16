@@ -28,7 +28,7 @@ static const ism_reg_t cc1101_cfg_rx[] = {
 };
 
 static const ism_reg_t cc1101_cfg_tx[] = {
-    {0x02, 0x07}, // IOCFG0: GDO0 asserts when packet received
+    {0x02, 0x07}, // IOCFG0
     {0x04, 0xD3}, // SYNC1
     {0x05, 0x91}, // SYNC0
     {0x06, 0x3D}, // PKTLEN
@@ -42,6 +42,8 @@ static const ism_reg_t cc1101_cfg_tx[] = {
     {0x11, 0x83}, // MDMCFG3
     {0x12, 0x02}, // MDMCFG2
     {0x13, 0xF2}, // MDMCFG1
-    {0x14, 0x01}, // MDMCFG0: bit 0 = 1 enables external XTAL
-    {0x18, 0x18}, // MCSM0: FS_AUTOCAL=01 (auto-calibrate on state transitions)
+    {0x14, 0x01}, // MDMCFG0
+    {0x17, 0x04}, // MCSM1: TXOFF_MODE=01 (IDLE)
+    {0x18, 0x18}, // MCSM0: FS_AUTOCAL=01
+    {0x20, 0x70}, // WORCTRL: RC_PD=1 (RC osc OFF), EVENT1=7, WOR_RES=0
 };
