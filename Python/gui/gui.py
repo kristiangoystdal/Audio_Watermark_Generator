@@ -614,7 +614,7 @@ class FlashToolApp(tk.Tk):
 
         self.widgets["sleep_duration"] = tk.Spinbox(
             row,
-            from_=1,
+            from_=0,
             to=1440,
             width=6,
             textvariable=self.vars["sleep_minutes"],
@@ -922,7 +922,7 @@ class FlashToolApp(tk.Tk):
 
         self.widgets["sleep_duration"] = tk.Spinbox(
             row,
-            from_=1,
+            from_=0,
             to=1440,
             width=6,
             textvariable=self.vars["sleep_minutes"],
