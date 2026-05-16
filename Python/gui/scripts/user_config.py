@@ -119,7 +119,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
 
         transmission = root.vars["transmission"].get()
         use_cable_transmission = transmission == "cable"
-        use_speaker_transmission = transmission == "speaker"
 
         frequency_lower = root.vars["frequency_low"].get()
         frequency_higher = root.vars["frequency_high"].get()
@@ -186,22 +185,13 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INCLUDE_LOCATION",
         "INCLUDE_TEMPERATURE",
         "INCLUDE_TIME",
-        "SET_INITIAL_TIME",
         "USE_CABLE_TRANSMISSION",
-        "USE_SPEAKER_TRANSMISSION",
         "USE_REED_SOLOMON_ERROR_CORRECTION",
     }
 
     int_vars = {
         "DEVICE_ID",
         "TEMPERATURE",
-        "INITIAL_YEAR",
-        "INITIAL_MONTH",
-        "INITIAL_DOW",
-        "INITIAL_DOM",
-        "INITIAL_HOUR",
-        "INITIAL_MIN",
-        "INITIAL_SEC",
         "STARTING_HOUR",
         "STARTING_MINUTE",
         "END_HOUR",
@@ -224,14 +214,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "INCLUDE_LOCATION": bool(include_location),
         "INCLUDE_TEMPERATURE": bool(include_temperature),
         "INCLUDE_TIME": bool(include_time),
-        "SET_INITIAL_TIME": bool(set_initial_time),
-        "INITIAL_YEAR": current_time[0],
-        "INITIAL_MONTH": current_time[1],
-        "INITIAL_DOM": current_time[2],
-        "INITIAL_DOW": current_time[3],
-        "INITIAL_HOUR": current_time[4],
-        "INITIAL_MIN": current_time[5],
-        "INITIAL_SEC": current_time[6],
         "STARTING_HOUR": starting_hour_i,
         "STARTING_MINUTE": starting_minute_i,
         "END_HOUR": end_hour_i,
@@ -241,7 +223,6 @@ def change_user_config(root, set_initial_time, safe_log=None):
         "FSK_LOWER_FREQUENCY": fsk_low_i,
         "FSK_HIGHER_FREQUENCY": fsk_high_i,
         "USE_CABLE_TRANSMISSION": bool(use_cable_transmission),
-        "USE_SPEAKER_TRANSMISSION": bool(use_speaker_transmission),
         "USE_REED_SOLOMON_ERROR_CORRECTION": bool(ecc_enabled),
         "SIGNAL_ATTENUATION": attenuation_i,
         "RS_ERROR_CORRECTION_SYMBOLS": rs_error_correction_symbols_i,
