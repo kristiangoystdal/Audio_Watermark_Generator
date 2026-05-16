@@ -217,11 +217,11 @@ void process_transmission(uint8_t *transmission, int *dBm_value);
 void create_payload_string(const char *user_string, int device_id,
                            const char *location, int8_t temperature,
                            rtc_time_t time_val, bool include_message_id,
-                           int8_t message_id, uint8_t *output_str,
-                           size_t output_str_size);
+                           int8_t message_id, int8_t rssi_dbm,
+                           uint8_t *output_str, size_t output_str_size);
 
-void create_string_from_received_data(const uint8_t *transmission,
-                                      int dBm_value, uint8_t *output_str,
+void create_string_from_received_data(const uint8_t *transmission, int rssi_dbm,
+                                      uint8_t *output_str,
                                       size_t output_str_size);
 
 static int init_luts_from_freqpair(void);
@@ -242,7 +242,6 @@ void TryReceiveTimeSync(void);
  * @retval int
  */
 int main(void) {
-
   /* USER CODE BEGIN 1 */
 
   /* USER CODE END 1 */
@@ -402,6 +401,14 @@ int main(void) {
       LOGF("\r\n");
       Error_Handler_Code(init_result);
     }
+
+    // NEW: Calibrate XTAL frequency trim
+    HAL_Delay(10);
+    int8_t cal_result = Radio_CalibrateXtalFrequency();
+    if (cal_result != 0) {
+      LOGF("Warning: XTAL calibration returned error %d\r\n", cal_result);
+    }
+
   } else {
     LOGF("No radio in standalone mode - skipping radio initialization\r\n");
 
@@ -600,8 +607,12 @@ int main(void) {
 
       LED_ON();
 
+      uint32_t radio_tx_start = HAL_GetTick();
       Radio_Transmit();
+      uint32_t radio_tx_end = HAL_GetTick();
 
+      LOGF("Radio transmission took %lu ms\r\n",
+           (unsigned long)(radio_tx_end - radio_tx_start));
       Relay_SetBypassMode();
       LED_OFF();
 
@@ -629,7 +640,7 @@ int main(void) {
                             INCLUDE_DEVICE_ID ? DEVICE_ID : -1,
                             INCLUDE_LOCATION ? LOCATION : NULL,
                             INCLUDE_TEMPERATURE ? temp_int : -1, now, false, -1,
-                            output_str, sizeof(output_str));
+                            0, output_str, sizeof(output_str));
 
       size_t payload_len = strlen((char *)output_str);
 
@@ -758,7 +769,6 @@ void SystemClock_Config(void) {
  * @retval None
  */
 static void MX_ADC1_Init(void) {
-
   /* USER CODE BEGIN ADC1_Init 0 */
 
   /* USER CODE END ADC1_Init 0 */
@@ -821,7 +831,6 @@ static void MX_ADC1_Init(void) {
  * @retval None
  */
 static void MX_DAC1_Init(void) {
-
   /* USER CODE BEGIN DAC1_Init 0 */
 
   /* USER CODE END DAC1_Init 0 */
@@ -864,7 +873,6 @@ static void MX_DAC1_Init(void) {
  * @retval None
  */
 static void MX_I2C2_Init(void) {
-
   /* USER CODE BEGIN I2C2_Init 0 */
   __HAL_RCC_I2C2_CLK_ENABLE(); // <-- ADD THIS
 
@@ -908,7 +916,6 @@ static void MX_I2C2_Init(void) {
  * @retval None
  */
 static void MX_RTC_Init(void) {
-
   /* USER CODE BEGIN RTC_Init 0 */
 
   /* USER CODE END RTC_Init 0 */
@@ -952,7 +959,6 @@ static void MX_RTC_Init(void) {
  * @retval None
  */
 static void MX_TIM2_Init(void) {
-
   /* USER CODE BEGIN TIM2_Init 0 */
 
   /* USER CODE END TIM2_Init 0 */
@@ -992,7 +998,6 @@ static void MX_TIM2_Init(void) {
  * @retval None
  */
 static void MX_TIM6_Init(void) {
-
   /* USER CODE BEGIN TIM6_Init 0 */
 
   /* USER CODE END TIM6_Init 0 */
@@ -1026,7 +1031,6 @@ static void MX_TIM6_Init(void) {
  * @retval None
  */
 static void MX_USART2_UART_Init(void) {
-
   /* USER CODE BEGIN USART2_Init 0 */
 
   /* USER CODE END USART2_Init 0 */
@@ -1068,7 +1072,6 @@ static void MX_USART2_UART_Init(void) {
  * Enable DMA controller clock
  */
 static void MX_DMA_Init(void) {
-
   /* DMA controller clock enable */
   __HAL_RCC_DMAMUX1_CLK_ENABLE();
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -1588,8 +1591,8 @@ void process_transmission(uint8_t *transmission, int *dBm_value) {
 void create_payload_string(const char *user_str, int device_id,
                            const char *location, int8_t temperature,
                            rtc_time_t time_val, bool INCLUDE_MESSAGE_ID,
-                           int8_t message_id, uint8_t *output_str,
-                           size_t output_str_size) {
+                           int8_t message_id, int8_t rssi_dbm,
+                           uint8_t *output_str, size_t output_str_size) {
   if (!output_str || output_str_size == 0)
     return;
 
@@ -1614,6 +1617,17 @@ void create_payload_string(const char *user_str, int device_id,
                  "%s/TIM%02d%02d%02d%02d%02d%02d%04d", (offset > 0) ? "" : "",
                  time_val.hours, time_val.minutes, time_val.seconds,
                  time_val.day, time_val.date, time_val.month, time_val.year);
+    if (n > 0 && (size_t)n < remaining) {
+      offset += (size_t)n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  // ADD RSSI ONLY IF rssi_dbm IS NOT 0 (RX mode only)
+  // In Standalone mode, rssi_dbm defaults to 0, so this block is skipped
+  if (rssi_dbm != 0) {
+    n = snprintf(&temp_buf[offset], remaining, "%s/RSSI%d",
+                 (offset > 0) ? "" : "", rssi_dbm);
     if (n > 0 && (size_t)n < remaining) {
       offset += (size_t)n;
       remaining -= (size_t)n;
@@ -1663,8 +1677,10 @@ void create_payload_string(const char *user_str, int device_id,
       remaining -= (size_t)n;
     }
   }
+
   // Hard guarantee null-termination
   output_str[output_str_size - 1] = '\0';
+
   // Copy ASCII bytes into uint8_t output buffer
   size_t out_len = strnlen(temp_buf, sizeof(temp_buf));
   if (out_len >= output_str_size) {
@@ -1729,8 +1745,13 @@ void create_string_from_received_data(const uint8_t *transmission,
     }
   }
 
+  // CHANGED: Pass dBm_value (RSSI) to create_payload_string for RX mode
+  // re-transmission This embeds RSSI in the watermark:
+  // /MID00/TIM.../RSSI-75/STRHello/... Standalone mode does NOT call this
+  // function, so it has no RSSI
   create_payload_string(user_string, device_id, location, temperature, time_val,
-                        true, mid, output_str, output_str_size);
+                        true, mid, (int8_t)dBm_value, output_str,
+                        output_str_size);
 }
 
 static int init_luts_from_freqpair(void) {
