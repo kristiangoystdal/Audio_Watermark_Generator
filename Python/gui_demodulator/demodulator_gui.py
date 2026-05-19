@@ -17,7 +17,7 @@ from reed_solomon import NSYM as DEFAULT_ECC_NSYM
 # ------------------------------
 # Frequency helpers constants
 # ------------------------------
-FS_HZ = 960000
+DAC_FS = 1920000
 MIN_BIT_US = 3000
 FREQ_MIN = 2000
 FREQ_MAX = 24000
@@ -318,7 +318,6 @@ class App(tk.Tk):
         # Other controls
         self.generate_debug = tk.BooleanVar(value=False)
         self.use_segmentation = tk.BooleanVar(value=False)
-        self.minutes_per_segment = tk.IntVar(value=1)
         self.use_ecc = tk.BooleanVar(value=True)
         self.ecc_parity_bytes = tk.IntVar(value=DEFAULT_ECC_NSYM)
         self.auto_sync_audio = tk.BooleanVar(value=False)
@@ -368,6 +367,9 @@ class App(tk.Tk):
         self.f1_entry.bind("<FocusOut>", lambda e: self.update_high_frequency())
         self.f1_entry.bind("<Return>", lambda e: self.update_high_frequency())
 
+        self.f0_hz.trace_add("write", lambda *_: self._update_freq_button_state())
+        self.f1_hz.trace_add("write", lambda *_: self._update_freq_button_state())
+
         # Segmentation option
         tk.Label(
             self.frame, text="Segmentation Settings", font=("Arial", 15, "bold")
@@ -376,14 +378,9 @@ class App(tk.Tk):
         seg_frame.pack(fill="x", **pad)
         tk.Checkbutton(
             seg_frame,
-            text="Enable segmentation (minutes per segment)",
+            text="Enable automatic segmentation",
             variable=self.use_segmentation,
-            command=self._toggle_seg_controls,
         ).pack(side="left")
-        self.mins_entry = tk.Spinbox(
-            seg_frame, from_=1, to=120, width=6, textvariable=self.minutes_per_segment
-        )
-        self.mins_entry.pack(side="left")
 
         # Debug option
         tk.Label(self.frame, text="Debug Settings", font=("Arial", 15, "bold")).pack(
@@ -469,13 +466,10 @@ class App(tk.Tk):
         scrollbar.config(command=self.message_box.yview)
 
         # Initial toggle state
-        self._toggle_seg_controls()
         self._toggle_ecc_controls()
         self._toggle_sync_controls()
 
-        # Initial frequency auto-fix
-        self.update_low_frequency()
-        self.update_high_frequency()
+        self._update_freq_button_state()
 
         # Center window
         self.update_idletasks()
@@ -532,7 +526,7 @@ class App(tk.Tk):
     def min_required_diff_hz(self, lower_freq: int) -> int:
         return 300 + (400000 // lower_freq)
 
-    def quantized_params(self, freq: float, fs: int = FS_HZ):
+    def quantized_params(self, freq: float, fs: int = DAC_FS):
         samples_per_period = max(1, int(math.floor(fs / freq)))
         min_bit_samples = self.rounded_min_bit_samples(fs)
         period_count = self.period_count_from_samples(
@@ -543,17 +537,17 @@ class App(tk.Tk):
         return quantized_freq, samples_per_period, period_count, total_samples
 
     def adjust_low_frequency_to_valid(self, low_freq: float, high_freq: float):
-        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+        min_bit_samples = self.rounded_min_bit_samples(DAC_FS)
 
-        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+        low_n = max(1, int(math.floor(DAC_FS / low_freq)))
+        high_n = max(1, int(math.floor(DAC_FS / high_freq)))
 
-        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_q = self.quantized_freq_from_samples(DAC_FS, high_n)
         high_p = self.period_count_from_samples(min_bit_samples, high_n)
         high_total = high_n * high_p
 
         while True:
-            low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+            low_q = self.quantized_freq_from_samples(DAC_FS, low_n)
             low_p = self.period_count_from_samples(min_bit_samples, low_n)
             low_total = low_n * low_p
 
@@ -578,31 +572,31 @@ class App(tk.Tk):
                 break
 
             candidate_low_n = low_n + 1
-            candidate_low_q = self.quantized_freq_from_samples(FS_HZ, candidate_low_n)
+            candidate_low_q = self.quantized_freq_from_samples(DAC_FS, candidate_low_n)
 
             if candidate_low_q < FREQ_MIN:
                 break
 
             low_n = candidate_low_n
 
-        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_q = self.quantized_freq_from_samples(DAC_FS, low_n)
         low_p = self.period_count_from_samples(min_bit_samples, low_n)
         low_total = low_n * low_p
 
         return low_q, low_n, low_p, low_total
 
     def adjust_high_frequency_to_valid(self, low_freq: float, high_freq: float):
-        min_bit_samples = self.rounded_min_bit_samples(FS_HZ)
+        min_bit_samples = self.rounded_min_bit_samples(DAC_FS)
 
-        low_n = max(1, int(math.floor(FS_HZ / low_freq)))
-        high_n = max(1, int(math.floor(FS_HZ / high_freq)))
+        low_n = max(1, int(math.floor(DAC_FS / low_freq)))
+        high_n = max(1, int(math.floor(DAC_FS / high_freq)))
 
-        low_q = self.quantized_freq_from_samples(FS_HZ, low_n)
+        low_q = self.quantized_freq_from_samples(DAC_FS, low_n)
         low_p = self.period_count_from_samples(min_bit_samples, low_n)
         low_total = low_n * low_p
 
         while True:
-            high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+            high_q = self.quantized_freq_from_samples(DAC_FS, high_n)
             high_p = self.period_count_from_samples(min_bit_samples, high_n)
             high_total = high_n * high_p
 
@@ -630,56 +624,44 @@ class App(tk.Tk):
                 break
 
             candidate_high_n = high_n - 1
-            candidate_high_q = self.quantized_freq_from_samples(FS_HZ, candidate_high_n)
+            candidate_high_q = self.quantized_freq_from_samples(DAC_FS, candidate_high_n)
 
             if candidate_high_q > FREQ_MAX:
                 break
 
             high_n = candidate_high_n
 
-        high_q = self.quantized_freq_from_samples(FS_HZ, high_n)
+        high_q = self.quantized_freq_from_samples(DAC_FS, high_n)
         high_p = self.period_count_from_samples(min_bit_samples, high_n)
         high_total = high_n * high_p
 
         return high_q, high_n, high_p, high_total
 
+    def _snap_to_nearest_freq(self, freq: float) -> int:
+        freq = max(FREQ_MIN, min(FREQ_MAX, freq))
+        n = max(1, int(round(DAC_FS / freq)))
+        return int(self.quantized_freq_from_samples(DAC_FS, n))
+
     def update_low_frequency(self):
         try:
-            low = float(self.f0_hz.get())
-            high = float(self.f1_hz.get())
+            self.f0_hz.set(self._snap_to_nearest_freq(float(self.f0_hz.get())))
         except Exception:
             return
-
-        low = max(FREQ_MIN, min(FREQ_MAX, low))
-        high = max(FREQ_MIN, min(FREQ_MAX, high))
-
-        if low >= high:
-            low = high - 1
-
-        if low < FREQ_MIN:
-            low = FREQ_MIN
-
-        new_low, _, _, _ = self.adjust_low_frequency_to_valid(low, high)
-        self.f0_hz.set(int(new_low))
 
     def update_high_frequency(self):
         try:
-            low = float(self.f0_hz.get())
-            high = float(self.f1_hz.get())
+            self.f1_hz.set(self._snap_to_nearest_freq(float(self.f1_hz.get())))
         except Exception:
             return
 
-        low = max(FREQ_MIN, min(FREQ_MAX, low))
-        high = max(FREQ_MIN, min(FREQ_MAX, high))
-
-        if high <= low:
-            high = low + 1
-
-        if high > FREQ_MAX:
-            high = FREQ_MAX
-
-        new_high, _, _, _ = self.adjust_high_frequency_to_valid(low, high)
-        self.f1_hz.set(int(new_high))
+    def _update_freq_button_state(self):
+        try:
+            f0 = float(self.f0_hz.get())
+            f1 = float(self.f1_hz.get())
+            valid = f1 >= f0 + 500
+        except Exception:
+            valid = False
+        self.run_btn.config(state="normal" if valid else "disabled")
 
     # ------------------------------
     # UI helpers
@@ -693,11 +675,6 @@ class App(tk.Tk):
 
         # Let the clicked widget process the click first, then remove focus
         self.after_idle(self.focus_set)
-
-    def _toggle_seg_controls(self):
-        enabled = self.use_segmentation.get()
-        state = "normal" if enabled else "disabled"
-        self.mins_entry.config(state=state)
 
     def _toggle_ecc_controls(self):
         enabled = self.use_ecc.get()
@@ -764,9 +741,7 @@ class App(tk.Tk):
             return
 
         gen_debug = self.generate_debug.get()
-        seg_minutes = (
-            self.minutes_per_segment.get() if self.use_segmentation.get() else -1
-        )
+        use_segmentation = self.use_segmentation.get()
         use_ecc = self.use_ecc.get()
         parity_bytes = self.ecc_parity_bytes.get()
         auto_sync = self.auto_sync_audio.get() and len(self.selected_files) >= 2
@@ -833,7 +808,7 @@ class App(tk.Tk):
                             f0=f0,
                             f1=f1,
                             generate_debug=gen_debug,
-                            minutes_per_segment=seg_minutes,
+                            segmentation=use_segmentation,
                             use_ecc=use_ecc,
                             ecc_nsym=parity_bytes,
                             progress_callback=progress_cb,
