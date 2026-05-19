@@ -98,7 +98,7 @@
 #define OUTPUT_SEGMENT 500
 #define BUFFER_SIZE (OUTPUT_SEGMENT * 5)
 
-#define SYNC_DELAY_MS 200
+#define SYNC_DELAY_MS 350
 
 /* USER CODE END PD */
 
@@ -176,6 +176,8 @@ extern volatile uint8_t cdc_rx_len;
 uint32_t wake_up_tick = 0;
 
 bool first_boot = true;
+
+extern PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE END PV */
 
@@ -402,13 +404,29 @@ int main(void) {
       Error_Handler_Code(init_result);
     }
 
-    // NEW: Calibrate XTAL frequency trim
-    HAL_Delay(10);
-    int8_t cal_result = Radio_CalibrateXtalFrequency();
-    if (cal_result != 0) {
-      LOGF("Warning: XTAL calibration returned error %d\r\n", cal_result);
+    // Wait for crystal to stabilize
+    uint8_t timeout = 100; // 100ms max
+    while (timeout--) {
+      uint8_t xosc_val = 0;
+      uint8_t status = 0;
+      CC1101_ReadReg(0x24, &xosc_val, &status); // 0x24 is XOSC register
+
+      if (xosc_val & 0x01) { // XOSC_STABLE bit
+        break;
+      }
+      HAL_Delay(1);
     }
 
+    if (timeout == 0) {
+      printf("ERROR: XOSC failed to stabilize\n");
+    } else {
+      printf("XOSC stabilized\n");
+    }
+    HAL_Delay(10);
+    // int8_t cal_result = Radio_CalibrateXtalFrequency();
+    // if (cal_result != 0) {
+    //   LOGF("Warning: XTAL calibration returned error %d\r\n", cal_result);
+    // }
   } else {
     LOGF("No radio in standalone mode - skipping radio initialization\r\n");
 
@@ -1170,6 +1188,14 @@ void EnterStopMode(void) {
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_SET);
   MX_I2C2_Init();
   MX_USART2_UART_Init();
+  __HAL_UART_ENABLE(&huart2); // <-- ADD THIS
+
+  // // Force USB peripheral reset and reinit
+  // HAL_PCD_DeInit(&hpcd_USB_FS); // Deinit the PCD handle first
+  // HAL_Delay(10);
+  // MX_USB_Device_Init();
+
+  // HAL_Delay(5000); // <-- ADD THIS: wait for USB to stabilize
 
   HAL_Delay(10);
   HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
@@ -1623,16 +1649,16 @@ void create_payload_string(const char *user_str, int device_id,
     }
   }
 
-  // ADD RSSI ONLY IF rssi_dbm IS NOT 0 (RX mode only)
-  // In Standalone mode, rssi_dbm defaults to 0, so this block is skipped
-  if (rssi_dbm != 0) {
-    n = snprintf(&temp_buf[offset], remaining, "%s/RSSI%d",
-                 (offset > 0) ? "" : "", rssi_dbm);
-    if (n > 0 && (size_t)n < remaining) {
-      offset += (size_t)n;
-      remaining -= (size_t)n;
-    }
-  }
+  // // ADD RSSI ONLY IF rssi_dbm IS NOT 0 (RX mode only)
+  // // In Standalone mode, rssi_dbm defaults to 0, so this block is skipped
+  // if (rssi_dbm != 0) {
+  //   n = snprintf(&temp_buf[offset], remaining, "%s/RSSI%d",
+  //                (offset > 0) ? "" : "", rssi_dbm);
+  //   if (n > 0 && (size_t)n < remaining) {
+  //     offset += (size_t)n;
+  //     remaining -= (size_t)n;
+  //   }
+  // }
 
   if (INCLUDE_USER_STRING) {
     n = snprintf(&temp_buf[offset], remaining, "/STR%s", user_str);
