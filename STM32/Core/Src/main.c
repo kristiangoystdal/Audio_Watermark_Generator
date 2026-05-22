@@ -453,7 +453,7 @@ int main(void) {
   Relay_SetBypassMode();
   if (OPERATION_MODE != 0) {
     LOGF("Setting first alarm for TX and Standalone mode\r\n");
-    RTC_SetWakeupTimer(1); // 1 minute
+    RTC_SetWakeupTimer(1); // 1 seconds
   }
 
   //-----------------------------------------------------------------------------//
@@ -468,6 +468,14 @@ int main(void) {
   DS3231_GetTime(&now);
   DS3231_ReadTemperature(&temp_int);
   DS3231_PowerOff();
+
+  // Add a timing check for testing purposes here
+  // Logs the time on the RTC module at this moment and prints it to UART to
+  // verify that the timing is correct and consistent across cycles
+
+  LOGF("TIMING CHECK: %02d:%02d:%02d\r\n", now.hours, now.minutes, now.seconds);
+
+  // TIMING CHECK END //
 
   int32_t wait_ms = 0;
 
@@ -598,9 +606,9 @@ int main(void) {
 
       uint32_t last_toggle = HAL_GetTick();
       while (!active_done) {
-        uint32_t now = HAL_GetTick();
-        if ((now - last_toggle) >= 100) { // blink every 100 ms
-          last_toggle = now;
+        uint32_t now_tick = HAL_GetTick();
+        if ((now_tick - last_toggle) >= 100) { // blink every 100 ms
+          last_toggle = now_tick;
           LED_Toggle();
         }
         __WFI(); // CPU sleeps while DMA+TIM2+DAC run
