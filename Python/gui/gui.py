@@ -1384,8 +1384,8 @@ class FlashToolApp(tk.Tk):
         if not self.valid_int(self.vars["device_id"].get(), 0, 99):
             errors.append("Device ID must be an integer between 0 and 99")
 
-        if not self.valid_text(self.vars["location"].get(), max_len=18):
-            errors.append("Location must be 1–18 characters")
+        if not self.valid_text(self.vars["location"].get(), max_len=20):
+            errors.append("Location must be 1–20 characters")
 
         if not self.vars["default_interval"].get():
             if not self.valid_int(self.vars["run_minutes"].get(), 1, 1440):
