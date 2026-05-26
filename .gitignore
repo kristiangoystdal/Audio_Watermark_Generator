@@ -11,3 +11,8 @@ __pycache__/
 *.venv/
 Testing/results/*
 Testing/test_files/acoustic_localization/audio_files/*
+
+Audio_watermark_generator-backups/
+build/
+dist/
+results/
