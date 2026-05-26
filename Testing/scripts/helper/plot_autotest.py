@@ -40,18 +40,20 @@ def load_csv(path: str):
     return rows
 
 
-def main():
+def find_and_plot():
     if len(sys.argv) > 1:
         groups = [sys.argv[1:]]
     else:
-        base = os.path.dirname(__file__)
+        script_dir = os.path.dirname(__file__)
+        results_dir = os.path.join(script_dir, "..", "..", "results", "demodulator_autotest")
+        results_dir = os.path.normpath(results_dir)
         groups = []
         for pattern in ("autotest_CABLE_*.csv", "autotest_SPEAKER_*.csv"):
-            matches = sorted(glob.glob(os.path.join(base, pattern)))
+            matches = sorted(glob.glob(os.path.join(results_dir, pattern)))
             if matches:
                 groups.append(matches)
         if not groups:
-            print("No autotest_*.csv files found.")
+            print(f"No autotest_*.csv files found in {results_dir}")
             sys.exit(1)
 
     for csv_paths in groups:
@@ -152,9 +154,9 @@ def plot(all_rows, csv_paths):
 
     fig.savefig(png_path, dpi=300)
     print(f"Saved {png_path}")
-    plt.show()
+    # plt.show()
     plt.close(fig)
 
 
 if __name__ == "__main__":
-    main()
+    find_and_plot()
