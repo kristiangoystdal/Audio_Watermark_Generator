@@ -24,7 +24,8 @@ import sys as _sys
 
 _sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "Software"))
 _sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "..", "Software", "gui_demodulator")
+    0,
+    os.path.join(os.path.dirname(__file__), "..", "..", "Software", "gui_demodulator"),
 )
 from helper.plot_autotest import find_and_plot
 import gui_demodulator.demodulator as _demodulator
@@ -35,11 +36,11 @@ from gui_demodulator.demodulator import decode_fsk, find_likely_fsk_region
 # ══════════════════════════════════════════════════════════════
 #  Configuration — edit these to change the test
 # ══════════════════════════════════════════════════════════════
-INPUT_FOLDER = (
-    "../test_files/demodulator_autotest/cable"  # folder containing frequency subfolders
-)
+INPUT_FOLDER = "../test_files/demodulator_autotest/speaker"  # folder containing frequency subfolders
 EXPECTED_MESSAGES = 125  # expected decoded messages per subfolder
 SNR_LEVELS_DB = list(np.arange(10, -25, -0.3))  # 5 dB down to -25 dB in 0.5 dB steps
+# SNR_LEVELS_DB = [None]  # None
+
 # None → clean (no noise), numbers → SNR in dB relative to FSK signal power
 # ══════════════════════════════════════════════════════════════
 
@@ -301,9 +302,12 @@ def main() -> None:
 
     # ── CSV export ─────────────────────────────────────────────────────────
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    results_dir = os.path.join(BASE_DIR, "..", "results", "demodulator_autotest")
+    folder_tag = os.path.basename(os.path.normpath(INPUT_FOLDER))
+    results_dir = os.path.join(
+        BASE_DIR, "..", "results", "demodulator_autotest", folder_tag
+    )
     os.makedirs(results_dir, exist_ok=True)
-    csv_path = os.path.join(results_dir, f"autotest_{INPUT_FOLDER}_{timestamp}.csv")
+    csv_path = os.path.join(results_dir, f"autotest_{folder_tag}_{timestamp}.csv")
     with open(csv_path, "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(
@@ -344,12 +348,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    
-    rerun = input("WARNING: This will run a potentially long and CPU-intensive test. Do you want to proceed? (y/n): ")
+
+    rerun = input(
+        "WARNING: This will run a potentially long and CPU-intensive test. Do you want to proceed? (y/n): "
+    )
     if rerun.lower() == "y":
         print("Rerun initiated.")
         main()
     else:
         print("Rerun cancelled by user. Only plotting existing results.")
-    
+
     find_and_plot()
