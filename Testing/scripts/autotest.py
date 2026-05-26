@@ -22,9 +22,9 @@ from scipy.signal import lfilter
 
 import sys as _sys
 
-_sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "Python"))
+_sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "Software"))
 _sys.path.insert(
-    0, os.path.join(os.path.dirname(__file__), "..", "..", "Python", "gui_demodulator")
+    0, os.path.join(os.path.dirname(__file__), "..", "..", "Software", "gui_demodulator")
 )
 from helper.plot_autotest import find_and_plot
 import gui_demodulator.demodulator as _demodulator
