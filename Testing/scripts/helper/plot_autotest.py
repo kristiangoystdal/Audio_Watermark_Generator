@@ -42,26 +42,26 @@ def load_csv(path: str):
 
 def find_and_plot():
     if len(sys.argv) > 1:
-        groups = [sys.argv[1:]]
+        csv_files = sys.argv[1:]
     else:
         script_dir = os.path.dirname(__file__)
         results_dir = os.path.join(script_dir, "..", "..", "results", "demodulator_autotest")
         results_dir = os.path.normpath(results_dir)
-        groups = []
-        for pattern in ("autotest_CABLE_*.csv", "autotest_SPEAKER_*.csv"):
-            matches = sorted(glob.glob(os.path.join(results_dir, pattern)))
-            if matches:
-                groups.append(matches)
-        if not groups:
+        csv_files = []
+        for subfolder in ("cable", "speaker"):
+            sub_dir = os.path.join(results_dir, subfolder)
+            csv_files.extend(sorted(glob.glob(os.path.join(sub_dir, "autotest_*.csv"))))
+        if not csv_files:
             print(f"No autotest_*.csv files found in {results_dir}")
             sys.exit(1)
 
-    for csv_paths in groups:
-        all_rows = []
-        for path in csv_paths:
-            print(f"Loading {path}")
-            all_rows.extend(load_csv(path))
-        plot(all_rows, csv_paths)
+    for path in csv_files:
+        print(f"Loading {path}")
+        rows = load_csv(path)
+        if not any(r["snr_db"] is not None for r in rows):
+            print(f"  Skipping {path} (no SNR values)")
+            continue
+        plot(rows, [path])
 
 
 def plot(all_rows, csv_paths):
