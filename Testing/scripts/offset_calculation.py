@@ -70,7 +70,7 @@ print(
 )
 
 plt.tight_layout()
-save_plot_to_results_folder(fig, "offset", "offset_summary.png")
+save_plot_to_results_folder(fig, "offset", "offset_summary.png", dpi=300)
 
 # --- CSV report ---
 report_rows = [

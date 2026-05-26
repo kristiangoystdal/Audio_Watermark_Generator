@@ -36,12 +36,12 @@ def extract_subfolder_name(file_path):
     return file_path.split("/")[-2]
 
 
-def save_plot_to_results_folder(plot, subfolder, filename):
+def save_plot_to_results_folder(plot, subfolder, filename, dpi=150):
     """Save a plot to the results folder."""
     results_folder = os.path.join(results_folder_path, subfolder)
     os.makedirs(results_folder, exist_ok=True)
     plot_path = os.path.join(results_folder, filename)
-    plot.savefig(plot_path)
+    plot.savefig(plot_path, dpi=dpi)
     print(f"Plot saved to: {plot_path}")
 
 
