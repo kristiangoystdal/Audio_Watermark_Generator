@@ -10,3 +10,4 @@ Python/gui_demodulator/icon.icns__pycache__/
 __pycache__/
 *.venv/
 Testing/results/*
+Testing/test_files/acoustic_localization/audio_files/*
