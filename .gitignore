@@ -16,3 +16,5 @@ Audio_watermark_generator-backups/
 build/
 dist/
 results/
+
+Testing/test_files/demodulator_autotest/*
