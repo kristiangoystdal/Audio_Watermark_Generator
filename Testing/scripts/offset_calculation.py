@@ -1,4 +1,4 @@
-from scripts.helper.helper import *
+from helper.helper import *
 
 import csv
 from datetime import datetime, timedelta
@@ -36,7 +36,9 @@ for csv_path in csv_files:
     label = csv_path.stem
     all_offsets[label] = offsets
 
-    print(f"  {len(offsets)} measurements, mean offset: {sum(offsets)/len(offsets):.2f}s")
+    print(
+        f"  {len(offsets)} measurements, mean offset: {sum(offsets)/len(offsets):.2f}s"
+    )
 
 # --- Summary plot ---
 all_offsets_flat = [o for offsets in all_offsets.values() for o in offsets]
@@ -48,7 +50,14 @@ int_vals = sorted(set(int(round(o)) for o in all_offsets_flat))
 bin_edges = [v - 0.5 for v in int_vals] + [int_vals[-1] + 0.5]
 
 fig, ax = plt.subplots(figsize=(5, 3))
-ax.hist(all_offsets_flat, bins=bin_edges, edgecolor="black", alpha=0.7, orientation="horizontal", rwidth=0.5)
+ax.hist(
+    all_offsets_flat,
+    bins=bin_edges,
+    edgecolor="black",
+    alpha=0.7,
+    orientation="horizontal",
+    rwidth=0.5,
+)
 ax.set_title("RTC Offset Distribution (All Modules)")
 ax.set_xlabel("Count")
 ax.set_ylabel("Offset (s)")
@@ -56,7 +65,9 @@ ax.set_yticks(int_vals)
 ax.set_ylim(int_vals[0] - 0.5, int_vals[-1] + 0.5)
 ax.grid(True, axis="x")
 
-print(f"\nOverall stats: mean={mean_offset:.2f}s, std={std_offset:.2f}s, min={min(all_offsets_flat):.2f}s, max={max(all_offsets_flat):.2f}s")
+print(
+    f"\nOverall stats: mean={mean_offset:.2f}s, std={std_offset:.2f}s, min={min(all_offsets_flat):.2f}s, max={max(all_offsets_flat):.2f}s"
+)
 
 plt.tight_layout()
 save_plot_to_results_folder(fig, "offset", "offset_summary.png")
@@ -73,19 +84,19 @@ report_rows = [
     }
     for label, offsets in all_offsets.items()
 ]
-report_rows.append({
-    "module": "total",
-    "n_measurements": len(all_offsets_flat),
-    "mean_offset_s": f"{mean_offset:.3f}",
-    "std_offset_s": f"{std_offset:.3f}",
-    "min_offset_s": f"{min(all_offsets_flat):.1f}",
-    "max_offset_s": f"{max(all_offsets_flat):.1f}",
-})
+report_rows.append(
+    {
+        "module": "total",
+        "n_measurements": len(all_offsets_flat),
+        "mean_offset_s": f"{mean_offset:.3f}",
+        "std_offset_s": f"{std_offset:.3f}",
+        "min_offset_s": f"{min(all_offsets_flat):.1f}",
+        "max_offset_s": f"{max(all_offsets_flat):.1f}",
+    }
+)
 save_results_to_csv(
     list(report_rows[0].keys()),
     report_rows,
     "offset",
     "offset_results.csv",
 )
-
-plt.show()

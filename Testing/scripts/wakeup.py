@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from datetime import datetime
 import numpy as np
-from scripts.helper.helper import *
+from helper.helper import *
 
 file_names = find_txt_files("rtc_measurements")
 

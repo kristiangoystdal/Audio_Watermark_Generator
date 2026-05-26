@@ -7,7 +7,7 @@ import csv
 from datetime import datetime
 import matplotlib.pyplot as plt
 from scipy.signal import welch, find_peaks
-from scripts.helper.helper import *
+from helper.helper import *
 
 # Thresholds
 ISOLATION_THRESHOLD_DB = 12  # Minimum isolation between tones (dB)
