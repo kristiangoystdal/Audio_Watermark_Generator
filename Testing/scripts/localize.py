@@ -381,5 +381,5 @@ def on_hover(sel):
     )
     sel.annotation.get_bbox_patch().set(fc="white", alpha=0.92)
 
-plt.show()
+# plt.show()
 save_plot_to_results_folder(fig, "acoustic_localization", "localization_plot.png", dpi=300)
