@@ -4,7 +4,7 @@ import numpy as np
 import soundfile as sf
 import pandas as pd
 import matplotlib.pyplot as plt
-from helper import *
+from scripts.helper.helper import *
 
 file_paths = find_wav_files("audio_passthrough")
 print(f"Found {len(file_paths)} .wav files for testing.")
