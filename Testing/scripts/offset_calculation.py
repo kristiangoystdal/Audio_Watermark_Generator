@@ -1,59 +1,39 @@
 from helper import *
 
+import csv
 from datetime import datetime, timedelta
+from pathlib import Path
 
-files = find_txt_files("rtc_measurements/offset")
-print(f"Found {len(files)} files:")
-for file in files:
-    print(f"  {file}")
+OFFSET_DIR = Path("test_files/rtc_measurements/offset")
+
+csv_files = sorted(OFFSET_DIR.glob("module_*.csv"))
+print(f"Found {len(csv_files)} files:")
+for f in csv_files:
+    print(f"  {f}")
 
 all_offsets = {}
 
-for file in files:
-    print(f"\nProcessing file: {file}")
+for csv_path in csv_files:
+    print(f"\nProcessing file: {csv_path}")
 
-    with open(file, "r") as f:
-        lines = f.readlines()
+    rows = []
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(row)
 
-    real_times = []
-    module_times = []
-
-    if len(lines) < 2:
-        print("  Not enough data in file.")
+    if not rows:
+        print("  No data found in file.")
         continue
-
-    for line in lines:
-        if "[TRIGGER]" in line:
-            times_str = line.split("[TRIGGER]")[1].strip()
-            real_time_str, module_time_str = times_str.split(",")
-
-            real_time_split = real_time_str.split(":")
-            module_time_split = module_time_str.split(":")
-
-            real_time = f"{real_time_split[1].strip()}:{real_time_split[2].strip()}:{real_time_split[3].strip()}"
-            module_time = f"{module_time_split[1].strip()}:{module_time_split[2].strip()}:{module_time_split[3].strip()}"
-
-            real_times.append(real_time)
-            module_times.append(module_time)
-
-    if not real_times or not module_times:
-        print("  No valid time data found in file.")
-        continue
-
-    adjusted_module_times = []
-    for module_time in module_times:
-        module_time_obj = datetime.strptime(module_time, "%H:%M:%S")
-        adjusted_module_time_obj = module_time_obj + timedelta(hours=2)
-        adjusted_module_times.append(adjusted_module_time_obj.strftime("%H:%M:%S"))
 
     offsets = []
-    for real_time, module_time in zip(real_times, adjusted_module_times):
-        real_time_obj = datetime.strptime(real_time, "%H:%M:%S")
-        module_time_obj = datetime.strptime(module_time, "%H:%M:%S")
-        offsets.append((module_time_obj - real_time_obj).total_seconds())
+    for row in rows:
+        real_dt = datetime.strptime(row["real_datetime"], "%Y-%m-%d %H:%M:%S")
+        module_dt = datetime.strptime(row["module_datetime"], "%Y-%m-%d %H:%M:%S")
+        real_utc = real_dt - timedelta(hours=2)
+        offsets.append((module_dt - real_utc).total_seconds())
 
-    label = extract_subfolder_name(file) or file.split("/")[-1].replace(".txt", "")
-    label = file.split("/")[-1].replace(".txt", "")
+    label = csv_path.stem
     all_offsets[label] = offsets
 
     print(f"  {len(offsets)} measurements, mean offset: {sum(offsets)/len(offsets):.2f}s")
@@ -80,4 +60,32 @@ print(f"\nOverall stats: mean={mean_offset:.2f}s, std={std_offset:.2f}s, min={mi
 
 plt.tight_layout()
 save_plot_to_results_folder(fig, "offset", "offset_summary.png")
+
+# --- CSV report ---
+report_rows = [
+    {
+        "module": label,
+        "n_measurements": len(offsets),
+        "mean_offset_s": f"{sum(offsets)/len(offsets):.3f}",
+        "std_offset_s": f"{np.std(offsets):.3f}",
+        "min_offset_s": f"{min(offsets):.1f}",
+        "max_offset_s": f"{max(offsets):.1f}",
+    }
+    for label, offsets in all_offsets.items()
+]
+report_rows.append({
+    "module": "total",
+    "n_measurements": len(all_offsets_flat),
+    "mean_offset_s": f"{mean_offset:.3f}",
+    "std_offset_s": f"{std_offset:.3f}",
+    "min_offset_s": f"{min(all_offsets_flat):.1f}",
+    "max_offset_s": f"{max(all_offsets_flat):.1f}",
+})
+save_results_to_csv(
+    list(report_rows[0].keys()),
+    report_rows,
+    "offset",
+    "offset_results.csv",
+)
+
 plt.show()
