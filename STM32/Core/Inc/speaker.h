@@ -11,7 +11,7 @@ extern "C" {
 
 #define SPEAKER_GPIO_Port GPIOA
 #define SPEAKER_Pin GPIO_PIN_7
-#define SPEAKER_TOGGLE_DELAY_MS 140
+#define SPEAKER_TOGGLE_DELAY_MS 250
 
 void Speaker_TurnOn(void);
 void Speaker_TurnOff(void);

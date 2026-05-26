@@ -7,16 +7,6 @@
 // Modify these values as needed
 //-------------------------------------------------------//
 
-// Configuration for first time booting up the RTC
-#define SET_INITIAL_TIME true
-#define INITIAL_HOUR 12
-#define INITIAL_MIN 54
-#define INITIAL_SEC 12
-#define INITIAL_DOW 3
-#define INITIAL_DOM 8
-#define INITIAL_MONTH 10
-#define INITIAL_YEAR 2025
-
 // Configuration for values to include in the watermark
 #define USER_STRING "Hello World"
 #define DEVICE_ID 42
@@ -31,14 +21,13 @@
 #define INCLUDE_TIME true
 
 // Configuration for transmission method
-#define USE_CABLE_TRANSMISSION true
-#define USE_SPEAKER_TRANSMISSION true
+#define USE_CABLE_TRANSMISSION false
 
 // Configuration for FSK frequencies (in Hz) - these will be adjusted by the
 // algorithm if they don't meet the sample count requirements, but should be set
 // close to the desired frequencies to minimize adjustments
-#define FSK_LOWER_FREQUENCY 15000
-#define FSK_HIGHER_FREQUENCY 16000
+#define FSK_LOWER_FREQUENCY 10000
+#define FSK_HIGHER_FREQUENCY 12000
 
 // Configuration for attenuation of the signal in percent (0-100), where 100 is
 // no attenuation and 0 is maximum attenuation (silence)
@@ -65,7 +54,7 @@
 // Configuration for how long the device should stay active during each active
 // minute before going back to sleep, in minutes
 #define RUN_MINUTES 3
-#define SLEEP_MINUTES 4
+#define SLEEP_MINUTES 0
 
 #define LUT_LOW_SAMPLES (1920000u / FSK_LOWER_FREQUENCY)
 #define LUT_HIGH_SAMPLES (1920000u / FSK_HIGHER_FREQUENCY)
