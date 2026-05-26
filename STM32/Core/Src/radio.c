@@ -278,9 +278,24 @@ void Radio_TransmitSync(void) {
   HAL_Delay(100);
 }
 
+static uint32_t last_tx_calibration = 0;
+const uint32_t TX_RECAL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
 void Radio_Transmit(void) {
+  uint32_t now = HAL_GetTick();
   uint8_t status = 0;
-  uint32_t t0 = HAL_GetTick();
+
+  // Recalibrate every 5 minutes (temperature drift compensation)
+  if (now - last_tx_calibration > TX_RECAL_INTERVAL_MS) {
+    LOGF("TX: Recalibrating for temperature drift...\r\n");
+    CC1101_Strobe(0x36, &status); // SIDLE
+    HAL_Delay(5);
+    CC1101_Strobe(0x33, &status); // SCAL
+    HAL_Delay(2);
+    CC1101_Strobe(0x35, &status); // STX (back to TX)
+    HAL_Delay(10);
+    last_tx_calibration = now;
+  }
 
   const char *payload_str = Radio_BuildPayload(0);
   size_t payload_len = strlen(payload_str);
@@ -319,7 +334,7 @@ void Radio_Transmit(void) {
   }
 
   uint32_t tx_end = HAL_GetTick();
-  LOGF("Radio transmission complete: %lu ms\r\n", tx_end - t0);
+  LOGF("Radio transmission complete: %lu ms\r\n", tx_end - now);
 
   free((void *)payload_str);
 }
@@ -375,6 +390,8 @@ void Radio_EnterWOR(void) {
   CC1101_Strobe(0x36, &status); // SIDLE
   HAL_Delay(5);
   CC1101_Strobe(0x3A, &status); // SFRX
+  HAL_Delay(10);
+  CC1101_Strobe(0x33, &status); // SCAL
   HAL_Delay(10);
   CC1101_Strobe(0x34, &status); // SRX (continuous RX) ← CHANGE from 0x38
 }

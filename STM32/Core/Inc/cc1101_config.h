@@ -20,7 +20,7 @@ static const ism_reg_t cc1101_cfg_rx[] = {
     {0x0F, 0x62}, // FREQ0
     {0x10, 0xC4}, // MDMCFG4:  BW=101kHz
     {0x11, 0x83}, // MDMCFG3:  DRATE_M=131 -> 599.8 baud   <-- was 1.1 kBaud
-    {0x12, 0x13}, // MDMCFG2:  GFSK, 30/32 sync            <-- was 2-FSK, 16/16
+    {0x12, 0x03}, // MDMCFG2:  GFSK, 30/32 sync            <-- was 2-FSK, 16/16
     {0x13, 0x22}, // MDMCFG1:  4 byte preamble min, FEC off
     {0x14, 0xF8}, // MDMCFG0
     {0x15, 0x31}, // DEVIATN:  14.3 kHz                    <-- was missing,
