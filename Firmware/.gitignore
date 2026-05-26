@@ -1,0 +1,6 @@
+build
+mx.scratch
+!.settings
+
+# Include CMakeLists.txt files
+!CMakeLists.txt
