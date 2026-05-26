@@ -1,179 +1,184 @@
-# 🎧 Audio Watermark Generator
+# Audio Watermark Generator
 
-**Real-time embedded audio watermark generator for STM32 microcontrollers, with supporting configuration and decoding tools.**
+Real-time embedded audio watermark generator for STM32 microcontrollers, with supporting hardware design, configuration tools, and decoding software.
 
-This project implements a complete audio watermarking system capable of generating and embedding digital identifiers into audio signals, designed specifically for resource-constrained embedded environments.
-
-Supporting tools are also provided to:
-
-- configure the system with user-defined variables (e.g., location, device id)
-- define transmission intervals
-- decode and extract the watermark from recorded audio files.
+This project implements a complete audio watermarking system that embeds digital identifiers into audio signals in real-time, designed for resource-constrained embedded environments. Supporting tools allow you to configure the device, define transmission intervals, and decode watermarks from recorded audio.
 
 ---
 
-## 🚀 Overview
+## Overview
 
-The system runs on an **STM32G4 series** microcontroller and transmits watermarks as **FSK signals** (with multiple options for frequency band).
+The system runs on an **STM32G431** microcontroller and transmits watermarks as **FSK signals** across a configurable frequency band. It can output via a speaker or a **CC1101 RF transceiver**, and includes battery-backed timestamping via a **DS3231 RTC**.
 
-It includes:
-
-- A configurable **watermark bitstream generator**
-- **Real-time audio modulation** using FSK (frequency-shift keying)
-- **Timer-driven DAC output** with circular DMA buffering
-- Integration with an external **DS3231 RTC** for timestamping
-- Metadata embedding: `/STR…/DID…/LOC…/TMP…/TIM…/` format
-- A **Python decoder and analysis suite** for validation and visualization in Audacity
+The watermark payload follows a structured metadata format: `/STR…/DID…/LOC…/TMP…/TIM…/`
 
 ---
 
-## 🧠 Features
-
-- ⚙️ **Configurable parameters** via the `user_config.h` header file
-- 🕒 **RTC integration** using the DS3231 battery-backed real-time clock
-- 🧩 **Preamble, silence, and polarity** control through preprocessor macros
-- 🎚 **Fixed-point DSP arithmetic** for fast and efficient signal generation
-- 🧮 **Frequency pair definitions** stored in `frequency_pairs.h`
-- 🔄 **Non-blocking audio streaming** using DMA-driven circular buffers
-- 🧰 **Python tools** for system configuration and watermark decoding
-
----
-
-## 🗂 Project Structure
+## Repository Structure
 
 ```
 Audio_Watermark_Generator/
-├── STM32/                      # Embedded firmware source for STM32 (CubeMX, HAL, DSP)
-│   ├── Core/                   # Application logic (main.c, etc.)
-│   ├── Drivers/                # HAL and low-level peripheral drivers
-│   ├── CMakeFiles/             # Auto-generated CMake build files
-│   ├── cmake/                  # CMake config and toolchain files
-│   ├── .mxproject              # STM32CubeMX project definition
-│   ├── .project                # Eclipse/IDE project file
-│   ├── .vscode/                # VSCode project settings
-│   ├── .settings/              # Additional IDE configurations
-│   ├── .clangd                 # Clangd config for auto-completion and linting
-│   ├── .gitignore              # Git exclusions
-│   └── CMakeLists.txt          # Root build file for STM32 firmware
+├── Firmware/               # STM32G4 embedded firmware (CubeMX + CMake + HAL)
+│   ├── Core/               # Application logic, drivers, and headers
+│   ├── Drivers/            # HAL and CMSIS drivers
+│   ├── USB_Device/         # USB CDC interface
+│   ├── cmake/              # Toolchain and build config
+│   └── CMakeLists.txt
 │
-├── Python/                     # Supporting tools: GUI + decoding utilities
-│   ├── gui/                    # GUI for configuration and toolchain setup
-│   │   ├── scripts/            # Helper scripts for the gui
-│   │   │   ├── build.py
-│   │   │   ├── paths.py
-│   │   │   └── user_config.py
-│   │   ├── gui.py              # Configurator GUI application
-│   │   ├── STM32Tool.spec      # PyInstaller spec for configurator GUI
-│   │   └── icon.icns           # App icon for macOS bundling
-│   │
-│   ├── gui_demodulator/        # GUI decoder for analyzing recorded watermarked audio
-│   │   ├── demodulator.py      # Core demodulation logic
-│   │   ├── demodulator_gui.py  # GUI frontend for audio decoding
-│   │   ├── Demodulator.spec    # PyInstaller spec for decoder GUI
-│   │   └── icon.icns           # App icon for macOS bundling
+├── Hardware/               # KiCad PCB design files
+│   ├── *.kicad_sch         # Schematic sheets (MCU, RTC, mixer, speaker, transceiver, battery)
+│   ├── *.kicad_pcb         # PCB layout
+│   ├── Gerber/             # Fabrication outputs
+│   └── JCLPCB/             # BOM and CPL for assembly
 │
-├── .gitignore                  # Git exclusions (repo root)
-└── README.md                   # Project overview and usage instructions
-
+├── Software/               # Python GUI tools
+│   ├── gui/                # STM32 configurator and flash tool
+│   └── gui_demodulator/    # FSK watermark decoder and visualizer
+│
+├── Testing/                # Automated test scripts and results
+│   ├── scripts/            # Test scripts (drift, range, localization, timing, etc.)
+│   ├── test_files/         # Input audio and measurement files
+│   └── results/            # Test output plots and reports
+│
+└── README.md
 ```
 
 ---
 
-## 🧱 Build Instructions
+## Firmware Features
 
-### 🔹 Requirements
-
-- **STM32CubeIDE** or **CubeMX + CMake + Ninja**
-- **GNU Arm Embedded Toolchain** (13.3.1+st.9 or newer)
-- **OpenOCD / ST-Link V3** for flashing
-- macOS, Linux, or Windows host
-
-### 🔹 Build and Flash
-
-```bash
-# Navigate to STM32 firmware directory
-cd STM32
-
-# Generate build system with CMake and Ninja
-cube-cmake -B build/Debug -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug
-
-# Compile the firmware
-cube-cmake --build build/Debug
-
-# Flash binary to STM32 via ST-Link
-openocd -f interface/stlink.cfg -f target/stm32g4x.cfg \
-  -c "program build/Debug/STM_TESTING.elf verify reset exit"
-```
+- **FSK watermark generation** with configurable frequency pairs (`frequency_config.h`)
+- **Fixed-point DSP** for efficient real-time signal synthesis
+- **DMA-driven circular DAC output** for non-blocking audio streaming
+- **Reed-Solomon FEC** for error-resilient watermark encoding
+- **DS3231 RTC** integration for battery-backed timestamping
+- **CC1101 RF transceiver** support for wireless transmission
+- **USB CDC** interface for serial communication with the host
+- **Wakeup / sleep** power management with configurable intervals
+- **LED feedback** and structured error codes
+- Configurable parameters via `user_config.h`
 
 ---
 
-## 🧰 Python Tools (GUI & CLI)
+## Hardware
 
-This repo includes two optional Python GUI applications:
+The custom PCB is designed in **KiCad** and includes:
 
+- STM32G431 microcontroller
+- DS3231 RTC with battery backup
+- CC1101 RF transceiver
+- Audio mixer and speaker driver
+- USB connector
+- Power management (battery input)
 
-### 🔧 1. STM32 Configurator GUI
+Gerber files and JLCPCB assembly files (BOM + CPL) are included in `Hardware/Gerber/` and `Hardware/JCLPCB/`.
 
-Configure the watermark content, frequency settings, and export headers for STM32 firmware.
+---
+
+## Software Tools
+
+### Configurator GUI
+
+Configure watermark content (device ID, location, timing intervals), generate `user_config.h`, and flash the STM32 firmware — all from a single GUI.
 
 ```bash
-cd Python/gui
+cd Software/gui
 python3 gui.py
 ```
 
+### Watermark Decoder GUI
 
-### 🔍 2. Watermark Decoder GUI
-
-Analyze recorded `.wav` files and extract watermark messages using FSK demodulation.
+Load a recorded `.wav` file and extract the embedded watermark using FSK demodulation and Reed-Solomon decoding, with visualization of the demodulated spectrum.
 
 ```bash
-cd Python/gui_demodulator
+cd Software/gui_demodulator
 python3 demodulator_gui.py
 ```
 
-
-### ⚙️ Dependencies
-
-Install required Python packages:
+### Dependencies
 
 ```bash
 pip install numpy scipy matplotlib soundfile
 ```
 
-> For GUI apps, `tkinter` is also required (usually bundled with Python).
-
+> `tkinter` is required for the GUIs and is typically bundled with Python.
 
 ---
 
-## 🧪 Current Status
+## Build & Flash (Firmware)
 
-## 🧪 Current Status
+### Requirements
+
+- STM32CubeIDE or **CubeMX + CMake + Ninja**
+- GNU Arm Embedded Toolchain (13.3.1 or newer)
+- OpenOCD / ST-Link V3
+
+### Build
+
+```bash
+cd Firmware
+
+# Configure
+cmake -B build/Debug -S . -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+# Compile
+cmake --build build/Debug
+```
+
+### Flash
+
+```bash
+openocd -f interface/stlink.cfg -f target/stm32g4x.cfg \
+  -c "program build/Debug/Audio_Watermark_Generator.elf verify reset exit"
+```
+
+---
+
+## Testing
+
+The `Testing/` directory contains scripts for characterizing system performance:
+
+| Script | Description |
+|---|---|
+| `autotest.py` | Automated demodulator correctness tests |
+| `drift.py` | Measures frequency drift over time |
+| `offset_calculation.py` | Computes timing offset between devices |
+| `localize.py` | Acoustic localization from multi-receiver recordings |
+| `audio_passthrough.py` | Validates audio signal chain |
+| `spec_leak.py` | Spectral purity / leakage analysis |
+| `timing.py` | Transmission timing validation |
+
+```bash
+cd Testing
+python3 run_all_tests.py
+```
+
+---
+
+## Current Status
 
 This repository is under **active development**.
 
 Beta `.app` builds are available for macOS:
 
-- 🛠 **Audio Watermark Flash Tool.app** – GUI for configuring watermark and timing parameters, and flashing the STM32 microcontroller
-- 🔍 **FSK Audio Demodulator.app** – GUI for decoding and extracting watermarks from recorded audio files
+- **Audio Watermark Flash Tool** — configure watermark parameters and flash the STM32
+- **FSK Audio Demodulator** — decode and extract watermarks from recorded audio
 
-👉 [Download Latest Beta Release](../../releases/latest)
-
----
-
-## 👥 Contributors
-
-- **Kristian Gøystdal** – Developer
-- **Einar Bergslid** – Developer
+[Download the latest beta release](../../releases/latest)
 
 ---
 
-## 📝 License
+## Contributors
 
-This project is released under the **MIT License**.  
-You’re free to use, modify, and distribute it for educational and research purposes.
+- **Kristian Gøystdal** — Developer
+- **Einar Bergslid** — Developer
 
 ---
 
-## 📡 Tags
+## License
 
-`stm32` · `audio-watermarking` · `embedded-systems` · `signal-processing` · `dsp` · `c` · `c++` · `real-time`
+Released under the **MIT License**. Free to use, modify, and distribute for educational and research purposes.
+
+---
+
+`stm32` · `audio-watermarking` · `embedded-systems` · `fsk` · `dsp` · `reed-solomon` · `kicad` · `python`
