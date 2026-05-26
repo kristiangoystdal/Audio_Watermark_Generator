@@ -12,6 +12,8 @@ To redo calibration: delete calibration.json and rerun.
 """
 
 import warnings
+
+from helper.helper import save_plot_to_results_folder
 warnings.filterwarnings("ignore")
 
 import json, os
@@ -35,8 +37,8 @@ from opensoundscape.localization import SynchronizedRecorderArray
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-MAP_IMAGE         = "GPS.png"
-CALIBRATION_FILE  = "calibration.json"
+MAP_IMAGE         = "test_files/acoustic_localization/GPS.png"
+CALIBRATION_FILE  = "test_files/acoustic_localization/calibration.json"
 
 MAX_RESIDUAL      = 10     # keep only estimates with residual_rms < this (metres)
 AREA_LIMIT        = 300   # discard estimates that diverged beyond this (metres)
@@ -122,7 +124,7 @@ BANDPASS_RANGES = {
 
 # ── Load receiver positions ───────────────────────────────────────────────────
 
-aru_coords  = pd.read_csv("aru_coords.csv", index_col=0)
+aru_coords  = pd.read_csv("test_files/acoustic_localization/aru_coords.csv", index_col=0)
 mic_xy_m    = aru_coords[["x", "y"]].values          # metres, mic1 = (0,0)
 mic_labels  = [idx.split("/")[-1].split("_")[0] for idx in aru_coords.index]
 image       = mpimg.imread(MAP_IMAGE)
@@ -253,7 +255,7 @@ m2px = build_transform(mic_xy_m, mic_px)
 # ── Load detections ───────────────────────────────────────────────────────────
 
 print("Loading detections …")
-detections = pd.read_csv("detections.csv")
+detections = pd.read_csv("test_files/acoustic_localization/detections.csv")
 base_time  = pytz.timezone("Europe/Oslo").localize(datetime(2024, 1, 1, 12, 0, 0))
 detections["start_timestamp"] = [
     base_time + timedelta(seconds=s) for s in detections["start_time"]
@@ -380,3 +382,4 @@ def on_hover(sel):
     sel.annotation.get_bbox_patch().set(fc="white", alpha=0.92)
 
 plt.show()
+save_plot_to_results_folder(fig, "acoustic_localization", "localization_plot.png", dpi=300)
