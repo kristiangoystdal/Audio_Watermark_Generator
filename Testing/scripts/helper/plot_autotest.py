@@ -55,13 +55,36 @@ def find_and_plot():
             print(f"No autotest_*.csv files found in {results_dir}")
             sys.exit(1)
 
+    # Group files sharing the same prefix (autotest_<testtype>_) in the same directory
+    groups: dict[tuple, list[str]] = collections.defaultdict(list)
     for path in csv_files:
-        print(f"Loading {path}")
-        rows = load_csv(path)
-        if not any(r["snr_db"] is not None for r in rows):
-            print(f"  Skipping {path} (no SNR values)")
+        dir_ = os.path.dirname(path)
+        basename = os.path.basename(path)
+        m = re.match(r"(autotest_[A-Za-z]+_)", basename)
+        prefix = m.group(1) if m else basename
+        groups[(dir_, prefix)].append(path)
+
+    for (dir_, prefix), paths in sorted(groups.items()):
+        all_rows = []
+        valid_paths = []
+        for path in sorted(paths):
+            print(f"Loading {path}")
+            rows = load_csv(path)
+            if not any(r["snr_db"] is not None for r in rows):
+                print(f"  Skipping {path} (no SNR values)")
+                continue
+            all_rows.extend(rows)
+            valid_paths.append(path)
+
+        if not all_rows:
             continue
-        plot(rows, [path])
+
+        if len(valid_paths) == 1:
+            plot(all_rows, valid_paths)
+        else:
+            print(f"Averaging {len(valid_paths)} files with prefix '{prefix}'")
+            avg_csv = os.path.join(dir_, prefix + "averaged.csv")
+            plot(all_rows, [avg_csv])
 
 
 def plot(all_rows, csv_paths):

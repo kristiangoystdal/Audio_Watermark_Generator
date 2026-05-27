@@ -79,7 +79,7 @@ def _pink_noise(rng: np.random.Generator, n: int) -> np.ndarray:
         [0.049922035, -0.095993537, 0.050612699, -0.004408786], dtype=np.float64
     )
     a = np.array([1.0, -2.494956002, 2.017265875, -0.522189400], dtype=np.float64)
-    pink = lfilter(b, a, white)
+    pink = np.asarray(lfilter(b, a, white))
     del white  # free early — lfilter is done with it
     std = float(pink.std()) or 1.0
     pink /= std
@@ -213,7 +213,7 @@ def run_subfolder(
 # ── Main ───────────────────────────────────────────────────────────────────
 
 
-def main() -> None:
+def main() -> int:
     suite_dir = os.path.join(BASE_DIR, INPUT_FOLDER)
     subfolders = sorted(
         d
@@ -238,6 +238,7 @@ def main() -> None:
 
         for folder in subfolders:
             m = FOLDER_RE.match(folder)
+            assert m is not None
             f0 = float(m.group(1))
             f1 = float(m.group(2))
             fp = os.path.join(suite_dir, folder)
@@ -327,6 +328,7 @@ def main() -> None:
             snr_value = "" if snr_db is None else snr_db
             for folder in subfolders:
                 m = FOLDER_RE.match(folder)
+                assert m is not None
                 f0 = float(m.group(1))
                 f1 = float(m.group(2))
                 total, status, _, _ = all_results[label][folder]

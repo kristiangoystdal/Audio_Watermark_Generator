@@ -18,3 +18,5 @@ dist/
 results/
 
 Testing/test_files/demodulator_autotest/*
+
+pyrightconfig.json
