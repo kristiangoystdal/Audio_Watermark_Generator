@@ -602,13 +602,21 @@ def decode_message_with_rs(msg_bits, rsc, nsym, decode_codeword_fn, rs_error_typ
     Attempt RS decode from a bit segment.
 
     Tries all bit alignments [0..7] and, for each, trims leading and trailing
-    bytes up to nsym bytes each. Leading-byte trimming handles ranges extended
-    from the front by noise hits near the message start (which shift the codeword
-    start beyond the 0-7 bit-offset search). Trailing-byte trimming handles
-    ranges extended from the back by trailing silence or noise.
+    bytes up to _MAX_EDGE_TRIM bytes each. Leading-byte trimming handles ranges
+    extended from the front by noise hits near the message start (which shift
+    the codeword start beyond the 0-7 bit-offset search). Trailing-byte
+    trimming handles ranges extended from the back by trailing silence or noise.
+
+    Head trim is capped at a small constant (_MAX_HEAD_TRIM) because leading-
+    edge misalignment is at most a few bytes regardless of nsym.  Tail trim
+    must still search up to nsym because msg_bits is intentionally extended
+    by ecc_nsym*8 bits in the caller; that extension has to be peeled back to
+    find the exact codeword boundary.  Total RS-decode calls are therefore
+    O(_MAX_HEAD_TRIM × nsym) rather than O(nsym²).
     """
+    _MAX_HEAD_TRIM = 8  # bytes — realistic leading-edge timing misalignment
     max_len_bytes = len(msg_bits) // 8
-    max_trim = min(nsym, max(0, max_len_bytes - nsym - 1))
+    max_trim = min(_MAX_HEAD_TRIM, max(0, max_len_bytes - nsym - 1))
     for head_trim in range(max_trim + 1):
         for bit_offset in range(8):
             codeword = bits_to_bytes(
