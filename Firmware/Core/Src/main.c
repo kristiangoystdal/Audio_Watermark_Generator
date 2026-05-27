@@ -1571,8 +1571,11 @@ static void start_audio_trigger(void) {
 static void stop_audio_transmission(void) {
   tx_active = false;
 
-  Speaker_TurnOff();
-  Relay_SetBypassMode();
+  if (USE_CABLE_TRANSMISSION) {
+    Relay_SetBypassMode();
+  } else {
+    Speaker_TurnOff();
+  }
 
   // Stop trigger + DMA first
   HAL_TIM_Base_Stop(&htim2);
