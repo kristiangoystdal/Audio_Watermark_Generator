@@ -12,7 +12,7 @@ a = Analysis(
         ('tools/dfu-util/dfu-util', 'tools/dfu-util'),
     ],
     datas=[
-        ('../../STM32', 'STM32'),
+        ('../../Firmware', 'Firmware'),
         ('tools', 'tools'),
     ],
     hiddenimports=[],
