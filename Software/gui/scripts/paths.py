@@ -13,22 +13,22 @@ if getattr(sys, "frozen", False):
         RESOURCES_DIR = os.path.abspath(
             os.path.join(os.path.dirname(sys.executable), "..", "Resources")
         )
-        PROJECT_SRC = os.path.join(RESOURCES_DIR, "STM32")
+        PROJECT_SRC = os.path.join(RESOURCES_DIR, "Firmware")
         TOOLS_DIR = os.path.join(RESOURCES_DIR, "tools")
 
         if not os.path.exists(PROJECT_SRC):
-            messagebox.showerror("Error", f"STM32 folder not found: {PROJECT_SRC}")
+            messagebox.showerror("Error", f"Firmware folder not found: {PROJECT_SRC}")
             sys.exit(1)
 
     # Windows/Linux build
     else:
         BASE = sys._MEIPASS
-        PROJECT_SRC = os.path.join(BASE, "STM32")
+        PROJECT_SRC = os.path.join(BASE, "Firmware")
         TOOLS_DIR = os.path.join(BASE, "tools")
 else:
     # Running from source
     BASE = os.path.dirname(__file__)
-    PROJECT_SRC = os.path.abspath(os.path.join(BASE, "../../../STM32"))
+    PROJECT_SRC = os.path.abspath(os.path.join(BASE, "../../../Firmware"))
     TOOLS_DIR = os.path.join(BASE, "..", "tools")
 
 
