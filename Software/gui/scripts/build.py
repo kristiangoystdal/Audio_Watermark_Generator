@@ -188,7 +188,7 @@ def ensure_writable_copy(safe_log):
         temp_build_dir = os.path.join(temp_root, "stm32_build")
 
         app_resources = os.path.abspath(
-            os.path.join(os.path.dirname(sys.executable), "..", "Resources", "STM32")
+            os.path.join(os.path.dirname(sys.executable), "..", "Resources", "Firmware")
         )
 
         safe_log(f"[DEBUG] Copying from bundle resources: {app_resources}")
