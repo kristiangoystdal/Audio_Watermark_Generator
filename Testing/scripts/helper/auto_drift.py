@@ -4,9 +4,12 @@ from datetime import datetime
 import time
 import os
 
+LOG_DURATION_MINUTES = 10
+MODULE_COLOR = "green"
 
-# Auto-detect port
+
 def find_stm32_port():
+    """Auto-detect STM32 port."""
     ports = serial.tools.list_ports.comports()
     for p in ports:
         if any(
@@ -15,6 +18,13 @@ def find_stm32_port():
         ):
             return p.device
     return None
+
+
+def time_to_hms(timestamp):
+    """Convert float seconds to HH:MM:SS.mmm format."""
+    dt = datetime.fromtimestamp(timestamp)
+    millis = int((timestamp % 1) * 1000)
+    return f"{dt.strftime('%H:%M:%S')}.{millis:03d}"
 
 
 print("[INFO] Waiting for STM32 to be plugged in...")
@@ -30,7 +40,7 @@ measurements = []
 ser = None
 
 # Create measurements folder
-measurements_folder = "test_files/rtc_measurements/drift/module_yellow"
+measurements_folder = f"test_files/rtc_measurements/drift/module_{MODULE_COLOR}"
 os.makedirs(measurements_folder, exist_ok=True)
 
 # Create log file with timestamp
@@ -43,14 +53,24 @@ try:
         log_file.write(f"RTC Drift Measurement Log\n")
         log_file.write(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         log_file.write(f"Port: {port}\n")
+        log_file.write("=" * 60 + "\n")
+        log_file.write("Timer: time.monotonic() (immune to NTP, anchored to wall clock at start)\n")
         log_file.write("=" * 60 + "\n\n")
         log_file.flush()
 
         print(f"[INFO] Connected to {port}")
-        print("[INFO] Listening for triggers... (Ctrl+C to stop)")
+        print(
+            f"[INFO] Listening for triggers — {LOG_DURATION_MINUTES} min timer starts on first check... (Ctrl+C to stop early)"
+        )
         print(f"[INFO] Logging to {log_filename}")
+        print(f"[INFO] Using time.monotonic() — immune to NTP jumps\n")
 
-        while True:
+        end_time = None
+        last_minute_print = None
+        mono_start = None
+        epoch_anchor = None
+
+        while end_time is None or time.monotonic() < end_time:
             try:
                 # Reconnect if serial is closed
                 if ser is None or not ser.is_open:
@@ -67,39 +87,52 @@ try:
                         continue
 
                 line = ser.readline().decode("utf-8", errors="ignore").strip()
-
-                if line:
-                    print(f"[DEBUG] Raw line: {repr(line)}")
-
-                # Remove null bytes and extra whitespace
                 line = line.replace("\0", "").strip()
 
-                if line:
-                    print(f"[DEBUG] Cleaned line: {repr(line)}")
+                if end_time is not None:
+                    elapsed = time.monotonic() - (end_time - LOG_DURATION_MINUTES * 60)
+                    pct = min(int(elapsed / (LOG_DURATION_MINUTES * 60) * 100), 100)
+                    mins_done = int(elapsed / 60)
+                    if last_minute_print != mins_done:
+                        last_minute_print = mins_done
+                        bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
+                        print(f"[INFO] [{bar}] {pct}% ({mins_done}/{LOG_DURATION_MINUTES} min)")
 
                 if line and "TIMING CHECK:" in line:
-                    print(f"[DEBUG] Found TIMING CHECK in line")
-                    real_time_now = datetime.now()
+                    payload = line.split("TIMING CHECK:", 1)[1].replace("\0", "").strip()
 
-                    # Extract module time (handle null bytes in split)
-                    parts = line.split("TIMING CHECK:")
-                    print(f"[DEBUG] Split parts: {parts}")
+                    # Parse: "HH:MM:SS TICK=xxxxx"
+                    if " TICK=" in payload:
+                        rtc_str, tick_str = payload.split(" TICK=", 1)
+                        try:
+                            firmware_tick = int(tick_str.strip())
+                        except ValueError:
+                            continue
+                    else:
+                        # Fallback: old firmware without TICK
+                        rtc_str = payload
+                        firmware_tick = None
 
-                    if len(parts) > 1:
-                        module_time_str = parts[1].replace("\0", "").strip()
-                        print(f"[DEBUG] Extracted time: {module_time_str}")
+                    if end_time is None:
+                        end_time = time.monotonic() + LOG_DURATION_MINUTES * 60
+                        mono_start = time.monotonic()
+                        epoch_anchor = time.time()
+                        print(f"[INFO] First check received — logging for {LOG_DURATION_MINUTES} min from now.")
 
-                        measurements.append(
-                            {
-                                "real_time": real_time_now,
-                                "module_time_str": module_time_str,
-                            }
-                        )
+                    real_timestamp = epoch_anchor + (time.monotonic() - mono_start)
 
-                        output = f"[TRIGGER] Real: {real_time_now.strftime('%H:%M:%S')}, Module: {module_time_str}"
-                        print(output)
-                        log_file.write(output + "\n")
-                        log_file.flush()
+                    measurements.append(
+                        {
+                            "firmware_tick": firmware_tick,
+                            "real_time": real_timestamp,
+                            "module_time_str": rtc_str,
+                        }
+                    )
+
+                    real_time_hms = time_to_hms(real_timestamp)
+                    output = f"[TRIGGER] Real: {real_time_hms}, Module: {rtc_str}, TICK={firmware_tick}"
+                    log_file.write(output + "\n")
+                    log_file.flush()
 
             except serial.SerialException as e:
                 print(f"[WARN] Serial error: {e}, will reconnect...")
@@ -112,55 +145,12 @@ try:
                 print(f"[ERROR] {e}")
                 break
 
+        print(f"\n[INFO] {LOG_DURATION_MINUTES} min elapsed, stopping.")
+
 except KeyboardInterrupt:
     print("\n[INFO] Stopped listening")
 finally:
     if ser:
         ser.close()
 
-# Analyze drift
-if len(measurements) >= 2:
-    print("\n--- Drift Analysis ---")
-
-    analysis = "\n--- Drift Analysis ---\n"
-    for i, m in enumerate(measurements):
-        line = f"Measurement {i+1}: Real={m['real_time'].strftime('%H:%M:%S')}, Module={m['module_time_str']}"
-        print(line)
-        analysis += line + "\n"
-
-    first = measurements[0]
-    last = measurements[-1]
-
-    real_elapsed = (last["real_time"] - first["real_time"]).total_seconds()
-
-    def time_to_seconds(time_str):
-        h, m, s = map(int, time_str.split(":"))
-        return h * 3600 + m * 60 + s
-
-    module_elapsed = time_to_seconds(last["module_time_str"]) - time_to_seconds(
-        first["module_time_str"]
-    )
-
-    drift = module_elapsed - real_elapsed
-    drift_ppm = (drift / real_elapsed) * 1_000_000 if real_elapsed != 0 else 0
-
-    results = f"""
-Real elapsed:   {real_elapsed:.1f} seconds
-Module elapsed: {module_elapsed} seconds
-Drift:          {drift:.1f} seconds
-Drift rate:     {drift_ppm:.2f} ppm
-Per day:        {(drift_ppm / 1_000_000) * 86400:.2f} seconds/day
-"""
-
-    print(results)
-    analysis += results
-
-    with open(log_filename, "a") as log_file:
-        log_file.write(analysis)
-
-    print(f"\n[INFO] Results saved to {log_filename}")
-
-elif len(measurements) == 1:
-    print(f"\n[INFO] Only 1 measurement. Need at least 2 for drift analysis.")
-else:
-    print(f"\n[INFO] No measurements collected.")
+print(f"[INFO] Logged {len(measurements)} measurements to {log_filename}")
