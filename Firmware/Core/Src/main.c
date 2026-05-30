@@ -457,25 +457,27 @@ int main(void) {
   }
 
   //-----------------------------------------------------------------------------//
+  // Log current time from RTC for timing check
+  //-----------------------------------------------------------------------------//
+
+  // Only for testing - comment out for deployment
+
+  // DS3231_PowerOn();
+  // HAL_Delay(40);
+
+  // while (1) {
+  //   uint32_t firmware_tick = HAL_GetTick(); // Capture HERE
+  //   DS3231_GetTime(&now);                   // Read HERE
+  //   LOGF("TIMING CHECK: %02d:%02d:%02d TICK=%lu\r\n", now.hours, now.minutes,
+  //        now.seconds, firmware_tick);
+  // }
+
+  //-----------------------------------------------------------------------------//
   // Main loop
   //-----------------------------------------------------------------------------//
   LOGF("\r\n");
   LOGF("Entering main loop...\r\n");
   LOGF("\r\n");
-
-  DS3231_PowerOn();
-  HAL_Delay(40);
-  DS3231_GetTime(&now);
-  DS3231_ReadTemperature(&temp_int);
-  DS3231_PowerOff();
-
-  // Add a timing check for testing purposes here
-  // Logs the time on the RTC module at this moment and prints it to UART to
-  // verify that the timing is correct and consistent across cycles
-
-  LOGF("TIMING CHECK: %02d:%02d:%02d\r\n", now.hours, now.minutes, now.seconds);
-
-  // TIMING CHECK END //
 
   int32_t wait_ms = 0;
 
