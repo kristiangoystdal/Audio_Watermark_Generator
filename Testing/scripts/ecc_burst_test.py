@@ -77,8 +77,8 @@ F1 = 23000   # FSK tone for bit 1 [Hz]
 # Approximate symbol period (s): p0 = 66 periods of f0 ≈ 66/22176 ≈ 2.98 ms
 SYMBOL_MS = 66 / 22176.29 * 1000
 
-MAX_BURST_MS  = 3000   # longest burst to test [ms]
-BURST_STEP_MS = 60     # increment between burst durations [ms]
+MAX_BURST_MS  = 2000   # longest burst to test [ms]
+BURST_STEP_MS = 25     # increment between burst durations [ms]
 # ══════════════════════════════════════════════════════════════
 
 BASE_DIR = os.path.dirname(__file__)
@@ -123,25 +123,25 @@ _REQUIRED_FIELD_MARKERS = (
 )
 
 
-def _count_valid_messages(label_path: str) -> int:
-    """Count label-track lines that contain all required field markers."""
+def _get_message_payloads(label_path: str) -> list[str]:
+    """Return the payload strings of lines that contain all required field markers.
+
+    Each label line is tab-delimited: start_time, end_time, payload.
+    Only the payload (3rd column) is returned.
+    """
     if not os.path.exists(label_path):
-        return 0
-    count = 0
+        return []
+    payloads = []
     with open(label_path) as f:
         for line in f:
             if all(marker in line for marker in _REQUIRED_FIELD_MARKERS):
-                count += 1
-    return count
+                parts = line.strip().split("\t", 2)
+                payloads.append(parts[2] if len(parts) >= 3 else line.strip())
+    return payloads
 
 
-def _decode_audio(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int) -> bool:
-    """Write *audio* to a temp WAV file, run decode_fsk, return True if ≥1 valid message decoded.
-
-    A message is considered valid only if the label-track line contains all
-    required field markers (Time, Message, Device ID, Location, Temperature),
-    matching the check used in autotest.py.
-    """
+def _decode_to_payloads(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int) -> list[str]:
+    """Write *audio* to a temp WAV, run decode_fsk, return valid message payloads."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
     label_path = os.path.splitext(tmp_path)[0] + ".txt"
@@ -156,12 +156,27 @@ def _decode_audio(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int) -> b
             use_ecc=use_ecc,
             ecc_nsym=ecc_nsym,
         )
-        return _count_valid_messages(label_path) >= 1
+        return _get_message_payloads(label_path)
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
         if os.path.exists(label_path):
             os.unlink(label_path)
+
+
+def _decode_audio(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int, reference: str | None = None) -> bool:
+    """Decode *audio* and return True if ≥1 message passes validation.
+
+    When *reference* is supplied the decoded payload must match it exactly,
+    catching cases where corrupted data still produces structurally valid
+    field markers (e.g. 0-ECC files with small burst errors).
+    """
+    payloads = _decode_to_payloads(audio, fs, use_ecc, ecc_nsym)
+    if not payloads:
+        return False
+    if reference is None:
+        return True
+    return any(payload == reference for payload in payloads)
 
 
 def run_test() -> tuple[list[int], list[float], np.ndarray]:
@@ -176,7 +191,7 @@ def run_test() -> tuple[list[int], list[float], np.ndarray]:
     results : np.ndarray, shape (len(ecc_levels), len(burst_durations))
         1 = decoded successfully, 0 = failed.
     """
-    burst_durations = list(np.arange(0, MAX_BURST_MS + BURST_STEP_MS, BURST_STEP_MS, dtype=float))
+    burst_durations = [float(x) for x in np.arange(0, MAX_BURST_MS + BURST_STEP_MS, BURST_STEP_MS)]
     ecc_levels = [row[0] for row in ECC_FILES]
     results = np.zeros((len(ECC_FILES), len(burst_durations)), dtype=int)
 
@@ -194,16 +209,22 @@ def run_test() -> tuple[list[int], list[float], np.ndarray]:
         region = _find_active_region(audio, fs)
         active_dur_ms = (region["end_time"] - region["start_time"]) * 1000
 
+        # Decode the clean audio once to obtain the reference payload.
+        ref_payloads = _decode_to_payloads(audio, fs, use_ecc, ecc_nsym)
+        reference: str | None = ref_payloads[0] if ref_payloads else None
+        ref_status = "ok" if reference else "WARNING: no reference decode"
+
         print(
             f"\n[{ecc_bytes:3d} ECC bytes]  {fname}  "
             f"active={active_dur_ms:.0f} ms  "
-            f"centre={region['center_time']:.2f} s"
+            f"centre={region['center_time']:.2f} s  "
+            f"ref={ref_status}"
         )
 
         for col_idx, burst_ms in enumerate(burst_durations):
             run_idx += 1
             corrupted = _inject_burst(audio, fs, region, burst_ms)
-            success = _decode_audio(corrupted, fs, use_ecc, ecc_nsym)
+            success = _decode_audio(corrupted, fs, use_ecc, ecc_nsym, reference)
             results[row_idx, col_idx] = int(success)
             symbol = "+" if success else "."
             print(f"  {burst_ms:5.0f} ms → {symbol}", end="", flush=True)
@@ -243,19 +264,19 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     fig, ax = plt.subplots(figsize=(10, 5))
 
     # Heatmap: green = decoded, red = failed
-    cmap = plt.cm.RdYlGn
+    cmap = plt.colormaps["RdYlGn"]
     im = ax.imshow(
         results,
         aspect="auto",
         cmap=cmap,
         vmin=0, vmax=1,
         origin="lower",
-        extent=[
+        extent=(
             burst_durations[0] - BURST_STEP_MS / 2,
             burst_durations[-1] + BURST_STEP_MS / 2,
             ecc_levels[0] - 5,
             ecc_levels[-1] + 5,
-        ],
+        ),
         interpolation="nearest",
     )
 
