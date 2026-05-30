@@ -4,8 +4,8 @@ from datetime import datetime
 import time
 import os
 
-LOG_DURATION_MINUTES = 10
-MODULE_COLOR = "green"
+LOG_DURATION_MINUTES = 120
+MODULE_COLOR = "yellow"
 
 
 def find_stm32_port():

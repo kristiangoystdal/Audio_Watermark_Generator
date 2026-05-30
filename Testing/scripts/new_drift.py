@@ -27,7 +27,6 @@ Outputs:
 import re
 from pathlib import Path
 from datetime import datetime, timedelta
-from collections import defaultdict
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -165,48 +164,31 @@ def filter_outliers(measurements):
     return filtered
 
 
-def compute_adaptive_windows(measurements):
+def compute_rolling_mean(measurements, window=None):
     """
-    Group measurements into adaptive time windows.
-    Number of windows scales with measurement span to balance noise reduction
-    and temporal resolution.
-
-    Returns list of (mean_datetime, mean_offset) tuples.
+    Smooth measurements with a centered rolling mean.
+    Window size is adaptive: ~1/10 of measurement count, clamped to [3, 30].
+    Returns list of (datetime, smoothed_offset) — one per measurement.
     """
-    if len(measurements) < 2:
-        return [(measurements[0][0], measurements[0][2])] if measurements else []
+    n = len(measurements)
+    if n == 0:
+        return []
+    if n == 1:
+        return [(measurements[0][0], measurements[0][2])]
 
-    span_s = (measurements[-1][0] - measurements[0][0]).total_seconds()
+    if window is None:
+        window = max(3, min(n // 10, 30))
 
-    # Adaptive window sizing:
-    # - Very short (<60s): ~10 windows
-    # - Medium (60s-1h): ~15-20 windows
-    # - Long (>1h): 30-minute windows
-    if span_s >= 3600:
-        window_s = 1800  # 30 minutes
-    elif span_s >= 600:
-        window_s = span_s / 20  # ~20 windows
-    elif span_s >= 60:
-        window_s = span_s / 15  # ~15 windows
-    else:
-        window_s = max(1.0, span_s / 10)  # ~10 windows
+    half = window // 2
+    result = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        pts = measurements[lo:hi]
+        mean_offset = sum(m[2] for m in pts) / len(pts)
+        result.append((measurements[i][0], mean_offset))
 
-    t0 = measurements[0][0].timestamp()
-    groups = defaultdict(list)
-
-    for dt_real, dt_mod, offset in measurements:
-        bucket = int((dt_real.timestamp() - t0) / window_s)
-        groups[bucket].append((dt_real, offset))
-
-    windows = []
-    for key in sorted(groups.keys()):
-        pts = groups[key]
-        mean_ts = sum(dt.timestamp() for dt, _ in pts) / len(pts)
-        mean_offset = sum(o for _, o in pts) / len(pts)
-        mean_dt = datetime.fromtimestamp(mean_ts)
-        windows.append((mean_dt, mean_offset))
-
-    return windows
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +226,7 @@ def analyze_module_files(module_name, txt_paths):
     if not clean:
         return None
 
-    windows = compute_adaptive_windows(clean)
+    windows = compute_rolling_mean(clean)
     if len(windows) < 2:
         return None
 
@@ -442,7 +424,7 @@ def plot_module(result, plot_path):
         color="darkblue",
         linewidth=2.5,
         markersize=6,
-        label=f"Windowed average ({result['n_windows']} points)",
+        label=f"Rolling mean ({result['n_windows']} points)",
         zorder=3,
     )
     ax.plot(
@@ -818,22 +800,30 @@ def main():
     plot_ms_all_modules(results, ms_all_path)
     print(f"Combined MS plot: {ms_all_path}")
 
-    # Print summary table
-    print(f"\n{'='*75}")
-    print(f"{'Module':<25} {'PPM':>12} {'S/Day':>12} {'Direction':>15}")
-    print(f"{'='*75}")
+    # Print summary table — compute adaptive column widths from actual data
+    directions = []
     for r in results:
         if r["drift_ppm"] > 0.01:
-            direction = "SLOW (losing)"
+            directions.append("SLOW (losing)")
         elif r["drift_ppm"] < -0.01:
-            direction = "FAST (gaining)"
+            directions.append("FAST (gaining)")
         else:
-            direction = "STABLE"
+            directions.append("STABLE")
 
+    col_module = max(len("Module"), max(len(r["module"]) for r in results))
+    col_ppm = max(len("PPM"), max(len(f"{r['drift_ppm']:.4f}") for r in results))
+    col_sday = max(len("S/Day"), max(len(f"{r['drift_s_per_day']:.4f}") for r in results))
+    col_dir = max(len("Direction"), max(len(d) for d in directions))
+
+    sep =f"+-{'-'*col_module}-+-{'-'*col_ppm}-+-{'-'*col_sday}-+-{'-'*col_dir}-+"
+    print(f"\n{sep}")
+    print(f"| {'Module':<{col_module}} | {'PPM':>{col_ppm}} | {'S/Day':>{col_sday}} | {'Direction':>{col_dir}} |")
+    print(sep)
+    for r, direction in zip(results, directions):
         print(
-            f"{r['module']:<25} {r['drift_ppm']:>12.4f} {r['drift_s_per_day']:>12.4f} {direction:>15}"
+            f"| {r['module']:<{col_module}} | {r['drift_ppm']:>{col_ppm}.4f} | {r['drift_s_per_day']:>{col_sday}.4f} | {direction:>{col_dir}} |"
         )
-    print(f"{'='*75}\n")
+    print(f"{sep}\n")
 
 
 if __name__ == "__main__":
