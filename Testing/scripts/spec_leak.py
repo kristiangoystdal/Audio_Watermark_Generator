@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import io
 import os
+import sys
 import numpy as np
 import librosa
 from pathlib import Path
@@ -8,6 +10,10 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from scipy.signal import welch, find_peaks
 from helper.helper import *
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Software"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "Software", "gui_demodulator"))
+from gui_demodulator.demodulator import find_likely_fsk_region
 
 # Thresholds
 ISOLATION_THRESHOLD_DB = 12  # Minimum isolation between tones (dB)
@@ -69,7 +75,7 @@ def refine_fsk_tones_fft(x, fs, f0, f1, search_width_hz=200.0):
     return f0_new, f1_new
 
 
-def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
+def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
     """
     Comprehensive FSK spectral purity measurement.
 
@@ -81,7 +87,7 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
 
     Args:
         audio_path: Path to audio file
-        f1, f2: Target frequencies (Hz)
+        f0, f1: Target frequencies (Hz)
         detect_bw: Detection bandwidth around each tone (Hz) - default 150
         plot: Generate detailed spectrum plot
 
@@ -92,92 +98,114 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
     y, sr = librosa.load(audio_path, sr=None, mono=True)
     print(f"  Loaded: {len(y)} samples @ {sr} Hz ({len(y)/sr:.2f} sec)")
 
-    # Refine frequencies to exact peaks
-    f1_refined, f2_refined = refine_fsk_tones_fft(y, sr, f1, f2, search_width_hz=200)
-    print(f"  Refined: f1={f1} → {f1_refined:.1f} Hz, f2={f2} → {f2_refined:.1f} Hz")
+    # Find active FSK region; suppress demodulator stdout
+    try:
+        _buf = io.StringIO()
+        _old = sys.stdout
+        sys.stdout = _buf
+        try:
+            region = find_likely_fsk_region(y, sr, f0, f1)
+        finally:
+            sys.stdout = _old
+        sig_start = max(0, int(round(region["start_time"] * sr)))
+        sig_end = min(len(y), int(round(region["end_time"] * sr)))
+    except Exception:
+        sig_start, sig_end = 0, len(y)
 
-    # Ensure f1 < f2
-    if f1_refined > f2_refined:
-        f1_refined, f2_refined = f2_refined, f1_refined
+    sig_len = sig_end - sig_start
+    y_signal = y[sig_start:sig_end]
 
-    # Compute Welch PSD for stability
-    nperseg = min(4096, max(512, len(y) // 4))
+    # Equal-length silence segment immediately before the FSK region
+    sil_end = sig_start
+    sil_start = max(0, sil_end - sig_len)
+    y_silence = y[sil_start:sil_end]
+    print(f"  Signal region: {sig_start/sr:.2f}–{sig_end/sr:.2f} s ({sig_len/sr:.2f} s)")
+    print(f"  Silence region: {sil_start/sr:.2f}–{sil_end/sr:.2f} s ({len(y_silence)/sr:.2f} s)")
+
+    # Refine frequencies from the active signal segment
+    f0_refined, f1_refined = refine_fsk_tones_fft(y_signal, sr, f0, f1, search_width_hz=200)
+    print(f"  Refined: f0={f0} → {f0_refined:.1f} Hz, f1={f1} → {f1_refined:.1f} Hz")
+
+    # Ensure f0 < f1
+    if f0_refined > f1_refined:
+        f0_refined, f1_refined = f1_refined, f0_refined
+
+    # Compute Welch PSD on signal segment only
+    nperseg = 4096
     freqs, power_linear = welch(
-        y, sr, window="hann", nperseg=nperseg, noverlap=nperseg // 2, scaling="spectrum"
+        y_signal, sr, window="hann", nperseg=nperseg, noverlap=nperseg // 2, scaling="spectrum"
     )
     power_db = 10 * np.log10(power_linear + 1e-12)
 
-    # Find peak indices
-    idx_f1 = np.argmin(np.abs(freqs - f1_refined))
-    idx_f2 = np.argmin(np.abs(freqs - f2_refined))
-    peak_f1_db = power_db[idx_f1]
-    peak_f2_db = power_db[idx_f2]
+    # Welch PSD of silence (same nperseg for identical frequency resolution)
+    _, silence_linear = welch(
+        y_silence, sr, window="hann", nperseg=nperseg, noverlap=nperseg // 2, scaling="spectrum"
+    )
+    silence_db = 10 * np.log10(silence_linear + 1e-12)
 
-    strongest_peak = max(peak_f1_db, peak_f2_db)
-    weakest_peak = min(peak_f1_db, peak_f2_db)
+    # Find peak indices
+    idx_f0 = np.argmin(np.abs(freqs - f0_refined))
+    idx_f1 = np.argmin(np.abs(freqs - f1_refined))
+    peak_f0_db = power_db[idx_f0]
+    peak_f1_db = power_db[idx_f1]
+
+    strongest_peak = max(peak_f0_db, peak_f1_db)
+    weakest_peak = min(peak_f0_db, peak_f1_db)
     peak_imbalance = strongest_peak - weakest_peak
 
     print(
-        f"  Peaks: f1={peak_f1_db:.1f} dB, f2={peak_f2_db:.1f} dB (imbalance={peak_imbalance:.1f} dB)"
+        f"  Peaks: f0={peak_f0_db:.1f} dB, f1={peak_f1_db:.1f} dB (imbalance={peak_imbalance:.1f} dB)"
     )
 
     # ========== METRIC 1: TONE-TO-TONE ISOLATION ==========
     # Measure how much each tone's sidelobes contaminate the other's detection band
 
     # Define detection bands (wider, symmetric around each tone)
+    band0_mask = (freqs >= f0_refined - detect_bw) & (freqs <= f0_refined + detect_bw)
     band1_mask = (freqs >= f1_refined - detect_bw) & (freqs <= f1_refined + detect_bw)
-    band2_mask = (freqs >= f2_refined - detect_bw) & (freqs <= f2_refined + detect_bw)
-
-    # Get raw power in each band
-    p1_band = power_db[band1_mask]
-    p2_band = power_db[band2_mask]
 
     # Split to separate desired signal from cross-contamination
-    midpoint = (f1_refined + f2_refined) / 2
-    band1_signal = power_db[band1_mask & (freqs <= midpoint)]
-    band2_signal = power_db[band2_mask & (freqs >= midpoint)]
-    band1_interference = power_db[
-        band1_mask & (freqs > midpoint)
-    ]  # f2 leaking into f1 band
-    band2_interference = power_db[
-        band2_mask & (freqs < midpoint)
-    ]  # f1 leaking into f2 band
+    midpoint = (f0_refined + f1_refined) / 2
+    band0_signal = power_db[band0_mask & (freqs <= midpoint)]
+    band1_signal = power_db[band1_mask & (freqs >= midpoint)]
+    band0_interference = power_db[band0_mask & (freqs > midpoint)]   # f1 leaking into f0 band
+    band1_interference = power_db[band1_mask & (freqs < midpoint)]   # f0 leaking into f1 band
 
+    p0_desired = np.max(band0_signal) if len(band0_signal) > 0 else -np.inf
+    p0_interference = (
+        np.max(band0_interference) if len(band0_interference) > 0 else np.min(power_db)
+    )
     p1_desired = np.max(band1_signal) if len(band1_signal) > 0 else -np.inf
     p1_interference = (
         np.max(band1_interference) if len(band1_interference) > 0 else np.min(power_db)
     )
-    p2_desired = np.max(band2_signal) if len(band2_signal) > 0 else -np.inf
-    p2_interference = (
-        np.max(band2_interference) if len(band2_interference) > 0 else np.min(power_db)
-    )
 
     # If one band is empty, isolation is poor
+    if p0_interference == -np.inf or p0_interference < np.min(power_db):
+        p0_interference = (
+            np.min(power_db[band0_mask]) if len(band0_mask) > 0 else np.min(power_db)
+        )
     if p1_interference == -np.inf or p1_interference < np.min(power_db):
         p1_interference = (
             np.min(power_db[band1_mask]) if len(band1_mask) > 0 else np.min(power_db)
         )
-    if p2_interference == -np.inf or p2_interference < np.min(power_db):
-        p2_interference = (
-            np.min(power_db[band2_mask]) if len(band2_mask) > 0 else np.min(power_db)
-        )
 
-    isolation_f1 = p1_desired - p1_interference  # f1's ability to reject f2
-    isolation_f2 = p2_desired - p2_interference  # f2's ability to reject f1
-    min_isolation = min(isolation_f1, isolation_f2)
+    isolation_f0 = p0_desired - p0_interference  # f0's ability to reject f1
+    isolation_f1 = p1_desired - p1_interference  # f1's ability to reject f0
+    min_isolation = min(isolation_f0, isolation_f1)
 
     print(
-        f"  Isolation: f1={isolation_f1:.1f} dB, f2={isolation_f2:.1f} dB (min={min_isolation:.1f} dB)"
+        f"  Isolation: f0={isolation_f0:.1f} dB, f1={isolation_f1:.1f} dB (min={min_isolation:.1f} dB)"
     )
 
     # ========== METRIC 2: OUT-OF-BAND ENERGY ==========
     # Energy in regions far from target frequencies (should be low)
 
-    signal_bw = f2_refined - f1_refined
+    signal_bw = f1_refined - f0_refined
     oob_margin = 2 * signal_bw  # Look 2x signal bandwidth away
 
-    oob_lo_mask = (freqs > 0) & (freqs < (f1_refined - oob_margin))
-    oob_hi_mask = (freqs > (f2_refined + oob_margin)) & (freqs < sr / 2)
+    oob_lo_mask = (freqs > 0) & (freqs < (f0_refined - oob_margin))
+    oob_hi_mask = (freqs > (f1_refined + oob_margin)) & (freqs < sr / 2)
 
     oob_lo = power_db[oob_lo_mask]
     oob_hi = power_db[oob_hi_mask]
@@ -194,13 +222,13 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
     )
 
     # ========== METRIC 3: HARMONIC/SIDELOBE CONTENT ==========
-    # Check for harmonics at 2f1, 2f2, and their intermodulation products
+    # Check for harmonics at 2f0, 2f1, and their intermodulation products
 
     harmonics_to_check = [
+        (2 * f0_refined, "2f0"),
         (2 * f1_refined, "2f1"),
-        (2 * f2_refined, "2f2"),
-        (f2_refined - f1_refined, "f2-f1"),
-        (f2_refined + f1_refined, "f2+f1"),
+        (f1_refined - f0_refined, "f1-f0"),
+        (f1_refined + f0_refined, "f1+f0"),
     ]
 
     harmonic_levels = {}  # {label: (freq, power_db)}
@@ -217,19 +245,15 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
     harmonic_rejection = strongest_peak - max_harmonic_db
 
     # ========== METRIC 4: NOISE FLOOR ==========
-    # Estimate from quiet regions
+    # Estimate from silence PSD (self-noise of the recorder)
 
-    noise_regions = np.concatenate([oob_lo, oob_hi])
-    if len(noise_regions) > 0:
-        noise_floor = np.median(noise_regions)
-        snr_f1 = peak_f1_db - noise_floor
-        snr_f2 = peak_f2_db - noise_floor
-        min_snr = min(snr_f1, snr_f2)
-    else:
-        noise_floor = -np.inf
-        snr_f1 = snr_f2 = min_snr = 0
+    noise_floor = float(np.median(silence_db))
+    snr_f0 = peak_f0_db - noise_floor
+    snr_f1 = peak_f1_db - noise_floor
+    min_snr = min(snr_f0, snr_f1)
 
-    print(f"  SNR: f1={snr_f1:.1f} dB, f2={snr_f2:.1f} dB (min={min_snr:.1f} dB)")
+    print(f"  Noise floor (silence): {noise_floor:.1f} dB")
+    print(f"  SNR: f0={snr_f0:.1f} dB, f1={snr_f1:.1f} dB (min={min_snr:.1f} dB)")
 
     # ========== PASS/FAIL CRITERIA ==========
     isolation_pass = min_isolation >= ISOLATION_THRESHOLD_DB
@@ -238,13 +262,13 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
     overall_pass = isolation_pass and oob_pass and harmonic_pass
 
     results = {
+        "f0": f0_refined,
+        "f0_peak_db": peak_f0_db,
         "f1": f1_refined,
         "f1_peak_db": peak_f1_db,
-        "f2": f2_refined,
-        "f2_peak_db": peak_f2_db,
         "peak_imbalance_db": peak_imbalance,
+        "isolation_f0_db": isolation_f0,
         "isolation_f1_db": isolation_f1,
-        "isolation_f2_db": isolation_f2,
         "min_isolation_db": min_isolation,
         "isolation_pass": isolation_pass,
         "oob_energy_db": oob_energy,
@@ -254,18 +278,28 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
         "harmonic_rejection_db": harmonic_rejection,
         "harmonic_pass": harmonic_pass,
         "noise_floor_db": noise_floor,
+        "snr_f0_db": snr_f0,
         "snr_f1_db": snr_f1,
-        "snr_f2_db": snr_f2,
         "min_snr_db": min_snr,
         "pass": overall_pass,
     }
 
     # ========== PLOT ==========
     if plot:
+        HARMONIC_LABEL_FONTSIZE = 20  # font size for 2f0, 2f1, f1-f0, f1+f0 annotations
+        plt.rcParams.update({
+            "font.size": 20,
+            "axes.titlesize": 20,
+            "axes.labelsize": 20,
+            "xtick.labelsize": 15,
+            "ytick.labelsize": 15,
+            "legend.fontsize": 20,
+        })
         fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
 
         # Full spectrum
-        ax1.plot(freqs, power_db, linewidth=1.0, color="blue", label="Power spectrum")
+        ax1.plot(freqs, power_db, linewidth=1.0, color="blue", label="FSK signal")
+        ax1.plot(freqs, silence_db, linewidth=1.0, color="darkorange", label="Silence (self-noise)")
         ax1.axhline(
             noise_floor,
             color="gray",
@@ -276,35 +310,39 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
 
         # Mark target tones
         ax1.plot(
-            f1_refined,
-            peak_f1_db,
+            f0_refined,
+            peak_f0_db,
             "ro",
             markersize=12,
-            label=f"f1: {peak_f1_db:.1f} dB",
+            label=f"f0: {peak_f0_db:.1f} dB",
         )
         ax1.plot(
-            f2_refined,
-            peak_f2_db,
+            f1_refined,
+            peak_f1_db,
             "go",
             markersize=12,
-            label=f"f2: {peak_f2_db:.1f} dB",
+            label=f"f1: {peak_f1_db:.1f} dB",
         )
 
         # Mark detection bands
         ax1.axvspan(
+            f0_refined - detect_bw,
+            f0_refined + detect_bw,
+            alpha=0.1,
+            color="red",
+            label="f0 detection band",
+        )
+        ax1.axvspan(
             f1_refined - detect_bw,
             f1_refined + detect_bw,
             alpha=0.1,
-            color="red",
+            color="green",
             label="f1 detection band",
-        )
-        ax1.axvspan(
-            f2_refined - detect_bw, f2_refined + detect_bw, alpha=0.1, color="green"
         )
 
         # Mark OOB regions
-        ax1.axvspan(0, f1_refined - oob_margin, alpha=0.05, color="orange")
-        ax1.axvspan(f2_refined + oob_margin, sr / 2, alpha=0.05, color="orange")
+        ax1.axvspan(0, f0_refined - oob_margin, alpha=0.05, color="orange")
+        ax1.axvspan(f1_refined + oob_margin, sr / 2, alpha=0.05, color="orange")
 
         # Mark harmonics
         for label, (f_harm, p_harm) in harmonic_levels.items():
@@ -316,20 +354,20 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
                 xy=(f_harm, p_harm),
                 xytext=(5, 5),
                 textcoords="offset points",
-                fontsize=8,
+                fontsize=HARMONIC_LABEL_FONTSIZE,
             )
 
         ax1.set_xlim(0, sr / 2)
-        ax1.set_ylim(noise_floor - 10, strongest_peak + 15)
-        ax1.set_xlabel("Frequency (Hz)", fontsize=11)
-        ax1.set_ylabel("Power (dB)", fontsize=11)
-        ax1.set_title(f"Full Spectrum: {Path(audio_path).name}", fontsize=12)
+        ax1.set_ylim(min(noise_floor, float(np.min(silence_db))) - 10, strongest_peak + 15)
+        ax1.set_xlabel("Frequency (Hz)")
+        ax1.set_ylabel("Power (dB)")
+        ax1.set_title(f"Full Spectrum: {Path(audio_path).name}")
         ax1.grid(True, alpha=0.3)
-        ax1.legend(loc="upper right", fontsize=9)
+        legend_handles, legend_labels = ax1.get_legend_handles_labels()
 
         # Zoomed inter-tone region
-        zoom_start = f1_refined - 500
-        zoom_end = f2_refined + 500
+        zoom_start = f0_refined - 500
+        zoom_end = f1_refined + 500
         zoom_mask = (freqs >= zoom_start) & (freqs <= zoom_end)
 
         ax2.plot(
@@ -337,29 +375,16 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
             power_db[zoom_mask],
             linewidth=1.5,
             color="blue",
-            label="Power spectrum",
         )
-        ax2.plot(
-            f1_refined,
-            peak_f1_db,
-            "ro",
-            markersize=12,
-            label=f"f1: {peak_f1_db:.1f} dB",
-        )
-        ax2.plot(
-            f2_refined,
-            peak_f2_db,
-            "go",
-            markersize=12,
-            label=f"f2: {peak_f2_db:.1f} dB",
-        )
+        ax2.plot(f0_refined, peak_f0_db, "ro", markersize=12)
+        ax2.plot(f1_refined, peak_f1_db, "go", markersize=12)
 
         # Shade detection bands
         ax2.axvspan(
-            f1_refined - detect_bw, f1_refined + detect_bw, alpha=0.15, color="red"
+            f0_refined - detect_bw, f0_refined + detect_bw, alpha=0.15, color="red"
         )
         ax2.axvspan(
-            f2_refined - detect_bw, f2_refined + detect_bw, alpha=0.15, color="green"
+            f1_refined - detect_bw, f1_refined + detect_bw, alpha=0.15, color="green"
         )
 
         ax2.axhline(
@@ -367,23 +392,25 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
             color="gray",
             linestyle="--",
             linewidth=1.5,
-            label=f"Noise floor: {noise_floor:.1f} dB",
         )
 
         ax2.set_xlim(zoom_start, zoom_end)
-        ax2.set_xlabel("Frequency (Hz)", fontsize=11)
-        ax2.set_ylabel("Power (dB)", fontsize=11)
+        ax2.set_xlabel("Frequency (Hz)")
+        ax2.set_ylabel("Power (dB)")
         ax2.set_title(
-            f"Inter-tone Region (Isolation: f1={isolation_f1:.1f} dB, f2={isolation_f2:.1f} dB)",
-            fontsize=12,
+            f"Inter-tone Region (Isolation: f0={isolation_f0:.1f} dB, f1={isolation_f1:.1f} dB)",
         )
         ax2.grid(True, alpha=0.3)
-        ax2.legend(loc="upper right", fontsize=9)
 
         plt.tight_layout()
+        plt.subplots_adjust(right=0.68)
+        fig.legend(
+            legend_handles, legend_labels,
+            loc="center left",
+            bbox_to_anchor=(0.70, 0.27),
+        )
         extracted_subfolder = extract_subfolder_name(audio_path)
         folder_path = os.path.join("spectral_purity", extracted_subfolder)
-        os.makedirs(os.path.join("results", folder_path), exist_ok=True)
         save_plot_to_results_folder(plt, folder_path, Path(audio_path).stem + ".png")
         plt.close()
 
@@ -392,7 +419,7 @@ def measure_spectral_purity(audio_path, f1, f2, detect_bw=150, plot=False):
 
 def main():
     # Find all .wav files
-    wav_files = [Path(f) for f in find_wav_files("audio_test")]
+    wav_files = [Path(f) for f in find_wav_files("demodulator_autotest")]
     if not wav_files:
         print("No .wav files found")
         return
@@ -405,16 +432,16 @@ def main():
     )
 
     for wav_file in wav_files:
-        f1, f2 = extract_freqs_from_filename(wav_file.name)
+        f0, f1 = extract_freqs_from_filename(wav_file.name)
 
-        if f1 is None or f2 is None:
+        if f0 is None or f1 is None:
             print(f"⚠ Skipped {wav_file.name} (invalid filename format)")
             continue
 
         try:
             print(f"Analyzing {wav_file.name}...")
             purity = measure_spectral_purity(
-                str(wav_file), f1, f2, detect_bw=150, plot=True
+                str(wav_file), f0, f1, detect_bw=150, plot=True
             )
 
             status = "✓ PASS" if purity["pass"] else "✗ FAIL"
@@ -438,21 +465,21 @@ def main():
             results.append(
                 {
                     "filename": f"{wav_file.parent.name}/{wav_file.name}",
+                    "f0_hz": purity["f0"],
+                    "f0_peak_db": purity["f0_peak_db"],
                     "f1_hz": purity["f1"],
                     "f1_peak_db": purity["f1_peak_db"],
-                    "f2_hz": purity["f2"],
-                    "f2_peak_db": purity["f2_peak_db"],
                     "peak_imbalance_db": purity["peak_imbalance_db"],
+                    "isolation_f0_db": purity["isolation_f0_db"],
                     "isolation_f1_db": purity["isolation_f1_db"],
-                    "isolation_f2_db": purity["isolation_f2_db"],
                     "min_isolation_db": purity["min_isolation_db"],
                     "oob_energy_db": purity["oob_energy_db"],
                     "oob_relative_peak_db": purity["oob_relative_peak_db"],
                     "max_harmonic_db": purity["max_harmonic_db"],
                     "harmonic_rejection_db": purity["harmonic_rejection_db"],
                     "noise_floor_db": purity["noise_floor_db"],
+                    "snr_f0_db": purity["snr_f0_db"],
                     "snr_f1_db": purity["snr_f1_db"],
-                    "snr_f2_db": purity["snr_f2_db"],
                     "min_snr_db": purity["min_snr_db"],
                     "pass": purity["pass"],
                 }
@@ -482,7 +509,7 @@ def main():
         # Print per-band summary
         bands = {}
         for r in results:
-            band_key = f"{r['f1_hz']:.0f}-{r['f2_hz']:.0f}"
+            band_key = f"{r['f0_hz']:.0f}-{r['f1_hz']:.0f}"
             if band_key not in bands:
                 bands[band_key] = {"pass": 0, "fail": 0}
             if r["pass"]:
