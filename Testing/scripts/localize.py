@@ -21,6 +21,15 @@ from birdnetlib import Recording
 from birdnetlib.analyzer import Analyzer
 from opensoundscape.localization import SynchronizedRecorderArray
 
+def _avg_temp_from_txt(txt_path):
+    temps = []
+    with open(txt_path) as f:
+        for line in f:
+            m = re.search(r"Temperature:\s*(-?\d+)°C", line)
+            if m:
+                temps.append(int(m.group(1)))
+    return sum(temps) / len(temps) if temps else 20.0
+
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -37,7 +46,7 @@ _MIC_COORDS = [(63.418681, 10.407075), (63.418971, 10.406313), (63.419278, 10.40
 _DATASETS = {
     "1": {
         "data_dir": os.path.normpath(os.path.join(_SCRIPT_DIR, "../test_files/acoustic_localization/dødens_dal_1")),
-        "recording_start": datetime(2000, 1, 1, 0, 0, 0),  # placeholder — no timestamp in filenames
+        "recording_start": datetime(2026, 5, 22, 14, 54, 20),
         "mic_filenames": [
             "mic1_cx63.418681_cy10.407074_synced.WAV",
             "mic2_cx63.418972_cy10.406313_synced.WAV",
@@ -47,7 +56,7 @@ _DATASETS = {
     },
     "2": {
         "data_dir": os.path.normpath(os.path.join(_SCRIPT_DIR, "../test_files/acoustic_localization/dødens_dal_2")),
-        "recording_start": datetime(2026, 5, 30, 12, 18, 16),
+        "recording_start": datetime(2026, 5, 30, 12, 19, 27),
         "mic_filenames": [
             "20260530_121816_MIC1_synced.WAV",
             "20260530_121929_MIC2_synced.WAV",
@@ -63,26 +72,33 @@ RECORDING_START = _cfg["recording_start"]
 REFERENCE_MIC   = _cfg["mic_filenames"][0]
 MIC_GPS         = dict(zip(_cfg["mic_filenames"], _MIC_COORDS))
 
+_PLOT_DIR = os.path.join(_RESULTS_DIR, f"dataset_{DATASET}")
+os.makedirs(_PLOT_DIR, exist_ok=True)
+
 # ── Tunable parameters ─────────────────────────────────────────────────────────
 
 TIMEZONE = pytz.timezone("Europe/Oslo")
 
 SATELLITE_IMAGE = os.path.join(_DATA_DIR, "SATELLITE_IMAGE.png")
 ALIGNMENT_FILE  = os.path.join(_DATA_DIR, "alignment.json")
+
+
 FORCE_REALIGN   = False  # set to True to redo the image alignment
 FORCE_REPROCESS = False  # set to True to re-run BirdNET and regenerate CSVs
 
+
 AUDIO_DIR = os.path.join(_DATA_DIR, "audio_files")
-MIN_CONFIDENCE   = 0.10  # BirdNET confidence threshold
+MIN_CONFIDENCE   = 0.25  # BirdNET confidence threshold
 SEGMENT_DURATION = 3.0   # seconds, must match BirdNET window
 
-RESIDUAL_THRESHOLD = 20    # metres — only plot estimates at or below this value
+RESIDUAL_THRESHOLD = 10    # metres — only plot estimates at or below this value
 MAX_ARRAY_DIST     = 200   # metres — discard estimates further than this from array centre
 CC_THRESHOLD       = 0.01  # minimum cross-correlation score to accept a TDOA
 MIN_N_RECEIVERS    = 3     # minimum receivers with detection to attempt localization
 MAX_RECEIVER_DIST  = 100   # metres — max distance between receiver pairs for TDOA
 CC_FILTER          = "phat"           # cross-correlation filter: "phat", "roth", "scot", or None
 LOCALIZATION_ALGORITHM = "least_squares"  # "gillette", "soundfinder", or "least_squares"
+USE_TEMPERATURE_SPEED_OF_SOUND = False  # if True, derive speed of sound from ARU 2 temperature log; if False, use 343 m/s
 
 # ── Bandpass ranges [low_hz, high_hz] per species ─────────────────────────────
 # Ranges are set to cover the core vocalization frequencies for each species.
@@ -425,11 +441,19 @@ if FORCE_REPROCESS or not (os.path.exists(_ARU_COORDS_CSV) and os.path.exists(_D
     coords_df.index.name = ""
     coords_df.to_csv(_ARU_COORDS_CSV)
 
+    _array_lat = sum(lat for lat, _ in _MIC_COORDS) / len(_MIC_COORDS)
+    _array_lon = sum(lon for _, lon in _MIC_COORDS) / len(_MIC_COORDS)
+
     analyzer = Analyzer()
     raw_detections = {}
     for filename in MIC_GPS:
         path = os.path.join(AUDIO_DIR, filename)
-        recording = Recording(analyzer, path, min_conf=MIN_CONFIDENCE)
+        recording = Recording(
+            analyzer, path,
+            min_conf=MIN_CONFIDENCE,
+            lat=_array_lat, lon=_array_lon,
+            date=RECORDING_START,
+        )
         recording.analyze()
         raw_detections[filename] = recording.detections
         print(f"  {filename}: {len(recording.detections)} detections above {MIN_CONFIDENCE:.0%}")
@@ -443,14 +467,16 @@ if FORCE_REPROCESS or not (os.path.exists(_ARU_COORDS_CSV) and os.path.exists(_D
         det_map: dict = {}
         for d in raw_detections[filename]:
             key = (float(d["start_time"]), float(d["end_time"]))
-            det_map.setdefault(key, set()).add(d["common_name"])
+            seg = det_map.setdefault(key, {})
+            sp_key = d["common_name"]
+            seg[sp_key] = max(seg.get(sp_key, 0.0), float(d["confidence"]))
         start = 0.0
         while start + SEGMENT_DURATION <= duration:
             end = start + SEGMENT_DURATION
-            detected = det_map.get((start, end), set())
+            detected = det_map.get((start, end), {})
             row = {"file": filename, "start_time": start, "end_time": end}
             for sp in all_species:
-                row[sp] = 1.0 if sp in detected else 0.0
+                row[sp] = detected.get(sp, 0.0)
             rows.append(row)
             start = end
 
@@ -471,7 +497,16 @@ detections["start_timestamp"] = [
 ]
 detections = detections.set_index(["file", "start_time", "end_time", "start_timestamp"])
 
-array = SynchronizedRecorderArray(aru_coords)
+if USE_TEMPERATURE_SPEED_OF_SOUND:
+    _mic2_txt = os.path.join(AUDIO_DIR, os.path.splitext(_cfg["mic_filenames"][1])[0] + ".txt")
+    _avg_temp_c = _avg_temp_from_txt(_mic2_txt)
+    SPEED_OF_SOUND = 331.3 + 0.606 * _avg_temp_c
+    print(f"Average temperature (ARU 2): {_avg_temp_c:.1f}°C → speed of sound: {SPEED_OF_SOUND:.1f} m/s")
+else:
+    SPEED_OF_SOUND = 343.0
+    print(f"Using default speed of sound: {SPEED_OF_SOUND} m/s")
+
+array = SynchronizedRecorderArray(aru_coords, speed_of_sound=SPEED_OF_SOUND)
 
 # ── Localize ───────────────────────────────────────────────────────────────────
 
@@ -496,6 +531,38 @@ position_estimates = [
 
 print(f"Total position estimates (residual ≤ {RESIDUAL_THRESHOLD} m, within {MAX_ARRAY_DIST} m of array centre): {len(position_estimates)}")
 
+species_list = sorted({e.class_name for e in position_estimates})
+
+det_flat = detections.reset_index()
+
+best_estimates = {}  # sp -> (PositionEstimate, conf, ts)
+
+if species_list:
+    print("\nClearest vocalization per plotted species:")
+    for sp in sorted(species_list):
+        best_conf, best_t, best_file, best_ts, best_est = -1.0, None, None, None, None
+        for e in position_estimates:
+            if e.class_name != sp:
+                continue
+            rows = det_flat[
+                (det_flat["start_timestamp"] == e.start_timestamp) &
+                (det_flat["file"].isin(e.receiver_files)) &
+                (det_flat[sp] > 0)
+            ]
+            if rows.empty:
+                continue
+            peak = rows[sp].idxmax()
+            conf = rows.loc[peak, sp]
+            if conf > best_conf:
+                best_conf = conf
+                best_file = os.path.basename(rows.loc[peak, "file"])
+                best_t = rows.loc[peak, "start_time"]
+                best_ts = e.start_timestamp
+                best_est = e
+        if best_file is not None:
+            print(f"  {sp}: {best_file}  t={best_t:.0f}s ({best_ts.strftime('%H:%M:%S')})  conf={best_conf:.2f}")
+            best_estimates[sp] = (best_est, best_conf, best_ts)
+
 # ── Satellite image alignment ─────────────────────────────────────────────────
 
 img = plt.imread(SATELLITE_IMAGE)
@@ -517,7 +584,7 @@ else:
     for aru_name in aru_coords.index:
         fname = os.path.basename(aru_name)
         m = re.search(r"[Mm][Ii][Cc](\d+)", fname)
-        short = f"MIC {m.group(1)}" if m else fname
+        short = f"ARU {m.group(1)}" if m else fname
         ax_align.set_title(f"Click on the location of {short}", fontsize=13)
         plt.draw()
         pts = plt.ginput(1, timeout=0)
@@ -545,7 +612,6 @@ def utm_to_pixel(xs, ys):
 
 # ── Plot ───────────────────────────────────────────────────────────────────────
 
-species_list = sorted({e.class_name for e in position_estimates})
 colors = cm.tab20(np.linspace(0, 1, max(len(species_list), 1)))
 color_map = {sp: colors[i] for i, sp in enumerate(species_list)}
 
@@ -566,10 +632,10 @@ ax.scatter(aru_pix[:, 0], aru_pix[:, 1],
 for name, (px, py) in zip(aru_coords.index, aru_pix):
     fname = os.path.basename(name)
     m = re.search(r"[Mm][Ii][Cc](\d+)", fname)
-    short = f"MIC {m.group(1)}" if m else fname
+    short = f"ARU {m.group(1)}" if m else fname
     ax.annotate(short, (px, py), textcoords="offset points", xytext=(4, 4),
-                fontsize=7, color="white", fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.2", fc="black", alpha=0.6))
+                fontsize=7, color="black", fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.8))
 
 # Detections per species
 for sp in species_list:
@@ -588,6 +654,33 @@ if species_list:
     )
 
 plt.tight_layout()
-plt.savefig(os.path.join(_RESULTS_DIR, "localizations.png"), dpi=300, bbox_inches="tight")
-print(f"Saved localizations.png to {_RESULTS_DIR}")
+plt.savefig(os.path.join(_PLOT_DIR, "localizations.png"), dpi=300, bbox_inches="tight")
+print(f"Saved localizations.png to {_PLOT_DIR}")
+
+for sp, (best_est, best_conf, best_ts) in best_estimates.items():
+    fig_sp, ax_sp = plt.subplots(figsize=(6.5, 4.5))
+    ax_sp.imshow(img, zorder=0)
+    ax_sp.axis("off")
+    ax_sp.scatter(aru_pix[:, 0], aru_pix[:, 1],
+                  marker="^", color="red", s=60, zorder=5, label="ARU")
+    for name, (px, py) in zip(aru_coords.index, aru_pix):
+        fname = os.path.basename(name)
+        m = re.search(r"[Mm][Ii][Cc](\d+)", fname)
+        short = f"ARU {m.group(1)}" if m else fname
+        ax_sp.annotate(short, (px, py), textcoords="offset points", xytext=(4, 4),
+                       fontsize=7, color="black", fontweight="bold",
+                       bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.8))
+    pix_sp = utm_to_pixel([best_est.location_estimate[0]], [best_est.location_estimate[1]])
+    ax_sp.scatter(pix_sp[0, 0], pix_sp[0, 1],
+                  color=color_map[sp], edgecolors="black", linewidths=0.6, s=50, zorder=4,
+                  label=f"{sp}\n{best_ts.strftime('%H:%M:%S')}")
+    ax_sp.legend(bbox_to_anchor=(1.01, 1), loc="upper left",
+                 fontsize=8, framealpha=0.9, borderpad=0.5, handletextpad=0.4)
+    plt.tight_layout()
+    safe_name = re.sub(r"[^\w-]", "_", sp)
+    out_path = os.path.join(_PLOT_DIR, f"{safe_name}_best.png")
+    plt.savefig(out_path, dpi=300, bbox_inches="tight")
+    plt.close(fig_sp)
+    print(f"Saved {os.path.basename(out_path)} to {_RESULTS_DIR}")
+
 plt.show()
