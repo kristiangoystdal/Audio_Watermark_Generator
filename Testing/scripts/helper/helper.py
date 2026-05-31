@@ -3,8 +3,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-test_files_folder_path = "test_files"
-results_folder_path = "results"
+_TESTING_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+test_files_folder_path = os.path.join(_TESTING_DIR, "test_files")
+results_folder_path = os.path.join(_TESTING_DIR, "results")
 os.makedirs(results_folder_path, exist_ok=True)
 
 # Find all .wav files in "audio_files"/folder and subfolders and save the paths to a list
