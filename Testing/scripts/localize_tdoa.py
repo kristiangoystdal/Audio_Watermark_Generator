@@ -137,7 +137,7 @@ def localize_tdoa(tdoas, mic_pairs, mic_coords, speed=SPEED_OF_SOUND):
 
 
 def collect_subfolders(root):
-    """Yield (dirpath, display_name, wav_files) for every leaf with coord-named WAVs."""
+    """Yield (dirpath, display_name, group, wav_files) for every leaf with coord-named WAVs."""
     results = []
     for dirpath, _, filenames in os.walk(root):
         wavs = [
@@ -146,9 +146,11 @@ def collect_subfolders(root):
             if f.lower().endswith(".wav") and COORD_RE.search(f)
         ]
         if wavs:
+            rel = os.path.relpath(dirpath, root)
+            group = rel.split(os.sep)[0]
             raw = os.path.basename(dirpath)
             display = raw.replace("_", " ").title()
-            results.append((dirpath, display, wavs))
+            results.append((dirpath, display, group, wavs))
     return sorted(results)
 
 
@@ -162,9 +164,9 @@ if not subfolders:
 print(f"Found {len(subfolders)} subfolder(s)")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-all_results = []  # (name, mic_coords_arr, mic_labels, pos, rms)
+all_results = []  # (name, group, mic_coords_arr, mic_labels, pos, rms)
 
-for dirpath, name, wav_files in subfolders:
+for dirpath, name, group, wav_files in subfolders:
     print(f"\n{'='*60}")
     print(f"Subfolder: {name}")
 
@@ -178,7 +180,7 @@ for dirpath, name, wav_files in subfolders:
 
     if len(mics) < 3:
         print(f"  Only {len(mics)} mic(s) with coordinates — need ≥3, skipping")
-        all_results.append((name, np.empty((0, 2)), [], None, None))
+        all_results.append((name, group, np.empty((0, 2)), [], None, None))
         continue
 
     mic_labels = [f"MIC{m[0]}" for m in mics]
@@ -232,14 +234,14 @@ for dirpath, name, wav_files in subfolders:
 
     if len(valid_pairs) < 3:
         print(f"  Only {len(valid_pairs)} valid pair(s) — cannot localize")
-        all_results.append((name, mic_coords, mic_labels, None, None))
+        all_results.append((name, group, mic_coords, mic_labels, None, None))
         continue
 
     pos, rms = localize_tdoa(tdoas, valid_pairs, mic_coords)
     print(
         f"  → position: x={pos[0]:.3f} m, y={pos[1]:.3f} m  |  RMS residual: {rms:.4f} m"
     )
-    all_results.append((name, mic_coords, mic_labels, pos, rms))
+    all_results.append((name, group, mic_coords, mic_labels, pos, rms))
 
     # ── CC debug plot ─────────────────────────────────────────────────────────
     n_pairs = len(cc_data)
@@ -368,104 +370,110 @@ for dirpath, name, wav_files in subfolders:
     print(f"  Plot saved → {out}")
     plt.close(fig)
 
-# ── Combined plot ─────────────────────────────────────────────────────────────
+# ── Combined plots — one per top-level subfolder ──────────────────────────────
 
-valid_results = [(n, mc, ml, p, r) for n, mc, ml, p, r in all_results if p is not None]
+groups_order = []
+groups_map = {}
+for entry in all_results:
+    g = entry[1]
+    if g not in groups_map:
+        groups_map[g] = []
+        groups_order.append(g)
+    groups_map[g].append(entry)
 
-fig, ax = plt.subplots(figsize=(9, 7))
-n_colors = max(len(all_results), 1)
-colors = plt.cm.tab10(np.linspace(0, 0.9, n_colors))
+for grp in groups_order:
+    grp_results = groups_map[grp]
+    n_colors = max(len(grp_results), 1)
+    colors = plt.cm.tab10(np.linspace(0, 0.9, n_colors))
 
-mic_drawn = set()
-for (name, mic_coords, mic_labels, pos, rms), color in zip(all_results, colors):
-    if len(mic_coords) == 0:
-        continue
+    fig, ax = plt.subplots(figsize=(9, 7))
+    mic_drawn = set()
 
-    # Draw mic positions (only once per unique coordinate)
-    for lbl, (mx, my) in zip(mic_labels, mic_coords):
-        key = (round(mx, 4), round(my, 4))
-        if key not in mic_drawn:
-            ax.plot(
-                mx,
-                my,
-                "^",
-                color="#4a90d9",
-                markersize=13,
-                markeredgecolor="#1a1a2e",
-                markeredgewidth=1.0,
-                zorder=6,
+    for (name, _grp, mic_coords, mic_labels, pos, rms), color in zip(grp_results, colors):
+        if len(mic_coords) == 0:
+            continue
+
+        for lbl, (mx, my) in zip(mic_labels, mic_coords):
+            key = (round(mx, 4), round(my, 4))
+            if key not in mic_drawn:
+                ax.plot(
+                    mx,
+                    my,
+                    "^",
+                    color="#4a90d9",
+                    markersize=13,
+                    markeredgecolor="#1a1a2e",
+                    markeredgewidth=1.0,
+                    zorder=6,
+                )
+                ax.annotate(
+                    lbl,
+                    (mx, my),
+                    xytext=(7, 5),
+                    textcoords="offset points",
+                    fontsize=9,
+                    fontweight="bold",
+                    color="#1a1a2e",
+                    bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7),
+                )
+                mic_drawn.add(key)
+
+        if pos is not None:
+            circle = mpatches.Circle(
+                pos,
+                rms,
+                fill=True,
+                facecolor=color,
+                alpha=0.12,
+                edgecolor=color,
+                linewidth=1.0,
+                linestyle=":",
+                zorder=3,
             )
-            ax.annotate(
-                lbl,
-                (mx, my),
-                xytext=(7, 5),
-                textcoords="offset points",
-                fontsize=9,
-                fontweight="bold",
-                color="#1a1a2e",
-                bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7),
+            ax.add_patch(circle)
+            ax.scatter(
+                pos[0],
+                pos[1],
+                s=140,
+                color=color,
+                zorder=5,
+                edgecolors="white",
+                linewidths=1.0,
+                label=name,
             )
-            mic_drawn.add(key)
+        else:
+            ax.scatter([], [], color=color, s=80, label=name)
 
-    if pos is not None:
-        # RMS error circle
-        circle = mpatches.Circle(
-            pos,
-            rms,
-            fill=True,
-            facecolor=color,
-            alpha=0.12,
-            edgecolor=color,
-            linewidth=1.0,
-            linestyle=":",
-            zorder=3,
-        )
-        ax.add_patch(circle)
+    mic_proxy = plt.Line2D(
+        [0],
+        [0],
+        marker="^",
+        color="w",
+        markerfacecolor="#4a90d9",
+        markeredgecolor="#1a1a2e",
+        markersize=11,
+        label="Microphone",
+    )
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend(
+        [mic_proxy] + handles,
+        ["Microphone"] + labels,
+        bbox_to_anchor=(1.01, 1),
+        loc="upper left",
+        fontsize=8.5,
+        framealpha=0.95,
+        title="Test results",
+        title_fontsize=9,
+    )
 
-        ax.scatter(
-            pos[0],
-            pos[1],
-            s=140,
-            color=color,
-            zorder=5,
-            edgecolors="white",
-            linewidths=1.0,
-            label=name,
-        )
-    else:
-        ax.scatter([], [], color=color, s=80, label=name)
+    ax.set_aspect("equal", "datalim")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+    ax.grid(True)
+    fig.tight_layout()
 
-# Mic legend proxy
-mic_proxy = plt.Line2D(
-    [0],
-    [0],
-    marker="^",
-    color="w",
-    markerfacecolor="#4a90d9",
-    markeredgecolor="#1a1a2e",
-    markersize=11,
-    label="Microphone",
-)
-handles, labels = ax.get_legend_handles_labels()
-ax.legend(
-    [mic_proxy] + handles,
-    ["Microphone"] + labels,
-    bbox_to_anchor=(1.01, 1),
-    loc="upper left",
-    fontsize=8.5,
-    framealpha=0.95,
-    title="Test results",
-    title_fontsize=9,
-)
+    combined_out = os.path.join(OUTPUT_DIR, f"localization_combined_{grp}.png")
+    plt.savefig(combined_out, dpi=150, bbox_inches="tight")
+    print(f"\nCombined plot saved → {combined_out}")
 
-ax.set_aspect("equal", "datalim")
-ax.set_xlabel("x (m)")
-ax.set_ylabel("y (m)")
-# ax.set_title("TDOA localization — all tests combined", pad=12)
-ax.grid(True)
-fig.tight_layout()
-
-combined_out = os.path.join(OUTPUT_DIR, "localization_combined.png")
-plt.savefig(combined_out, dpi=150, bbox_inches="tight")
-print(f"\nCombined plot saved → {combined_out}")
 plt.show()
