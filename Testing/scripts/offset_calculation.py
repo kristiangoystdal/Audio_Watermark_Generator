@@ -28,7 +28,8 @@ for csv_path in csv_files:
 
     offsets = []
     for row in rows:
-        real_dt = datetime.strptime(row["real_datetime"], "%Y-%m-%d %H:%M:%S")
+        fmt = "%Y-%m-%d %H:%M:%S.%f" if "." in row["real_datetime"] else "%Y-%m-%d %H:%M:%S"
+        real_dt = datetime.strptime(row["real_datetime"], fmt)
         module_dt = datetime.strptime(row["module_datetime"], "%Y-%m-%d %H:%M:%S")
         real_utc = real_dt - timedelta(hours=2)
         offsets.append((module_dt - real_utc).total_seconds())
@@ -58,7 +59,7 @@ ax.hist(
     orientation="horizontal",
     rwidth=0.5,
 )
-ax.set_title("RTC Offset Distribution (All Modules)")
+# ax.set_title("DS3231 RTC Offset Distribution")
 ax.set_xlabel("Count")
 ax.set_ylabel("Offset (s)")
 ax.set_yticks(int_vals)
