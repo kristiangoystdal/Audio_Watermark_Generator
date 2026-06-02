@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RTC Drift Analyzer v2 - Calculates module clock drift from TXT files.
+RTC Drift Analyzer - Calculates module clock drift from TXT files.
 
 Reads [TRIGGER] logs with format:
   [TRIGGER] Real: HH:MM:SS.mmm, Module: HH:MM:SS
@@ -26,12 +26,12 @@ Outputs:
 
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-DRIFT_DIR = Path("test_files/rtc_measurements/drift")
+DRIFT_DIR = Path("test_files/rtc_measurements/drift_2")
 RESULTS_DIR = Path("results/drift")
 
 
@@ -50,17 +50,25 @@ def parse_txt_file(filepath):
 
     Offset = real_time - module_time (positive = module is slow/behind)
 
-    Both times assumed on same day; uses 2026-01-01 as reference.
-    Preserves millisecond precision from real time.
+    Date is read from the "Started: YYYY-MM-DD" header line so that files
+    from different days produce distinct timestamps when combined.
+    Falls back to 2026-01-01 if no header is found.
     """
     measurements = []
-    pattern = (
+    trigger_pattern = (
         r"\[TRIGGER\]\s+Real:\s+(\d+):(\d+):([\d.]+),\s+Module:\s+(\d+):(\d+):(\d+)"
     )
+    date_pattern = r"Started:\s+(\d{4}-\d{2}-\d{2})"
+    log_date = None
 
     with open(filepath, "r") as f:
         for line_num, line in enumerate(f, 1):
-            match = re.search(pattern, line)
+            if log_date is None:
+                dm = re.search(date_pattern, line)
+                if dm:
+                    log_date = datetime.strptime(dm.group(1), "%Y-%m-%d").date()
+
+            match = re.search(trigger_pattern, line)
             if not match:
                 continue
 
@@ -83,8 +91,9 @@ def parse_txt_file(filepath):
                 # Create datetime with microsecond precision
                 rs_int = int(rs_float)
                 rs_micros = int((rs_float - rs_int) * 1e6)
-                real_dt = datetime(2026, 1, 1, rh, rm, rs_int, microsecond=rs_micros)
-                module_dt = datetime(2026, 1, 1, mh, mm, ms_int)
+                ref = log_date if log_date else date_type(2026, 1, 1)
+                real_dt = datetime(ref.year, ref.month, ref.day, rh, rm, rs_int, microsecond=rs_micros)
+                module_dt = datetime(ref.year, ref.month, ref.day, mh, mm, ms_int)
 
                 measurements.append((real_dt, module_dt, offset))
 
@@ -211,31 +220,36 @@ def analyze_module_files(module_name, txt_paths):
 
     all_measurements.sort(key=lambda m: m[0])
 
-    # Keep only the first measurement for each unique module second
-    seen_mod_sec = set()
-    filtered = []
+    # Keep only the last measurement for each unique module second (highest real time in burst)
+    last_per_sec = {}
     for m in all_measurements:
-        key = (m[1].hour, m[1].minute, m[1].second)
-        if key not in seen_mod_sec:
-            seen_mod_sec.add(key)
-            filtered.append(m)
+        key = (m[1].year, m[1].month, m[1].day, m[1].hour, m[1].minute, m[1].second)
+        last_per_sec[key] = m  # overwrite preserves the last (data is sorted by real time)
 
-    # Drop first and last, then filter outliers on the deduplicated data
-    filtered = filtered[1:-1] if len(filtered) > 2 else filtered
+    deduped = [last_per_sec[k] for k in sorted(last_per_sec)]
+
+    filtered = deduped
     clean = filter_outliers(filtered)
     if not clean:
         return None
 
-    windows = compute_rolling_mean(clean)
-    if len(windows) < 2:
-        return None
+    if len(clean) == 2:
+        dt_s = (clean[1][0] - clean[0][0]).total_seconds()
+        d_offset = clean[1][2] - clean[0][2]
+        slope = d_offset / dt_s if dt_s > 0 else 0.0
+        intercept = clean[0][2]
+        windows = [(clean[0][0], clean[0][2]), (clean[1][0], clean[1][2])]
+    else:
+        windows = compute_rolling_mean(clean)
+        if len(windows) < 2:
+            return None
 
-    # Regression on windowed data, excluding last window (may have fewer samples)
-    reg_windows = windows[:-1] if len(windows) > 2 else windows
-    t0 = windows[0][0]
-    x_windows = [(d[0] - t0).total_seconds() for d in reg_windows]
-    y_windows = [d[1] for d in reg_windows]
-    slope, intercept = linear_regression(x_windows, y_windows)
+        # Regression on windowed data, excluding last window (may have fewer samples)
+        reg_windows = windows[:-1] if len(windows) > 2 else windows
+        t0 = windows[0][0]
+        x_windows = [(d[0] - t0).total_seconds() for d in reg_windows]
+        y_windows = [d[1] for d in reg_windows]
+        slope, intercept = linear_regression(x_windows, y_windows)
 
     offsets = [m[2] for m in clean]
     time_span_s = (clean[-1][0] - clean[0][0]).total_seconds()
@@ -385,7 +399,7 @@ def plot_module(result, plot_path):
     """Create detailed plot for one module showing offset drift over time."""
     fig, ax = plt.subplots(figsize=(14, 6))
 
-    # Extract data
+    # Extract data
     real_times = [m[0] for m in result["all_measurements"]]
     offsets = [m[2] for m in result["all_measurements"]]
     plot_windows = result["windows"][:-1] if len(result["windows"]) > 2 else result["windows"]
@@ -681,10 +695,10 @@ def plot_all_modules(results, plot_path):
 
 def collect_module_files(drift_dir):
     """
-    Map each TXT file to its own module entry.
+    Group TXT files by their parent subfolder.
 
-    Returns dict: {module_name: [Path]} — one entry per file.
-    Module name is "{folder}/{stem}" for files in subdirectories,
+    Returns dict: {module_name: [Path, ...]} — all files in a subfolder combined.
+    Module name is the subfolder name for files in subdirectories,
     or just "{stem}" for files in the root of drift_dir.
     """
     if not drift_dir.exists():
@@ -693,14 +707,16 @@ def collect_module_files(drift_dir):
 
     groups = {}
     for txt_path in sorted(drift_dir.rglob("*.txt")):
+        if " copy" in txt_path.name:
+            continue
         rel = txt_path.relative_to(drift_dir)
 
         if rel.parent == Path("."):
             module_name = txt_path.stem
         else:
-            module_name = str(rel.parent / txt_path.stem)
+            module_name = str(rel.parent)
 
-        groups[module_name] = [txt_path]
+        groups.setdefault(module_name, []).append(txt_path)
 
     return dict(sorted(groups.items()))
 

@@ -4,8 +4,8 @@ from datetime import datetime
 import time
 import os
 
-LOG_DURATION_MINUTES = 120
-MODULE_COLOR = "yellow"
+LOG_DURATION_MINUTES = 1
+MODULE_COLOR = "yellow"  
 
 
 def find_stm32_port():
@@ -40,7 +40,7 @@ measurements = []
 ser = None
 
 # Create measurements folder
-measurements_folder = f"test_files/rtc_measurements/drift/module_{MODULE_COLOR}"
+measurements_folder = f"test_files/rtc_measurements/drift_2/module_{MODULE_COLOR}"
 os.makedirs(measurements_folder, exist_ok=True)
 
 # Create log file with timestamp
