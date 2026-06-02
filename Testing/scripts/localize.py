@@ -39,7 +39,7 @@ os.makedirs(_RESULTS_DIR, exist_ok=True)
 # ── Dataset selection ──────────────────────────────────────────────────────────
 # Change DATASET to "1" or "2" to switch between recording sessions.
 
-DATASET = "2"
+DATASET = "3"
 
 _MIC_COORDS = [(63.418681, 10.407075), (63.418971, 10.406313), (63.419278, 10.406896), (63.418987, 10.407657)]
 
@@ -64,6 +64,16 @@ _DATASETS = {
             "20260530_121810_MIC4_synced.WAV",
         ],
     },
+    "3": {
+        "data_dir": os.path.normpath(os.path.join(_SCRIPT_DIR, "../test_files/acoustic_localization/echo_room")),
+        "recording_start": datetime(2026, 6, 5, 13, 45, 0),
+        "mic_filenames": [
+            "mic1_x0_y0_synced.WAV",
+            "mic2_x0_y-3.35_synced.WAV",
+            "mic3_x-3.65_y-3.31_synced.WAV",
+            "mic4_x-3.62_y0_synced.WAV",
+        ],
+    },
 }
 
 _cfg            = _DATASETS[DATASET]
@@ -84,7 +94,7 @@ ALIGNMENT_FILE  = os.path.join(_DATA_DIR, "alignment.json")
 
 
 FORCE_REALIGN   = False  # set to True to redo the image alignment
-FORCE_REPROCESS = False  # set to True to re-run BirdNET and regenerate CSVs
+FORCE_REPROCESS = False   # set to True to re-run BirdNET and regenerate CSVs
 
 
 AUDIO_DIR = os.path.join(_DATA_DIR, "audio_files")
@@ -178,6 +188,7 @@ BANDPASS_RANGES = {
     "Common Firecrest":               [5000, 12000],
     "Common Goldeneye":               [500,   3000],
     "Common Grackle":                 [500,   4000],
+    "Common Grasshopper-Warbler":     [5000,  9000],
     "Common Gull":                    [500,   4000],
     "Common House-Martin":            [3000,  8000],
     "Common Loon":                    [300,   3000],
