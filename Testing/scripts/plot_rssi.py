@@ -171,11 +171,6 @@ def process_group(
     ax.set_xlabel(x_label, fontsize=12)
     ax.set_ylabel("RSSI (dBm)", fontsize=12)
     group_tag = f" [group {trailing_num}]" if trailing_num is not None else ""
-    ax.set_title(
-        f"RSSI vs Distance — {subfolder_name}{group_tag} ({title_suffix})",
-        fontsize=14,
-        fontweight="bold",
-    )
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=10)
 
@@ -351,11 +346,6 @@ def plot_step0_averages(txt_files, result_folder, subfolder_name):
 
     ax.set_xlabel("Distance (m)", fontsize=12)
     ax.set_ylabel("Average RSSI (dBm)", fontsize=12)
-    ax.set_title(
-        f"Average RSSI vs Distance — {subfolder_name} (step=0 files)",
-        fontsize=14,
-        fontweight="bold",
-    )
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=10)
 
@@ -420,7 +410,7 @@ def process_csv_files(csv_files, folder_name, result_folder):
             got = len(data[module].get(d, []))
             d_lost = exp - got
             d_rate = got / exp * 100 if exp else 0
-            print(f"      {d:>5} cm: {got}/{exp} packets, {d_lost} lost ({d_rate:.0f}%)")
+            print(f"      {d:>5} m: {got}/{exp} packets, {d_lost} lost ({d_rate:.0f}%)")
 
     colors = plt.cm.tab10(range(len(all_modules)))
     line_styles = ["-", "--", ":", "-."]
@@ -442,13 +432,9 @@ def process_csv_files(csv_files, folder_name, result_folder):
             linewidth=2,
             markersize=6,
         )
-    ax_pdr.set_xlabel("Distance (cm)", fontsize=12)
+    ax_pdr.set_xlabel("Distance (m)", fontsize=12)
     ax_pdr.set_ylabel("Packet Reception Rate (%)", fontsize=12)
-    ax_pdr.set_title(
-        f"Packet Reception Rate vs Distance — {folder_name}",
-        fontsize=14,
-        fontweight="bold",
-    )
+
     ax_pdr.set_ylim(0, 105)
     ax_pdr.grid(True, alpha=0.3)
     ax_pdr.legend(fontsize=10)
@@ -471,22 +457,17 @@ def process_csv_files(csv_files, folder_name, result_folder):
 
     ax.set_xlabel("Distance (m)", fontsize=12)
     ax.set_ylabel("Average RSSI (dBm)", fontsize=12)
-    ax.set_title(
-        f"Average RSSI vs Distance — {folder_name}",
-        fontsize=14,
-        fontweight="bold",
-    )
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=10)
 
     save_plot_to_results_folder(fig, result_folder, "rssi_vs_distance.png")
     plt.close(fig)
 
-    headers = ["Module", "Distance (cm)", "Average RSSI (dBm)", "Packet Reception Rate (%)"]
+    headers = ["Module", "Distance (m)", "Average RSSI (dBm)", "Packet Reception Rate (%)"]
     rows_out = [
         {
             "Module": module,
-            "Distance (cm)": dist,
+            "Distance (m)": dist,
             "Average RSSI (dBm)": round(avg, 2),
             "Packet Reception Rate (%)": round(
                 len(data[module].get(dist, [])) / expected_per_dist[dist] * 100, 1
@@ -539,16 +520,11 @@ def _plot_combined_average_with_regression(
         ys_smooth,
         color="tomato",
         linewidth=2,
-        label=f"{name} fit: {eq_label}\n$R^2 = {r2:.4f}$",
+        label=f"{name}",
     )
 
     ax.set_xlabel(x_label, fontsize=12)
     ax.set_ylabel("Average RSSI (dBm)", fontsize=12)
-    ax.set_title(
-        f"Combined Average RSSI vs Distance — {subfolder_name}\n(best-fit regression)",
-        fontsize=14,
-        fontweight="bold",
-    )
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=10)
 

@@ -4,8 +4,8 @@ from datetime import datetime
 import time
 import os
 
-LOG_DURATION_MINUTES = 120
-MODULE_COLOR = "yellow"
+LOG_DURATION_MINUTES = 0.1
+MODULE_COLOR = "red"
 
 
 def find_stm32_port():
@@ -40,7 +40,7 @@ measurements = []
 ser = None
 
 # Create measurements folder
-measurements_folder = f"test_files/rtc_measurements/drift/module_{MODULE_COLOR}"
+measurements_folder = f"test_files/rtc_measurements/drift_2/module_{MODULE_COLOR}"
 os.makedirs(measurements_folder, exist_ok=True)
 
 # Create log file with timestamp
@@ -54,7 +54,9 @@ try:
         log_file.write(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         log_file.write(f"Port: {port}\n")
         log_file.write("=" * 60 + "\n")
-        log_file.write("Timer: time.monotonic() (immune to NTP, anchored to wall clock at start)\n")
+        log_file.write(
+            "Timer: time.monotonic() (immune to NTP, anchored to wall clock at start)\n"
+        )
         log_file.write("=" * 60 + "\n\n")
         log_file.flush()
 
@@ -96,10 +98,14 @@ try:
                     if last_minute_print != mins_done:
                         last_minute_print = mins_done
                         bar = "#" * (pct // 5) + "-" * (20 - pct // 5)
-                        print(f"[INFO] [{bar}] {pct}% ({mins_done}/{LOG_DURATION_MINUTES} min)")
+                        print(
+                            f"[INFO] [{bar}] {pct}% ({mins_done}/{LOG_DURATION_MINUTES} min)"
+                        )
 
                 if line and "TIMING CHECK:" in line:
-                    payload = line.split("TIMING CHECK:", 1)[1].replace("\0", "").strip()
+                    payload = (
+                        line.split("TIMING CHECK:", 1)[1].replace("\0", "").strip()
+                    )
 
                     # Parse: "HH:MM:SS TICK=xxxxx"
                     if " TICK=" in payload:
@@ -117,7 +123,9 @@ try:
                         end_time = time.monotonic() + LOG_DURATION_MINUTES * 60
                         mono_start = time.monotonic()
                         epoch_anchor = time.time()
-                        print(f"[INFO] First check received — logging for {LOG_DURATION_MINUTES} min from now.")
+                        print(
+                            f"[INFO] First check received — logging for {LOG_DURATION_MINUTES} min from now."
+                        )
 
                     real_timestamp = epoch_anchor + (time.monotonic() - mono_start)
 

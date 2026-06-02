@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-RTC Drift Analyzer v2 - Calculates module clock drift from TXT files.
+RTC Drift Analyzer - Calculates module clock drift from TXT files.
 
 Reads [TRIGGER] logs with format:
   [TRIGGER] Real: HH:MM:SS.mmm, Module: HH:MM:SS
@@ -26,13 +26,14 @@ Outputs:
 
 import re
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
 
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-DRIFT_DIR = Path("test_files/rtc_measurements/drift")
+DRIFT_DIR = Path("test_files/rtc_measurements/drift_2")
 RESULTS_DIR = Path("results/drift")
+FILTER_OUTLIERS = False
 
 
 # ---------------------------------------------------------------------------
@@ -50,17 +51,25 @@ def parse_txt_file(filepath):
 
     Offset = real_time - module_time (positive = module is slow/behind)
 
-    Both times assumed on same day; uses 2026-01-01 as reference.
-    Preserves millisecond precision from real time.
+    Date is read from the "Started: YYYY-MM-DD" header line so that files
+    from different days produce distinct timestamps when combined.
+    Falls back to 2026-01-01 if no header is found.
     """
     measurements = []
-    pattern = (
+    trigger_pattern = (
         r"\[TRIGGER\]\s+Real:\s+(\d+):(\d+):([\d.]+),\s+Module:\s+(\d+):(\d+):(\d+)"
     )
+    date_pattern = r"Started:\s+(\d{4}-\d{2}-\d{2})"
+    log_date = None
 
     with open(filepath, "r") as f:
         for line_num, line in enumerate(f, 1):
-            match = re.search(pattern, line)
+            if log_date is None:
+                dm = re.search(date_pattern, line)
+                if dm:
+                    log_date = datetime.strptime(dm.group(1), "%Y-%m-%d").date()
+
+            match = re.search(trigger_pattern, line)
             if not match:
                 continue
 
@@ -83,8 +92,11 @@ def parse_txt_file(filepath):
                 # Create datetime with microsecond precision
                 rs_int = int(rs_float)
                 rs_micros = int((rs_float - rs_int) * 1e6)
-                real_dt = datetime(2026, 1, 1, rh, rm, rs_int, microsecond=rs_micros)
-                module_dt = datetime(2026, 1, 1, mh, mm, ms_int)
+                ref = log_date if log_date else date_type(2026, 1, 1)
+                real_dt = datetime(
+                    ref.year, ref.month, ref.day, rh, rm, rs_int, microsecond=rs_micros
+                )
+                module_dt = datetime(ref.year, ref.month, ref.day, mh, mm, ms_int)
 
                 measurements.append((real_dt, module_dt, offset))
 
@@ -203,39 +215,88 @@ def analyze_module_files(module_name, txt_paths):
     Returns dict with analysis results, or None if insufficient data.
     """
     all_measurements = []
+    file_raw_counts = {}
     for p in txt_paths:
-        all_measurements.extend(parse_txt_file(p))
+        parsed = parse_txt_file(p)
+        file_raw_counts[p.name] = len(parsed)
+        all_measurements.extend(parsed)
 
     if not all_measurements:
         return None
 
     all_measurements.sort(key=lambda m: m[0])
 
-    # Keep only the first measurement for each unique module second
-    seen_mod_sec = set()
-    filtered = []
+    # Keep first trigger per module second (= tick edge)
+    first_per_sec = {}
     for m in all_measurements:
-        key = (m[1].hour, m[1].minute, m[1].second)
-        if key not in seen_mod_sec:
-            seen_mod_sec.add(key)
-            filtered.append(m)
+        key = (m[1].year, m[1].month, m[1].day, m[1].hour, m[1].minute, m[1].second)
+        if key not in first_per_sec:
+            first_per_sec[key] = m
 
-    # Drop first and last, then filter outliers on the deduplicated data
-    filtered = filtered[1:-1] if len(filtered) > 2 else filtered
-    clean = filter_outliers(filtered)
+    # Only keep seconds where the previous module second is also present
+    deduped = []
+    for key in sorted(first_per_sec):
+        dt = datetime(*key)
+        prev_dt = dt - timedelta(seconds=1)
+        prev_key = (
+            prev_dt.year,
+            prev_dt.month,
+            prev_dt.day,
+            prev_dt.hour,
+            prev_dt.minute,
+            prev_dt.second,
+        )
+        if prev_key in first_per_sec:
+            deduped.append(first_per_sec[key])
+
+    clean = filter_outliers(deduped) if FILTER_OUTLIERS else deduped
+
+    # Debug: show per-file contribution and what was filtered
+    kept_real_dts = {m[0] for m in clean}
+    for p in txt_paths:
+        raw_n = file_raw_counts[p.name]
+        parsed = parse_txt_file(p)
+        if not parsed:
+            print(
+                f"    [debug] {p.name}: {raw_n} triggers → 0 unique seconds (empty file)"
+            )
+            continue
+        file_mod_seconds = set()
+        for m in parsed:
+            file_mod_seconds.add((m[1].hour, m[1].minute, m[1].second))
+        in_deduped = [
+            m
+            for m in deduped
+            if (m[1].hour, m[1].minute, m[1].second) in file_mod_seconds
+        ]
+        n_kept = sum(1 for m in in_deduped if m[0] in kept_real_dts)
+        reasons = [
+            f"offset {m[2]:+.3f}s filtered as outlier"
+            for m in in_deduped
+            if m[0] not in kept_real_dts
+        ]
+        reason_str = f" → {'; '.join(reasons)}" if reasons else ""
+        if not in_deduped:
+            reason_str = " → no consecutive second pair found"
+        print(
+            f"    [debug] {p.name}: {raw_n} triggers → {len(file_mod_seconds)} unique sec(s) → {len(in_deduped)} after continuity check → {n_kept} kept{reason_str}"
+        )
+
     if not clean:
         return None
 
-    windows = compute_rolling_mean(clean)
-    if len(windows) < 2:
-        return None
-
-    # Regression on windowed data, excluding last window (may have fewer samples)
-    reg_windows = windows[:-1] if len(windows) > 2 else windows
-    t0 = windows[0][0]
-    x_windows = [(d[0] - t0).total_seconds() for d in reg_windows]
-    y_windows = [d[1] for d in reg_windows]
-    slope, intercept = linear_regression(x_windows, y_windows)
+    if len(clean) == 2:
+        dt_s = (clean[1][0] - clean[0][0]).total_seconds()
+        d_offset = clean[1][2] - clean[0][2]
+        slope = d_offset / dt_s if dt_s > 0 else 0.0
+        intercept = clean[0][2]
+        windows = [(clean[0][0], clean[0][2]), (clean[1][0], clean[1][2])]
+    else:
+        t0 = clean[0][0]
+        x_raw = [(m[0] - t0).total_seconds() for m in clean]
+        y_raw = [m[2] for m in clean]
+        slope, intercept = linear_regression(x_raw, y_raw)
+        windows = [(m[0], m[2]) for m in clean]
 
     offsets = [m[2] for m in clean]
     time_span_s = (clean[-1][0] - clean[0][0]).total_seconds()
@@ -381,25 +442,44 @@ def write_summary_csv(results, csv_path):
 # ---------------------------------------------------------------------------
 
 
+MODULE_COLORS = {
+    "red": "#e53935",
+    "blue": "#1e88e5",
+    "green": "#43a047",
+    "yellow": "#fdd835",
+    "blank": "#757575",
+}
+
+
+def _module_color(module_name):
+    key = module_name.lower().replace("module_", "")
+    return MODULE_COLORS.get(key, None)
+
+
+def _module_plot_colors(module_name):
+    """Return (scatter_color, line_color, reg_color) for a module's individual plot."""
+    base = _module_color(module_name)
+    if base:
+        reg = "#880000" if base == "#e53935" else "red"
+        return base, base, reg
+    return "steelblue", "darkblue", "red"
+
+
 def plot_module(result, plot_path):
     """Create detailed plot for one module showing offset drift over time."""
     fig, ax = plt.subplots(figsize=(14, 6))
 
-    # Extract data
+    # Extract data
     real_times = [m[0] for m in result["all_measurements"]]
     offsets = [m[2] for m in result["all_measurements"]]
-    plot_windows = result["windows"][:-1] if len(result["windows"]) > 2 else result["windows"]
-    window_times = [d[0] for d in plot_windows]
-    window_offs = [d[1] for d in plot_windows]
 
-    # Relative offset (baseline = first window)
-    baseline = window_offs[0] if window_offs else 0
+    # Relative offset (baseline = first measurement)
+    baseline = offsets[0]
     offsets_rel = [o - baseline for o in offsets]
-    window_offs_rel = [o - baseline for o in window_offs]
 
-    # Regression line
-    t0 = window_times[0]
-    t_end = window_times[-1]
+    # Regression line spanning full measurement range
+    t0 = real_times[0]
+    t_end = real_times[-1]
     span_s = (t_end - t0).total_seconds()
     reg_times = [t0, t_end]
     reg_y = [
@@ -407,31 +487,23 @@ def plot_module(result, plot_path):
         result["regression_slope"] * span_s + result["regression_intercept"] - baseline,
     ]
 
+    scatter_color, _, reg_color = _module_plot_colors(result["module"])
+
     # Plot
     ax.scatter(
         real_times,
         offsets_rel,
-        alpha=0.25,
-        s=15,
-        color="steelblue",
-        zorder=2,
-        label="Raw measurements",
-    )
-    ax.plot(
-        window_times,
-        window_offs_rel,
-        "o-",
-        color="darkblue",
-        linewidth=2.5,
-        markersize=6,
-        label=f"Rolling mean ({result['n_windows']} points)",
+        alpha=0.8,
+        s=40,
+        color=scatter_color,
         zorder=3,
+        label=f"Raw measurements ({result['n_measurements']} points)",
     )
     ax.plot(
         reg_times,
         reg_y,
         "--",
-        color="red",
+        color=reg_color,
         alpha=0.8,
         linewidth=2,
         label=f"Fit: {result['drift_ppm']:+.3f} ppm ({result['drift_s_per_day']:+.2f} s/day)",
@@ -480,10 +552,9 @@ def plot_ms_at_second_change(result, plot_path=None):
 
     fig, ax = plt.subplots(figsize=(14, 5))
 
-    ax.scatter(real_times, ms_values, s=12, alpha=0.6, color="steelblue", zorder=2)
-    ax.plot(
-        real_times, ms_values, linewidth=0.8, alpha=0.4, color="steelblue", zorder=1
-    )
+    color = _module_color(result["module"]) or "steelblue"
+    ax.scatter(real_times, ms_values, s=12, alpha=0.6, color=color, zorder=2)
+    ax.plot(real_times, ms_values, linewidth=0.8, alpha=0.4, color=color, zorder=1)
 
     ax.set_title(
         f"Real clock ms when module second ticks — {result['module'].upper()}",
@@ -517,7 +588,7 @@ def plot_ms_all_modules(results, plot_path=None):
         return
 
     fig, ax = plt.subplots(figsize=(14, 6))
-    colors = plt.cm.tab10.colors
+    fallback_colors = list(plt.cm.tab10.colors)
 
     def sub_second_ms(real_dt, mod_dt):
         real_s = (
@@ -530,7 +601,9 @@ def plot_ms_all_modules(results, plot_path=None):
         return ((real_s - mod_s) % 1) * 1000
 
     for i, result in enumerate(results):
-        color = colors[i % len(colors)]
+        color = (
+            _module_color(result["module"]) or fallback_colors[i % len(fallback_colors)]
+        )
         measurements = result["all_measurements"]
         real_times = [m[0] for m in measurements]
         ms_values = [sub_second_ms(m[0], m[1]) for m in measurements]
@@ -579,7 +652,7 @@ def plot_all_modules(results, plot_path):
         return
 
     fig, axes = plt.subplots(2, 1, figsize=(14, 11))
-    colors = plt.cm.tab10.colors
+    fallback_colors = list(plt.cm.tab10.colors)
 
     # Determine time unit based on the longest module span
     max_span_s = max(r["time_span_seconds"] for r in results)
@@ -592,29 +665,43 @@ def plot_all_modules(results, plot_path):
 
     # Top: all offsets on one graph
     for i, r in enumerate(results):
-        color = colors[i % len(colors)]
+        color = _module_color(r["module"]) or fallback_colors[i % len(fallback_colors)]
         label = r["module"].replace("module_", "Module ").title()
 
-        # Exclude last (potentially incomplete) window
-        plot_windows = r["windows"][:-1] if len(r["windows"]) > 2 else r["windows"]
-        if not plot_windows:
+        measurements = r["all_measurements"]
+        if not measurements:
             continue
 
-        t0 = r["all_measurements"][0][0]
-        baseline = plot_windows[0][1]
+        t0 = measurements[0][0]
+        baseline = measurements[0][2]
 
-        win_elapsed = [(d[0] - t0).total_seconds() / time_divisor for d in plot_windows]
-        window_offs_rel = [d[1] - baseline for d in plot_windows]
+        raw_elapsed = [(m[0] - t0).total_seconds() / time_divisor for m in measurements]
+        raw_offs_rel = [m[2] - baseline for m in measurements]
 
-        axes[0].plot(
-            win_elapsed,
-            window_offs_rel,
-            "o-",
+        span_s = (measurements[-1][0] - t0).total_seconds()
+        reg_elapsed = [0, span_s / time_divisor]
+        reg_offs_rel = [
+            r["regression_slope"] * 0 + r["regression_intercept"] - baseline,
+            r["regression_slope"] * span_s + r["regression_intercept"] - baseline,
+        ]
+
+        axes[0].scatter(
+            raw_elapsed,
+            raw_offs_rel,
             color=color,
-            linewidth=2,
-            markersize=4,
-            label=label,
+            s=30,
+            alpha=0.8,
             zorder=3,
+            label=label,
+        )
+        axes[0].plot(
+            reg_elapsed,
+            reg_offs_rel,
+            "--",
+            color=color,
+            linewidth=1.5,
+            alpha=0.7,
+            zorder=2,
         )
 
     axes[0].set_title(
@@ -630,7 +717,10 @@ def plot_all_modules(results, plot_path):
     # Bottom: drift rates as bar chart
     module_names = [r["module"].replace("module_", "").title() for r in results]
     ppms = [r["drift_ppm"] for r in results]
-    bar_colors = [colors[i % len(colors)] for i in range(len(results))]
+    bar_colors = [
+        _module_color(r["module"]) or fallback_colors[i % len(fallback_colors)]
+        for i, r in enumerate(results)
+    ]
 
     bars = axes[1].bar(
         module_names,
@@ -645,6 +735,8 @@ def plot_all_modules(results, plot_path):
     axes[1].set_ylabel("Drift rate (ppm)", fontsize=11)
     axes[1].axhline(0, color="black", linewidth=0.8)
     axes[1].grid(True, axis="y", alpha=0.3)
+    _margin = max(abs(max(ppms)), abs(min(ppms)), 1e-6) * 0.20
+    axes[1].set_ylim(min(0, min(ppms)) - _margin, max(0, max(ppms)) + _margin)
 
     # Add value labels on bars
     y_vals = ppms
@@ -681,10 +773,10 @@ def plot_all_modules(results, plot_path):
 
 def collect_module_files(drift_dir):
     """
-    Map each TXT file to its own module entry.
+    Group TXT files by their parent subfolder.
 
-    Returns dict: {module_name: [Path]} — one entry per file.
-    Module name is "{folder}/{stem}" for files in subdirectories,
+    Returns dict: {module_name: [Path, ...]} — all files in a subfolder combined.
+    Module name is the subfolder name for files in subdirectories,
     or just "{stem}" for files in the root of drift_dir.
     """
     if not drift_dir.exists():
@@ -693,14 +785,16 @@ def collect_module_files(drift_dir):
 
     groups = {}
     for txt_path in sorted(drift_dir.rglob("*.txt")):
+        if " copy" in txt_path.name:
+            continue
         rel = txt_path.relative_to(drift_dir)
 
         if rel.parent == Path("."):
             module_name = txt_path.stem
         else:
-            module_name = str(rel.parent / txt_path.stem)
+            module_name = str(rel.parent)
 
-        groups[module_name] = [txt_path]
+        groups.setdefault(module_name, []).append(txt_path)
 
     return dict(sorted(groups.items()))
 
@@ -812,12 +906,16 @@ def main():
 
     col_module = max(len("Module"), max(len(r["module"]) for r in results))
     col_ppm = max(len("PPM"), max(len(f"{r['drift_ppm']:.4f}") for r in results))
-    col_sday = max(len("S/Day"), max(len(f"{r['drift_s_per_day']:.4f}") for r in results))
+    col_sday = max(
+        len("S/Day"), max(len(f"{r['drift_s_per_day']:.4f}") for r in results)
+    )
     col_dir = max(len("Direction"), max(len(d) for d in directions))
 
-    sep =f"+-{'-'*col_module}-+-{'-'*col_ppm}-+-{'-'*col_sday}-+-{'-'*col_dir}-+"
+    sep = f"+-{'-'*col_module}-+-{'-'*col_ppm}-+-{'-'*col_sday}-+-{'-'*col_dir}-+"
     print(f"\n{sep}")
-    print(f"| {'Module':<{col_module}} | {'PPM':>{col_ppm}} | {'S/Day':>{col_sday}} | {'Direction':>{col_dir}} |")
+    print(
+        f"| {'Module':<{col_module}} | {'PPM':>{col_ppm}} | {'S/Day':>{col_sday}} | {'Direction':>{col_dir}} |"
+    )
     print(sep)
     for r, direction in zip(results, directions):
         print(
