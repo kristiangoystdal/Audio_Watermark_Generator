@@ -15,7 +15,7 @@ import os
 import numpy as np
 import soundfile as sf
 from scipy.signal import butter, sosfilt
-from scipy.optimize import minimize
+from scipy.optimize import least_squares
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -100,7 +100,7 @@ def gcc(ref, sig, sr):
 
 
 def localize_tdoa(tdoas, mic_pairs, mic_coords, speed=SPEED_OF_SOUND):
-    """Least-squares source localization from TDOAs."""
+    """Nonlinear least-squares source localization from TDOAs (Levenberg-Marquardt)."""
 
     def residuals(pos):
         x, y = pos
@@ -113,9 +113,6 @@ def localize_tdoa(tdoas, mic_pairs, mic_coords, speed=SPEED_OF_SOUND):
             res.append((di - dj) / speed - dt)
         return np.array(res)
 
-    def cost(pos):
-        return np.sum(residuals(pos) ** 2)
-
     cx = np.mean(mic_coords[:, 0])
     cy = np.mean(mic_coords[:, 1])
     span = np.ptp(mic_coords, axis=0).max() or 1.0
@@ -123,13 +120,16 @@ def localize_tdoa(tdoas, mic_pairs, mic_coords, speed=SPEED_OF_SOUND):
     best = None
     for dx in [-span, 0, span]:
         for dy in [-span, 0, span]:
-            r = minimize(
-                cost,
+            r = least_squares(
+                residuals,
                 [cx + dx, cy + dy],
-                method="Nelder-Mead",
-                options={"xatol": 0.001, "fatol": 1e-12, "maxiter": 30000},
+                method="lm",
+                ftol=1e-12,
+                xtol=1e-6,
+                gtol=1e-12,
+                max_nfev=30000,
             )
-            if best is None or r.fun < best.fun:
+            if best is None or r.cost < best.cost:
                 best = r
 
     rms = np.sqrt(np.mean(residuals(best.x) ** 2)) * speed
@@ -358,7 +358,7 @@ for dirpath, name, wav_files in subfolders:
     ax.set_aspect("equal", "datalim")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
-    ax.set_title(f"TDOA localization — {name}", pad=10)
+    # ax.set_title(f"TDOA localization — {name}", pad=10)
     ax.legend(fontsize=9, loc="best")
     ax.grid(True)
 
@@ -461,7 +461,7 @@ ax.legend(
 ax.set_aspect("equal", "datalim")
 ax.set_xlabel("x (m)")
 ax.set_ylabel("y (m)")
-ax.set_title("TDOA localization — all tests combined", pad=12)
+# ax.set_title("TDOA localization — all tests combined", pad=12)
 ax.grid(True)
 fig.tight_layout()
 
