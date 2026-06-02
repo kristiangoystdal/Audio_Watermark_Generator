@@ -462,14 +462,27 @@ int main(void) {
 
   // Only for testing - comment out for deployment
 
-  // DS3231_PowerOn();
-  // HAL_Delay(40);
+  // int8_t interval_minutes = 1;
+
+  // rtc_time_t test_time = now;
+  // int32_t firmware_tick = HAL_GetTick();
 
   // while (1) {
-  //   uint32_t firmware_tick = HAL_GetTick(); // Capture HERE
-  //   DS3231_GetTime(&now);                   // Read HERE
-  //   LOGF("TIMING CHECK: %02d:%02d:%02d TICK=%lu\r\n", now.hours, now.minutes,
-  //        now.seconds, firmware_tick);
+  //   // Read and log time until seconds change
+  //   DS3231_PowerOn();
+  //   HAL_Delay(40);
+  //   DS3231_GetTime(&now);
+  //   test_time = now;
+
+  //   while (now.seconds == test_time.seconds) {
+  //     DS3231_GetTime(&now);
+  //     LOGF("TIMING CHECK: %02d:%02d:%02d TICK=%lu\r\n", now.hours,
+  //     now.minutes,
+  //          now.seconds, firmware_tick);
+  //   }
+  //   DS3231_PowerOff();
+  //   // Sleep for interval minutes
+  //   HAL_Delay(interval_minutes * 60 * 1000);
   // }
 
   //-----------------------------------------------------------------------------//
