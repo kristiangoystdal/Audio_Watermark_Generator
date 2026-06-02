@@ -10,13 +10,17 @@ Run from Testing/ directory:
     python scripts/localize_tdoa.py
 """
 
+
 import re
 import os
+import colorsys
+from collections import defaultdict
 import numpy as np
 import soundfile as sf
 from scipy.signal import butter, sosfilt
 from scipy.optimize import least_squares
 import matplotlib
+import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
@@ -154,6 +158,46 @@ def collect_subfolders(root):
     return sorted(results)
 
 
+def location_shaded_colors(names):
+    """
+    For names like 'Clap 1-1', 'Clap 1-2', 'Clap 2-1', ..., assign the same
+    base hue per location number and vary lightness per variant number.
+    Returns a dict mapping name -> RGBA color.
+    """
+    loc_re = re.compile(r"(\d+)-(\d+)")
+    parsed = {}
+    for name in names:
+        m = loc_re.search(name)
+        parsed[name] = (int(m.group(1)), int(m.group(2))) if m else (hash(name) % 100, 0)
+
+    unique_locs = sorted({v[0] for v in parsed.values()})
+    n_locs = max(len(unique_locs), 1)
+    cmap = plt.cm.tab10
+    base_colors = {
+        loc: mcolors.to_rgba(cmap(i / n_locs)) for i, loc in enumerate(unique_locs)
+    }
+
+    loc_to_names = defaultdict(list)
+    for name, (loc, var) in parsed.items():
+        loc_to_names[loc].append((var, name))
+
+    result = {}
+    for loc, var_names in loc_to_names.items():
+        var_names_sorted = sorted(var_names)
+        r, g, b, a = base_colors[loc]
+        h, lum, s = colorsys.rgb_to_hls(r, g, b)
+        n_vars = len(var_names_sorted)
+        for k, (_var, name) in enumerate(var_names_sorted):
+            if n_vars == 1:
+                new_lum = lum
+            else:
+                new_lum = 0.35 + k * (0.65 - 0.35) / (n_vars - 1)
+            nr, ng, nb = colorsys.hls_to_rgb(h, new_lum, s)
+            result[name] = (nr, ng, nb, a)
+
+    return result
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 subfolders = collect_subfolders(DIRECTION_ROOT)
@@ -163,6 +207,8 @@ if not subfolders:
 
 print(f"Found {len(subfolders)} subfolder(s)")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+subfolder_colors = location_shaded_colors([name for _, name, _, _ in subfolders])
 
 all_results = []  # (name, group, mic_coords_arr, mic_labels, pos, rms)
 
@@ -183,7 +229,7 @@ for dirpath, name, group, wav_files in subfolders:
         all_results.append((name, group, np.empty((0, 2)), [], None, None))
         continue
 
-    mic_labels = [f"MIC{m[0]}" for m in mics]
+    mic_labels = [f"ARU {m[0]}" for m in mics]
     mic_coords = np.array([(m[1], m[2]) for m in mics])
     files = [m[3] for m in mics]
 
@@ -250,7 +296,7 @@ for dirpath, name, group, wav_files in subfolders:
     fig_cc, axes_cc = plt.subplots(
         rows, cols, figsize=(5 * cols, 3 * rows), squeeze=False
     )
-    fig_cc.suptitle(f"Cross-correlation — {name}", fontsize=12, y=1.01)
+
 
     for idx, (i, j, dt, cc_curve, cc_lags) in enumerate(cc_data):
         ax_cc = axes_cc[idx // cols][idx % cols]
@@ -301,16 +347,15 @@ for dirpath, name, group, wav_files in subfolders:
 
     # ── Per-subfolder plot ────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=(7, 6))
-    mic_colors = plt.cm.Set2(np.linspace(0, 0.8, len(mic_labels)))
 
-    for (lbl, (mx, my)), mc in zip(zip(mic_labels, mic_coords), mic_colors):
+    for lbl, (mx, my) in zip(mic_labels, mic_coords):
         ax.plot(
             mx,
             my,
             "^",
-            color=mc,
+            color="#ff1a1a",
             markersize=13,
-            markeredgecolor="#333333",
+            markeredgecolor="#800000",
             markeredgewidth=1.0,
             zorder=4,
         )
@@ -321,7 +366,7 @@ for dirpath, name, group, wav_files in subfolders:
             textcoords="offset points",
             fontsize=9,
             fontweight="bold",
-            color="#333333",
+            color="#800000",
         )
         # Line from mic to estimated source
         ax.plot(
@@ -333,12 +378,14 @@ for dirpath, name, group, wav_files in subfolders:
             zorder=2,
         )
 
+    src_color = subfolder_colors[name]
+
     # RMS error circle
     circle = mpatches.Circle(
         pos,
         rms,
         fill=False,
-        edgecolor="crimson",
+        edgecolor=src_color,
         linewidth=1.2,
         linestyle=":",
         zorder=4,
@@ -350,7 +397,7 @@ for dirpath, name, group, wav_files in subfolders:
         pos[0],
         pos[1],
         s=180,
-        color="crimson",
+        color=src_color,
         zorder=5,
         edgecolors="white",
         linewidths=1.2,
@@ -383,13 +430,12 @@ for entry in all_results:
 
 for grp in groups_order:
     grp_results = groups_map[grp]
-    n_colors = max(len(grp_results), 1)
-    colors = plt.cm.tab10(np.linspace(0, 0.9, n_colors))
 
     fig, ax = plt.subplots(figsize=(9, 7))
     mic_drawn = set()
 
-    for (name, _grp, mic_coords, mic_labels, pos, rms), color in zip(grp_results, colors):
+    for (name, _grp, mic_coords, mic_labels, pos, rms) in grp_results:
+        color = subfolder_colors[name]
         if len(mic_coords) == 0:
             continue
 
@@ -400,9 +446,9 @@ for grp in groups_order:
                     mx,
                     my,
                     "^",
-                    color="#4a90d9",
+                    color="#ff1a1a",
                     markersize=13,
-                    markeredgecolor="#1a1a2e",
+                    markeredgecolor="#800000",
                     markeredgewidth=1.0,
                     zorder=6,
                 )
@@ -413,7 +459,7 @@ for grp in groups_order:
                     textcoords="offset points",
                     fontsize=9,
                     fontweight="bold",
-                    color="#1a1a2e",
+                    color="#800000",
                     bbox=dict(boxstyle="round,pad=0.15", fc="white", ec="none", alpha=0.7),
                 )
                 mic_drawn.add(key)
@@ -449,21 +495,19 @@ for grp in groups_order:
         [0],
         marker="^",
         color="w",
-        markerfacecolor="#4a90d9",
-        markeredgecolor="#1a1a2e",
+        markerfacecolor="#ff1a1a",
+        markeredgecolor="#800000",
         markersize=11,
-        label="Microphone",
+        label="ARU",
     )
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(
         [mic_proxy] + handles,
-        ["Microphone"] + labels,
+        ["ARU"] + labels,
         bbox_to_anchor=(1.01, 1),
         loc="upper left",
         fontsize=8.5,
         framealpha=0.95,
-        title="Test results",
-        title_fontsize=9,
     )
 
     ax.set_aspect("equal", "datalim")
