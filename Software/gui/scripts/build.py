@@ -49,6 +49,7 @@ def prepare_build(log_text, safe_log):
                 f"-DCMAKE_TOOLCHAIN_FILE={TOOLCHAIN_FILE}",
                 f"-DCMAKE_MAKE_PROGRAM={NINJA}",
                 "-DCMAKE_BUILD_TYPE=MinSizeRel",
+                f"-DTOOLCHAIN_DIR={TOOLCHAIN}",
             ],
             log_text,
         )
