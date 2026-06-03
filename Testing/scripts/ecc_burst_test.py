@@ -58,31 +58,33 @@ ECC_DIR = os.path.join(os.path.dirname(__file__), "..", "test_files", "ECC")
 # For 0 ECC bytes: RS is disabled; ecc_nsym=20 is passed only to control the
 # gap-bridge width in find_message_ranges, not to attempt RS correction.
 ECC_FILES = [
-    (0,   "0ECC.WAV",   False, 20),
-    (10,  "10ECC.WAV",  True,  10),
-    (20,  "20ECC.WAV",  True,  20),
-    (30,  "30ECC.WAV",  True,  30),
-    (40,  "40ECC.WAV",  True,  40),
-    (50,  "50ECC.WAV",  True,  50),
-    (60,  "60ECC.WAV",  True,  60),
-    (70,  "70ECC.WAV",  True,  70),
-    (80,  "80ECC.WAV",  True,  80),
-    (90,  "90ECC.WAV",  True,  90),
+    (0, "0ECC.WAV", False, 20),
+    (10, "10ECC.WAV", True, 10),
+    (20, "20ECC.WAV", True, 20),
+    (30, "30ECC.WAV", True, 30),
+    (40, "40ECC.WAV", True, 40),
+    (50, "50ECC.WAV", True, 50),
+    (60, "60ECC.WAV", True, 60),
+    (70, "70ECC.WAV", True, 70),
+    (80, "80ECC.WAV", True, 80),
+    (90, "90ECC.WAV", True, 90),
     (100, "100ECC.WAV", True, 100),
 ]
 
-F0 = 22000   # FSK tone for bit 0 [Hz]
-F1 = 23000   # FSK tone for bit 1 [Hz]
+F0 = 22000  # FSK tone for bit 0 [Hz]
+F1 = 23000  # FSK tone for bit 1 [Hz]
 
 # Approximate symbol period (s): p0 = 66 periods of f0 ≈ 66/22176 ≈ 2.98 ms
 SYMBOL_MS = 66 / 22176.29 * 1000
 
-MAX_BURST_MS  = 2000   # longest burst to test [ms]
-BURST_STEP_MS = 25     # increment between burst durations [ms]
+MAX_BURST_MS = 2000  # longest burst to test [ms]
+BURST_STEP_MS = 25  # increment between burst durations [ms]
 # ══════════════════════════════════════════════════════════════
 
 BASE_DIR = os.path.dirname(__file__)
-RESULTS_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "results", "ecc_burst_test"))
+RESULTS_DIR = os.path.normpath(
+    os.path.join(BASE_DIR, "..", "results", "ecc_burst_test")
+)
 
 
 def _find_active_region(audio: np.ndarray, fs: int) -> dict:
@@ -96,7 +98,9 @@ def _find_active_region(audio: np.ndarray, fs: int) -> dict:
     return region
 
 
-def _inject_burst(audio: np.ndarray, fs: int, region: dict, burst_ms: float) -> np.ndarray:
+def _inject_burst(
+    audio: np.ndarray, fs: int, region: dict, burst_ms: float
+) -> np.ndarray:
     """Return a copy of *audio* with a centred burst of silence injected.
 
     The burst is centred at the midpoint of the active FSK region.  Its
@@ -109,7 +113,7 @@ def _inject_burst(audio: np.ndarray, fs: int, region: dict, burst_ms: float) -> 
     burst_samples = int(round(burst_ms / 1000.0 * fs))
     centre = int(round(region["center_time"] * fs))
     start = max(0, centre - burst_samples // 2)
-    end   = min(len(audio), start + burst_samples)
+    end = min(len(audio), start + burst_samples)
     corrupted[start:end] = 0.0
     return corrupted
 
@@ -140,7 +144,9 @@ def _get_message_payloads(label_path: str) -> list[str]:
     return payloads
 
 
-def _decode_to_payloads(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int) -> list[str]:
+def _decode_to_payloads(
+    audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int
+) -> list[str]:
     """Write *audio* to a temp WAV, run decode_fsk, return valid message payloads."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
@@ -164,7 +170,13 @@ def _decode_to_payloads(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int
             os.unlink(label_path)
 
 
-def _decode_audio(audio: np.ndarray, fs: int, use_ecc: bool, ecc_nsym: int, reference: str | None = None) -> bool:
+def _decode_audio(
+    audio: np.ndarray,
+    fs: int,
+    use_ecc: bool,
+    ecc_nsym: int,
+    reference: str | None = None,
+) -> bool:
     """Decode *audio* and return True if ≥1 message passes validation.
 
     When *reference* is supplied the decoded payload must match it exactly,
@@ -191,7 +203,9 @@ def run_test() -> tuple[list[int], list[float], np.ndarray]:
     results : np.ndarray, shape (len(ecc_levels), len(burst_durations))
         1 = decoded successfully, 0 = failed.
     """
-    burst_durations = [float(x) for x in np.arange(0, MAX_BURST_MS + BURST_STEP_MS, BURST_STEP_MS)]
+    burst_durations = [
+        float(x) for x in np.arange(0, MAX_BURST_MS + BURST_STEP_MS, BURST_STEP_MS)
+    ]
     ecc_levels = [row[0] for row in ECC_FILES]
     results = np.zeros((len(ECC_FILES), len(burst_durations)), dtype=int)
 
@@ -253,23 +267,26 @@ def save_csv(ecc_levels, burst_durations, results, timestamp: str) -> str:
 
 def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     """Plot the result matrix as a heatmap with the theoretical correction boundary."""
-    plt.rcParams.update({
-        "font.size": 10,
-        "axes.labelsize": 10,
-        "axes.titlesize": 11,
-        "xtick.labelsize": 9,
-        "ytick.labelsize": 9,
-    })
+    plt.rcParams.update(
+        {
+            "font.size": 10,
+            "axes.labelsize": 10,
+            "axes.titlesize": 11,
+            "xtick.labelsize": 9,
+            "ytick.labelsize": 9,
+        }
+    )
 
     fig, ax = plt.subplots(figsize=(10, 5))
 
     # Heatmap: green = decoded, red = failed
     cmap = plt.colormaps["RdYlGn"]
-    im = ax.imshow(
+    ax.imshow(
         results,
         aspect="auto",
         cmap=cmap,
-        vmin=0, vmax=1,
+        vmin=0,
+        vmax=1,
         origin="lower",
         extent=(
             burst_durations[0] - BURST_STEP_MS / 2,
@@ -284,7 +301,7 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     #   correctable byte errors = floor(ecc_nsym / 2)
     #   burst covers ≈ burst_ms / SYMBOL_MS bits = burst_ms / (SYMBOL_MS * 8) bytes
     #   boundary: burst_limit_ms = floor(ecc_nsym / 2) * 8 * SYMBOL_MS
-    theory_ecc  = np.array(ecc_levels, dtype=float)
+    theory_ecc = np.array(ecc_levels, dtype=float)
     theory_burst = np.floor(theory_ecc / 2) * 8 * SYMBOL_MS
     ax.plot(
         theory_burst,
@@ -297,27 +314,24 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     )
     ax.scatter(theory_burst, theory_ecc, color="black", s=18, zorder=6)
 
+    from matplotlib.patches import Patch
+
     ax.set_xlabel("Burst error duration (ms)")
     ax.set_ylabel("ECC parity bytes")
-    ax.set_title("ECC Burst Error Correction — single centred burst, zeroed samples")
+    # ax.set_title("ECC Burst Error Correction — single centred burst, zeroed samples")
     ax.set_yticks(ecc_levels)
     ax.set_xlim(burst_durations[0] - BURST_STEP_MS, burst_durations[-1] + BURST_STEP_MS)
-    ax.legend(loc="upper left")
     ax.grid(False)
 
-    cbar = fig.colorbar(im, ax=ax, ticks=[0, 1], shrink=0.7)
-    cbar.set_ticklabels(["Fail", "Pass"])
-
-    # Annotate with a note about the 2× factor
-    ax.text(
-        0.99, 0.03,
-        "Dashed line = RS floor(ECC/2)×8×symbol_ms\n(actual tolerance ≈2× due to 0-bit robustness)",
-        transform=ax.transAxes,
-        ha="right", va="bottom",
-        fontsize=7.5,
-        color="black",
-        bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.7),
-    )
+    cmap = plt.colormaps["RdYlGn"]
+    legend_entries = [
+        Patch(facecolor=cmap(1.0), label="Pass"),
+        Patch(facecolor=cmap(0.0), label="Fail"),
+        ax.get_lines()[0],  # RS limit line
+    ]
+    legend = ax.legend(handles=legend_entries, loc="upper right")
+    legend.get_frame().set_alpha(0.7)
+    legend.get_frame().set_linewidth(0.5)
 
     plt.tight_layout()
 
@@ -328,6 +342,26 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     plt.close(fig)
 
 
+def load_csv(csv_path: str) -> tuple[list[int], list[float], np.ndarray]:
+    """Load a previously saved CSV and reconstruct the result matrix."""
+    ecc_set: dict[int, dict[float, int]] = {}
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            ecc = int(row["ecc_bytes"])
+            burst = float(row["burst_ms"])
+            success = int(row["success"])
+            ecc_set.setdefault(ecc, {})[burst] = success
+
+    ecc_levels = sorted(ecc_set.keys())
+    burst_durations = sorted(next(iter(ecc_set.values())).keys())
+    results = np.zeros((len(ecc_levels), len(burst_durations)), dtype=int)
+    for r, ecc in enumerate(ecc_levels):
+        for c, burst in enumerate(burst_durations):
+            results[r, c] = ecc_set[ecc][burst]
+    return ecc_levels, burst_durations, results
+
+
 def main() -> None:
     os.makedirs(RESULTS_DIR, exist_ok=True)
     print("=" * 60)
@@ -336,7 +370,9 @@ def main() -> None:
     print(f"  Burst range: 0 – {MAX_BURST_MS} ms  step: {BURST_STEP_MS} ms")
     n_steps = int(MAX_BURST_MS / BURST_STEP_MS) + 1
     est_min = len(ECC_FILES) * n_steps * 0.7 / 60
-    print(f"  Files: {len(ECC_FILES)}  ×  Burst steps: {n_steps}  (est. {est_min:.0f} min)")
+    print(
+        f"  Files: {len(ECC_FILES)}  ×  Burst steps: {n_steps}  (est. {est_min:.0f} min)"
+    )
     print("=" * 60)
 
     ecc_levels, burst_durations, results = run_test()
@@ -347,10 +383,19 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    confirm = input(
-        "This will run ~500 decode attempts. Proceed? (y/n): "
-    )
-    if confirm.strip().lower() != "y":
-        print("Cancelled.")
-        sys.exit(0)
-    main()
+    # Set to a CSV path to plot without rerunning the test, e.g.:
+    # PLOT_CSV = "results/ecc_burst_test/ecc_burst_20240101_120000.csv"
+    PLOT_CSV = "results/ecc_burst_test/ecc_burst_20260603_115059.csv"
+
+    if PLOT_CSV:
+        if not os.path.exists(PLOT_CSV):
+            print(f"Error: file not found: {PLOT_CSV}")
+            sys.exit(1)
+        ecc_levels, burst_durations, results = load_csv(PLOT_CSV)
+        plot_results(ecc_levels, burst_durations, results, PLOT_CSV)
+    else:
+        confirm = input("This will run ~500 decode attempts. Proceed? (y/n): ")
+        if confirm.strip().lower() != "y":
+            print("Cancelled.")
+            sys.exit(0)
+        main()
