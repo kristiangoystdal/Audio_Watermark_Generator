@@ -295,7 +295,10 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
             "ytick.labelsize": 15,
             "legend.fontsize": 20,
         })
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 10))
+        fig = plt.figure(figsize=(14, 10))
+        gs = fig.add_gridspec(2, 2, width_ratios=[2.2, 1], hspace=0.45)
+        ax1 = fig.add_subplot(gs[0, :])   # top: full width
+        ax2 = fig.add_subplot(gs[1, 0])   # bottom: left column only
 
         # Full spectrum
         ax1.plot(freqs, power_db, linewidth=1.0, color="blue", label="FSK signal")
@@ -402,8 +405,7 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
         )
         ax2.grid(True, alpha=0.3)
 
-        plt.tight_layout()
-        plt.subplots_adjust(right=0.68)
+        plt.tight_layout(pad=0.4)
         fig.legend(
             legend_handles, legend_labels,
             loc="center left",
