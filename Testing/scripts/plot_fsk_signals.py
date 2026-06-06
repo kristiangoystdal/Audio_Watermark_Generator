@@ -103,12 +103,14 @@ def _compute_spectrogram(segment, fs, t_start):
 
 
 def _draw_spectrogram(ax, Pxx_db, freqs, bins_abs, t_start, t_end, vmin, vmax):
-    ax.pcolormesh(bins_abs, freqs, Pxx_db, cmap="inferno", vmin=vmin, vmax=vmax,
-                  shading="auto", rasterized=True)
+    mesh = ax.pcolormesh(bins_abs, freqs, Pxx_db, cmap="inferno", vmin=vmin, vmax=vmax,
+                         shading="auto", rasterized=True)
     ax.set_ylim(0, 24000)
     ax.set_xlim(t_start, t_end)
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Frequency (Hz)")
+    cbar = ax.get_figure().colorbar(mesh, ax=ax, pad=0.02)
+    cbar.set_label("Power (dB)")
 
 
 def _plot_group(files: list[tuple[str, float, float]], out_path: str) -> None:
@@ -123,7 +125,7 @@ def _plot_group(files: list[tuple[str, float, float]], out_path: str) -> None:
         Pxx_db, freqs, bins_abs = _compute_spectrogram(segment, fs, t_start)
         data.append((f0, f1, segment, t_axis, t_start, t_end, Pxx_db, freqs, bins_abs))
 
-    vmin   = -80
+    vmin   = -110
     vmax   = -30
 
     n = len(files)
@@ -135,7 +137,7 @@ def _plot_group(files: list[tuple[str, float, float]], out_path: str) -> None:
         axes = [axes]
 
     for row, (f0, f1, segment, t_axis, t_start, t_end, Pxx_db, freqs, bins_abs) in enumerate(data):
-        label = f"f0 = {f0/1000:.0f} kHz, f1 = {f1/1000:.0f} kHz"
+        label = f"$f_0$ = {f0/1000:.0f} kHz, $f_1$ = {f1/1000:.0f} kHz"
         _draw_waveform(axes[row][0], segment, t_axis)
         axes[row][0].set_title(f"Waveform  {label}")
 
