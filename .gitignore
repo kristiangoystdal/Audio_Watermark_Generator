@@ -1,5 +1,5 @@
 .DS_Store
-*.txt
+Firmware/**/*.txt
 Software/gui/tools/*
 Software/gui/build/*
 Software/gui/dist/*
@@ -9,6 +9,8 @@ Software/gui_demodulator/icon.iconset/*
 Software/gui_demodulator/icon.icns__pycache__/
 __pycache__/
 *.venv/
+
+
 Testing/results/*
 Testing/test_files/acoustic_localization/*/audio_files/*
 Testing/test_files/bird_audio_for_spectrograms/
