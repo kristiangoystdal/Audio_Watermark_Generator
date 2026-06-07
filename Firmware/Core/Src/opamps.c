@@ -18,23 +18,13 @@ void Opamps_Disable(DAC_HandleTypeDef *hdac1) {
 }
 
 void DAC_SetZero(DAC_HandleTypeDef *hdac1) {
-  // Set DAC output to zero (silence)
-
   CLEAR_BIT(DAC1->CR, DAC_CR_TEN1);
-
   HAL_DAC_Start(hdac1, DAC_CHANNEL_1);
-
   HAL_DAC_SetValue(hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, 0);
-  // LOGF("DAC output set to zero\r\n");
 }
 
 void DAC_SetMidlevel(DAC_HandleTypeDef *hdac1, uint16_t mid_value) {
   CLEAR_BIT(DAC1->CR, DAC_CR_TEN1);
-
-  // Ensure DAC channel is enabled
   HAL_DAC_Start(hdac1, DAC_CHANNEL_1);
-
-  // Set mid-scale (12-bit right aligned)
   HAL_DAC_SetValue(hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, mid_value);
-  // LOGF("DAC output set to mid-level\r\n");
 }

@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// Simple struct for time/date
 typedef struct {
   uint8_t seconds;
   uint8_t minutes;
@@ -15,7 +14,6 @@ typedef struct {
   uint16_t year; // e.g. 2025
 } rtc_time_t;
 
-// Public functions
 void DS3231_PowerOn(void);
 void DS3231_PowerOff(void);
 void DS3231_GetTime(rtc_time_t *time);
