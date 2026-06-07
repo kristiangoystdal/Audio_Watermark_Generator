@@ -1,0 +1,26 @@
+RTC Drift Measurement Log
+Started: 2026-06-02 14:09:08
+Port: /dev/cu.usbmodem206F36BF58311
+============================================================
+Timer: time.monotonic() (immune to NTP, anchored to wall clock at start)
+============================================================
+
+[RECONNECT] 2026-06-02 14:09:08
+[TRIGGER] Real: 14:09:14.845, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.849, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.853, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.857, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.861, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.865, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.869, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.873, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.877, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.881, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.885, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.889, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.893, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.897, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.901, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.905, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.909, Module: 12:09:13, TICK=7334
+[TRIGGER] Real: 14:09:14.913, Module: 12:09:14, TICK=7334
