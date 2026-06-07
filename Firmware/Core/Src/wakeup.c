@@ -29,7 +29,6 @@ void WakeUp_TimeToMinutes(uint16_t hour, uint16_t minute,
 }
 
 void WakeUp_Init(rtc_time_t now) {
-  // Convert schedule start and end times to total minutes for easier comparison
   WakeUp_TimeToMinutes(schedule_start_hour, schedule_start_minute,
                        &schedule_start_total_minutes);
   WakeUp_TimeToMinutes(schedule_end_hour, schedule_end_minute,
@@ -75,8 +74,7 @@ void WakeUp_CalculateNextValidTime(void) {
 
   if (!WakeUp_CheckIfWithinSchedule(
           (rtc_time_t){.hours = current_hour, .minutes = current_minute})) {
-    // If current time is before the start of the schedule, set next valid
-    // time to the start of the schedule
+    // Outside schedule window — snap to schedule start
     next_valid_hour = schedule_start_hour;
     next_valid_minute = schedule_start_minute;
     return;

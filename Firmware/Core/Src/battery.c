@@ -5,22 +5,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define LOW_BATTERY_THRESHOLD_MV 3000 // Example threshold for low battery
+#define LOW_BATTERY_THRESHOLD_MV 3000
 
 uint16_t Battery_ReadVoltage(ADC_HandleTypeDef *hadc1) {
   uint32_t adc_value = 0;
   uint16_t voltage_mV = 0;
 
-  // Read ADC value
   HAL_ADC_Start(hadc1);
   if (HAL_ADC_PollForConversion(hadc1, HAL_MAX_DELAY) == HAL_OK) {
     adc_value = HAL_ADC_GetValue(hadc1);
   }
   HAL_ADC_Stop(hadc1);
 
-  // Convert ADC value to millivolts (assuming 12-bit ADC and 3.3V reference)
-  // Input voltage is divided by 2 due to external voltage divider (1M and 1M),
-  // so we multiply by 2 to compensate
+  // 12-bit ADC, 3.3V ref; x2 to undo the external 1M/1M voltage divider
   voltage_mV = (uint16_t)((adc_value * 3300 * 2) / 4095);
 
   return voltage_mV;
