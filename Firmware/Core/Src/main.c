@@ -1816,7 +1816,7 @@ static int init_luts_from_freqpair(void) {
 
 void Error_Handler_Code(status_code_t code) {
   g_error_code = code;
-  // Error_Handler(); // call the CubeMX-compatible one
+  Error_Handler(); 
 }
 
 int _write(int file, char *ptr, int len) {
