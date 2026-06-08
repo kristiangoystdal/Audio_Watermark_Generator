@@ -244,7 +244,7 @@ def send_time_sync(root, safe_log):
 
     messagebox.showinfo(
         "Toggle BOOT0",
-        "Flash complete!\n\nSet BOOT0 LOW and power-cycle. Click OK when done.",
+        "Flash complete!\n\nSet BOOT0 LOW and replug the device. Click OK when done.",
     )
 
     port = None
