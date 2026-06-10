@@ -1,6 +1,5 @@
 #include "led_feedback.h"
 
-// Duration for LED blinks in milliseconds
 uint16_t short_duration_ms = 100;
 uint16_t long_duration_ms = 300;
 uint16_t duration_between_blinks_ms = 200;

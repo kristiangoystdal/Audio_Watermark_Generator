@@ -1,4 +1,3 @@
-// flash_flag.h
 #ifndef FLASH_FLAG_H
 #define FLASH_FLAG_H
 

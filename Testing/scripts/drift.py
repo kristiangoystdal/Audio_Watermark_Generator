@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, date as date_type
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 
-DRIFT_DIR = Path("test_files/rtc_measurements/drift_2")
+DRIFT_DIR = Path("test_files/rtc_measurements/drift")
 RESULTS_DIR = Path("results/drift")
 FILTER_OUTLIERS = False
 

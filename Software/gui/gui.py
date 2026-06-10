@@ -587,7 +587,7 @@ class FlashToolApp(tk.Tk):
             fg=c["text"],
         ).grid(row=0, column=0, sticky="w", padx=(16, 6))
 
-        self.widgets["run_duration"] = tk.Spinbox(
+        self.widgets["base_run_duration"] = tk.Spinbox(
             row,
             from_=1,
             to=1440,
@@ -603,7 +603,7 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["run_duration"].grid(row=0, column=1, sticky="w")
+        self.widgets["base_run_duration"].grid(row=0, column=1, sticky="w")
 
         tk.Label(
             row,
@@ -612,7 +612,7 @@ class FlashToolApp(tk.Tk):
             fg=c["text"],
         ).grid(row=0, column=2, sticky="w", padx=(16, 6))
 
-        self.widgets["sleep_duration"] = tk.Spinbox(
+        self.widgets["base_sleep_duration"] = tk.Spinbox(
             row,
             from_=0,
             to=1440,
@@ -628,7 +628,7 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["sleep_duration"].grid(row=0, column=3, sticky="w")
+        self.widgets["base_sleep_duration"].grid(row=0, column=3, sticky="w")
 
         # Schedule Settings section
         schedule = self.section(left, "Schedule Settings (UTC)", 3)
@@ -895,7 +895,7 @@ class FlashToolApp(tk.Tk):
             fg=c["text"],
         ).grid(row=0, column=0, sticky="w", padx=(16, 6))
 
-        self.widgets["run_duration"] = tk.Spinbox(
+        self.widgets["standalone_run_duration"] = tk.Spinbox(
             row,
             from_=1,
             to=1440,
@@ -911,7 +911,7 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["run_duration"].grid(row=0, column=1, sticky="w")
+        self.widgets["standalone_run_duration"].grid(row=0, column=1, sticky="w")
 
         tk.Label(
             row,
@@ -920,7 +920,7 @@ class FlashToolApp(tk.Tk):
             fg=c["text"],
         ).grid(row=0, column=2, sticky="w", padx=(16, 6))
 
-        self.widgets["sleep_duration"] = tk.Spinbox(
+        self.widgets["standalone_sleep_duration"] = tk.Spinbox(
             row,
             from_=0,
             to=1440,
@@ -936,7 +936,7 @@ class FlashToolApp(tk.Tk):
             relief="solid",
             bd=1,
         )
-        self.widgets["sleep_duration"].grid(row=0, column=3, sticky="w")
+        self.widgets["standalone_sleep_duration"].grid(row=0, column=3, sticky="w")
 
         # Schedule Settings section
         schedule = self.section(left, "Schedule Settings", 3)
@@ -1162,12 +1162,43 @@ class FlashToolApp(tk.Tk):
         self.bind_all("<Button-1>", self.defocus_all, add="+")
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
+        spinbox_clamps = [
+            ("base_run_duration", self.vars["run_minutes"], 1, 1440),
+            ("base_sleep_duration", self.vars["sleep_minutes"], 0, 1440),
+            ("standalone_run_duration", self.vars["run_minutes"], 1, 1440),
+            ("standalone_sleep_duration", self.vars["sleep_minutes"], 0, 1440),
+            ("base_start_hour", self.vars["starting_hour"], 0, 23),
+            ("base_start_minute", self.vars["starting_minute"], 0, 59),
+            ("base_end_hour", self.vars["end_hour"], 0, 23),
+            ("base_end_minute", self.vars["end_minute"], 0, 59),
+            ("standalone_start_hour", self.vars["starting_hour"], 0, 23),
+            ("standalone_start_minute", self.vars["starting_minute"], 0, 59),
+            ("standalone_end_hour", self.vars["end_hour"], 0, 23),
+            ("standalone_end_minute", self.vars["end_minute"], 0, 59),
+            ("receiver_attenuation", self.vars["attenuation"], 0, 100),
+            ("standalone_attenuation", self.vars["attenuation"], 0, 100),
+            ("receiver_ecc_level", self.vars["ecc_level"], 0, 100),
+            ("standalone_ecc_level", self.vars["ecc_level"], 0, 100),
+        ]
+        for key, var, min_val, max_val in spinbox_clamps:
+            widget = self.widgets[key]
+            clamp = lambda _, v=var, lo=min_val, hi=max_val: self._clamp_int_var(v, lo, hi)
+            widget.bind("<FocusOut>", clamp, add="+")
+            widget.bind("<Return>", clamp, add="+")
+
     def _init_dynamic_state(self):
         self.toggle_ecc_level_field()
         self.update_low_frequency()
         self.update_high_frequency()
         self.update_attenuation_db_label()
         self.on_tab_changed()
+
+    def _clamp_int_var(self, var, min_val, max_val):
+        try:
+            val = max(min_val, min(max_val, int(str(var.get()).strip())))
+        except (ValueError, tk.TclError):
+            val = min_val
+        var.set(val)
 
     def toggle_ecc_level_field(self):
         state = "normal" if self.vars["ecc_enabled"].get() else "disabled"

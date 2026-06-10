@@ -21,11 +21,10 @@ static bool wait_miso_low(uint32_t timeout_ms) {
   return true;
 }
 
-// Bit-bang SPI function
 static uint8_t bb_byte(uint8_t tx) {
   uint8_t rx = 0;
   for (int i = 7; i >= 0; i--) {
-    // Drive MOSI before rising edge
+    // Drive MOSI before rising edge (SPI Mode 0)
     if (tx & (1u << i))
       MOSI_HIGH;
     else
@@ -42,12 +41,8 @@ static uint8_t bb_byte(uint8_t tx) {
   return rx;
 }
 
-// CC1101 public API functions
-
-// Perform a power-up reset of the CC1101 and verify MISO goes low
 bool CC1101_PowerUpReset(void) {
-  // Ensure SCK idles low (Mode 0)
-  GPIOB->BSRR = ((uint32_t)BB_SCK << 16);
+  GPIOB->BSRR = ((uint32_t)BB_SCK << 16); // SCK idle-low (Mode 0)
 
   cs_high();
   HAL_Delay(100);
@@ -62,7 +57,6 @@ bool CC1101_PowerUpReset(void) {
   wait_miso_low(100);
   bb_byte(0x30); // SRES
 
-  // Try up to 5 times with increasing delays
   for (int i = 0; i < 5; i++) {
     HAL_Delay(10 + i * 10);
     LOGF("IDR PB5 attempt %d: %lu\r\n", i, (GPIOB->IDR & BB_MISO));

@@ -13,20 +13,16 @@ extern I2C_HandleTypeDef hi2c2; // defined in i2c.c
 
 #define DS3231_ADDR (0x68 << 1) // 7-bit address shifted for HAL
 
-// Initialize DS3231
 void DS3231_Init(void) {
   uint8_t sec;
 
-  // Read current seconds register
   if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec, 1,
                        10) != HAL_OK) {
     return;
   }
 
-  // Clear CH (bit 7)
-  sec &= 0x7F;
+  sec &= 0x7F; // Clear CH bit to enable oscillator
 
-  // Write it back
   if (HAL_I2C_Mem_Write(&hi2c2, DS3231_ADDR, 0x00, I2C_MEMADD_SIZE_8BIT, &sec,
                         1, 10) != HAL_OK) {
     return;
@@ -34,29 +30,24 @@ void DS3231_Init(void) {
   return;
 }
 
-// Power on the DS3231 by setting the control pin high
 void DS3231_PowerOn(void) {
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
   HAL_Delay(10);
 }
 
-// Power off the DS3231 by setting the control pin low
 void DS3231_PowerOff(void) {
   HAL_Delay(10);
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 }
 
-// Convert normal decimal numbers to binary coded decimal
 static uint8_t DS3231_DecToBcd(int val) {
   return (uint8_t)((val / 10 * 16) + (val % 10));
 }
 
-// Convert binary coded decimal to normal decimal numbers
 static int DS3231_BcdToDec(uint8_t val) {
   return (int)((val / 16 * 10) + (val % 16));
 }
 
-// Set time/date into DS3231
 void DS3231_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow,
                     uint8_t dom, uint8_t month, uint16_t year) {
   uint8_t set_time[7];
@@ -72,7 +63,6 @@ void DS3231_SetTime(uint8_t sec, uint8_t min, uint8_t hour, uint8_t dow,
                     7, 10);
 }
 
-// Read time/date from DS3231
 void DS3231_GetTime(rtc_time_t *time) {
   uint8_t get_time[7];
   HAL_StatusTypeDef ret = HAL_I2C_Mem_Read(
@@ -101,14 +91,9 @@ void DS3231_GetTime(rtc_time_t *time) {
   time->month = DS3231_BcdToDec(get_time[5] & 0x1F);
   time->year = 2000 + DS3231_BcdToDec(get_time[6]);
 
-  // LOGF("Read time from DS3231: %02d:%02d:%02d, %02d/%02d/%04d, DOW: %u\r\n",
-  //      time->hours, time->minutes, time->seconds, time->date, time->month,
-  //      time->year, time->day);
-
   return;
 }
 
-// Read temperature from DS3231 (integer °C only)
 void DS3231_ReadTemperature(int8_t *temperature) {
   uint8_t msb;
   if (HAL_I2C_Mem_Read(&hi2c2, DS3231_ADDR, 0x11, I2C_MEMADD_SIZE_8BIT, &msb, 1,

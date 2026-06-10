@@ -1,4 +1,3 @@
-// flash_flag.c
 #include "flash_flag.h"
 #include "stm32g4xx_hal.h"
 
@@ -19,7 +18,6 @@ void FlashFlag_SetTimeWasSet(void) {
 
   HAL_FLASH_Unlock();
 
-  // G4 uses FLASH_TYPEERASE_PAGES with Banks
   FLASH_EraseInitTypeDef erase = {0};
   uint32_t page_error = 0;
   erase.TypeErase = FLASH_TYPEERASE_PAGES;

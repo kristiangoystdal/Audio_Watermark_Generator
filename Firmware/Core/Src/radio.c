@@ -20,7 +20,6 @@ int8_t Radio_InitRXMode(void) {
   LOGF("Initializing radio in RX mode...\r\n");
   uint8_t status = 0;
 
-  // Write configuration for RX
   for (int i = 0; i < sizeof(cc1101_cfg_rx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_rx[i].addr, cc1101_cfg_rx[i].value, &status);
     if (status != 0x0F) {
@@ -30,16 +29,12 @@ int8_t Radio_InitRXMode(void) {
     }
   }
 
-  // Calibrate with XOSC active
   CC1101_Strobe(0x33, &status); // SCAL
   HAL_Delay(2);
 
-  // Enter continuous RX mode instead of WOR
-  CC1101_Strobe(0x34, &status); // SRX (continuous RX) ← CHANGE from SWOR (0x38)
-
+  CC1101_Strobe(0x34, &status); // SRX
   HAL_Delay(10);
 
-  // Log actual frequency
   uint8_t freq2, freq1, freq0;
   CC1101_ReadReg(0x0D, &freq2, &status);
   CC1101_ReadReg(0x0E, &freq1, &status);
@@ -55,16 +50,13 @@ int8_t Radio_InitRXMode(void) {
   CC1101_ReadReg(0x23, &fscal3, &status);
   LOGF("FSCAL3: 0x%02X\r\n", fscal3);
 
-  // Enter continuous RX mode
   CC1101_Strobe(0x34, &status); // SRX
   HAL_Delay(10);
 
-  // CHECK MARCSTATE
   uint8_t marcstate = 0;
   CC1101_ReadReg(0xF5, &marcstate, &status);
   LOGF("MARCSTATE after SRX: 0x%02X (expect 0x0D)\r\n", marcstate & 0x1F);
 
-  // CHECK if GDO0 pin is configured
   uint8_t iocfg0 = 0;
   CC1101_ReadReg(0x02, &iocfg0, &status);
   LOGF("IOCFG0: 0x%02X\r\n", iocfg0);
@@ -76,11 +68,9 @@ int8_t Radio_InitRXMode(void) {
 int8_t Radio_InitTXMode(void) {
   uint8_t status = 0;
 
-  // Enter IDLE first
   CC1101_Strobe(0x36, &status); // SIDLE
   HAL_Delay(5);
 
-  // Write configuration for TX
   for (int i = 0; i < sizeof(cc1101_cfg_tx) / sizeof(ism_reg_t); i++) {
     CC1101_WriteReg(cc1101_cfg_tx[i].addr, cc1101_cfg_tx[i].value, &status);
     if (status != 0x0F) {
@@ -90,23 +80,19 @@ int8_t Radio_InitTXMode(void) {
     }
   }
 
-  // Calibrate (crystal auto-enabled on power-up)
   CC1101_Strobe(0x33, &status); // SCAL
   HAL_Delay(10);
 
-  // Set TX power (PATABLE)
   uint8_t patable[] = {0xC0}; // 12dBm
   CC1101_WriteBurstReg(0x3E, patable, sizeof(patable), &status);
   LOGF("PATABLE set to 0x%02X (12dBm)\r\n", patable[0]);
 
-  // Verify MCSM1 was written
   uint8_t mcsm1_verify = 0;
   CC1101_ReadReg(0x17, &mcsm1_verify, &status);
   LOGF("MCSM1 verify: expected 0x04, got 0x%02X\r\n", mcsm1_verify);
 
   message_id = 0;
 
-  // Read back all modem config registers
   uint8_t mdmcfg4, mdmcfg3, mdmcfg2, mdmcfg1, mdmcfg0;
   CC1101_ReadReg(0x10, &mdmcfg4, &status);
   CC1101_ReadReg(0x11, &mdmcfg3, &status);
@@ -138,8 +124,6 @@ int8_t Radio_InitTXMode(void) {
   LOGF("FREQ regs: 0x%02X 0x%02X 0x%02X, freq_reg=0x%06lX\r\n", freq2, freq1,
        freq0, freq_reg);
 
-  // f = (freq_reg / 2^24) * 26MHz
-  // f = (freq_reg * 26000000) / 16777216
   uint64_t f_hz = (freq_reg * 26000000UL) / 16777216UL;
   uint64_t f_mhz = f_hz / 1000000UL;
   uint64_t f_khz = (f_hz % 1000000UL) / 1000UL;
@@ -150,7 +134,6 @@ int8_t Radio_InitTXMode(void) {
   CC1101_ReadReg(0x23, &fscal3, &status);
   LOGF("FSCAL3: 0x%02X\r\n", fscal3);
 
-  // Calculate and log baud rate
   uint32_t drate_e = mdmcfg4 & 0x0F;
   uint32_t drate_m = mdmcfg3;
   float drate = (26e6 / (1 << 20)) * ((drate_m + 256) << drate_e);
@@ -232,52 +215,6 @@ char *Radio_BuildPayload(uint32_t offset_ms) {
   return strdup(temp_buf);
 }
 
-void Radio_TransmitSync(void) {
-  uint8_t status = 0;
-
-  // PHASE 1: Send SYNC packet for 2 seconds to wake all RX units
-  LOGF("PHASE 1: Broadcasting SYNC packets...\r\n");
-
-  uint32_t sync_end = HAL_GetTick() + 2000;
-  int sync_count = 0;
-
-  while (HAL_GetTick() < sync_end) {
-    // Sync packet: length + addr + "/SYNC"
-    uint8_t sync_pkt[8] = {0x06, 0xEB, '/', 'S', 'Y', 'N', 'C', 0};
-
-    CC1101_Strobe(0x3B, &status); // Flush FIFO
-    HAL_Delay(1);
-
-    CC1101_WriteBurstReg(0x3F, sync_pkt, sizeof(sync_pkt), &status);
-
-    uint8_t txbytes_after = 0;
-    CC1101_ReadReg(0xFA, &txbytes_after, &status);
-    if ((txbytes_after & 0x7F) == 0) {
-      LOGF("ERROR: FIFO write failed!\r\n");
-      return;
-    }
-
-    CC1101_Strobe(0x35, &status); // STX
-
-    // Wait for TX to complete
-    uint8_t marcstate = 0x13;
-    uint32_t tx_timeout = HAL_GetTick() + 500;
-    while (HAL_GetTick() < tx_timeout) {
-      CC1101_ReadReg(0xF5, &marcstate, &status);
-      marcstate &= 0x1F;
-      if (marcstate == 0x01)
-        break;
-      HAL_Delay(10);
-    }
-
-    sync_count++;
-    HAL_Delay(80); // 80ms between SYNC packets
-  }
-
-  LOGF("SYNC phase complete: sent %d SYNC packets\r\n", sync_count);
-  HAL_Delay(100);
-}
-
 static uint32_t last_tx_calibration = 0;
 const uint32_t TX_RECAL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -285,14 +222,15 @@ void Radio_Transmit(void) {
   uint32_t now = HAL_GetTick();
   uint8_t status = 0;
 
-  // Recalibrate every 5 minutes (temperature drift compensation)
+  // Periodic recalibration to compensate for temperature-induced frequency
+  // drift
   if (now - last_tx_calibration > TX_RECAL_INTERVAL_MS) {
     LOGF("TX: Recalibrating for temperature drift...\r\n");
     CC1101_Strobe(0x36, &status); // SIDLE
     HAL_Delay(5);
     CC1101_Strobe(0x33, &status); // SCAL
     HAL_Delay(2);
-    CC1101_Strobe(0x35, &status); // STX (back to TX)
+    CC1101_Strobe(0x35, &status); // STX
     HAL_Delay(10);
     last_tx_calibration = now;
   }
@@ -308,7 +246,7 @@ void Radio_Transmit(void) {
 
   LOGF("Packet size: 61 bytes (PKTLEN match)\r\n");
 
-  CC1101_Strobe(0x3B, &status);
+  CC1101_Strobe(0x3B, &status); // SFTX
   HAL_Delay(1);
 
   CC1101_WriteBurstReg(0x3F, pkt, sizeof(pkt), &status);
@@ -393,7 +331,7 @@ void Radio_EnterWOR(void) {
   HAL_Delay(10);
   CC1101_Strobe(0x33, &status); // SCAL
   HAL_Delay(10);
-  CC1101_Strobe(0x34, &status); // SRX (continuous RX) ← CHANGE from 0x38
+  CC1101_Strobe(0x34, &status); // SRX
 }
 
 void Radio_EnterSleep(void) {

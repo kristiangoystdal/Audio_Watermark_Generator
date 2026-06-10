@@ -12,7 +12,6 @@ void Relay_SetMixingMode(void) {
   Relay_ResetBoth();
 
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_ON, GPIO_PIN_SET);
-  // HAL_Delay(RELAY_TOGGLE_DELAY_MS);
   HAL_Delay(10);
   HAL_GPIO_WritePin(RELAY_GPIO_Port, RELAY_PIN_ON, GPIO_PIN_RESET);
 }

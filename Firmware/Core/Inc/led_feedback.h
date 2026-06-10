@@ -9,7 +9,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// GPIO definitions for the LED (modify as needed for your board)
 #define LED_GPIO_Port GPIOA
 #define LED_Pin GPIO_PIN_10
 
