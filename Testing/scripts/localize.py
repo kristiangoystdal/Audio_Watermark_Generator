@@ -43,7 +43,7 @@ os.makedirs(_RESULTS_DIR, exist_ok=True)
 # ── Dataset selection ──────────────────────────────────────────────────────────
 # Change DATASET to "1" or "2" to switch between recording sessions.
 
-DATASET = "1"
+DATASET = "2"
 
 _MIC_COORDS = [
     (63.418681, 10.407075),
@@ -798,6 +798,6 @@ for sp, (best_est, best_conf, best_ts) in best_estimates.items():
     out_path = os.path.join(_PLOT_DIR, f"{safe_name}_best.png")
     plt.savefig(out_path, dpi=300, bbox_inches="tight")
     plt.close(fig_sp)
-    print(f"Saved {os.path.basename(out_path)} to {_RESULTS_DIR}")
+    print(f"Saved {os.path.basename(out_path)} to {_RESULTS_DIR}  (conf={best_conf:.2f})")
 
 plt.show()

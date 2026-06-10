@@ -227,8 +227,6 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
     harmonics_to_check = [
         (2 * f0_refined, "2f0"),
         (2 * f1_refined, "2f1"),
-        (f1_refined - f0_refined, "f1-f0"),
-        (f1_refined + f0_refined, "f1+f0"),
     ]
 
     harmonic_levels = {}  # {label: (freq, power_db)}
@@ -286,7 +284,8 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
 
     # ========== PLOT ==========
     if plot:
-        HARMONIC_LABEL_FONTSIZE = 20  # font size for 2f0, 2f1, f1-f0, f1+f0 annotations
+        HARMONIC_LABEL_FONTSIZE = 20
+        HARMONIC_DISPLAY = {"2f0": r"$2f_0$", "2f1": r"$2f_1$"}
         plt.rcParams.update({
             "font.size": 20,
             "axes.titlesize": 20,
@@ -295,8 +294,8 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
             "ytick.labelsize": 15,
             "legend.fontsize": 20,
         })
-        fig = plt.figure(figsize=(14, 10))
-        gs = fig.add_gridspec(2, 2, width_ratios=[2.2, 1], hspace=0.45)
+        fig = plt.figure(figsize=(14, 6.2))
+        gs = fig.add_gridspec(2, 2, width_ratios=[2.4, 1.0], hspace=0.42)
         ax1 = fig.add_subplot(gs[0, :])   # top: full width
         ax2 = fig.add_subplot(gs[1, 0])   # bottom: left column only
 
@@ -317,30 +316,14 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
             peak_f0_db,
             "ro",
             markersize=12,
-            label=f"f0: {peak_f0_db:.1f} dB",
+            label=f"$f_0$: {peak_f0_db:.1f} dB",
         )
         ax1.plot(
             f1_refined,
             peak_f1_db,
             "go",
             markersize=12,
-            label=f"f1: {peak_f1_db:.1f} dB",
-        )
-
-        # Mark detection bands
-        ax1.axvspan(
-            f0_refined - detect_bw,
-            f0_refined + detect_bw,
-            alpha=0.1,
-            color="red",
-            label="f0 detection band",
-        )
-        ax1.axvspan(
-            f1_refined - detect_bw,
-            f1_refined + detect_bw,
-            alpha=0.1,
-            color="green",
-            label="f1 detection band",
+            label=f"$f_1$: {peak_f1_db:.1f} dB",
         )
 
         # Mark OOB regions
@@ -350,27 +333,28 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
         # Mark harmonics
         for label, (f_harm, p_harm) in harmonic_levels.items():
             ax1.plot(
-                f_harm, p_harm, "x", color="purple", markersize=10, markeredgewidth=2
+                f_harm, p_harm, "x", color="deeppink", markersize=10, markeredgewidth=2
             )
             ax1.annotate(
-                label,
+                HARMONIC_DISPLAY.get(label, label),
                 xy=(f_harm, p_harm),
                 xytext=(5, 5),
                 textcoords="offset points",
                 fontsize=HARMONIC_LABEL_FONTSIZE,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
             )
 
         ax1.set_xlim(0, sr / 2)
         ax1.set_ylim(min(noise_floor, float(np.min(silence_db))) - 10, strongest_peak + 15)
         ax1.set_xlabel("Frequency (Hz)")
         ax1.set_ylabel("Power (dB)")
-        ax1.set_title(f"Full Spectrum: {Path(audio_path).name}")
+        ax1.set_title("Full Spectrum")
         ax1.grid(True, alpha=0.3)
         legend_handles, legend_labels = ax1.get_legend_handles_labels()
 
-        # Zoomed inter-tone region
-        zoom_start = f0_refined - 500
-        zoom_end = f1_refined + 500
+        # Zoomed inter-tone region (matches the non-OOB highlighted band on ax1)
+        zoom_start = f0_refined - oob_margin
+        zoom_end = f1_refined + oob_margin
         zoom_mask = (freqs >= zoom_start) & (freqs <= zoom_end)
 
         ax2.plot(
@@ -379,16 +363,14 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
             linewidth=1.5,
             color="blue",
         )
+        ax2.plot(
+            freqs[zoom_mask],
+            silence_db[zoom_mask],
+            linewidth=1.0,
+            color="darkorange",
+        )
         ax2.plot(f0_refined, peak_f0_db, "ro", markersize=12)
         ax2.plot(f1_refined, peak_f1_db, "go", markersize=12)
-
-        # Shade detection bands
-        ax2.axvspan(
-            f0_refined - detect_bw, f0_refined + detect_bw, alpha=0.15, color="red"
-        )
-        ax2.axvspan(
-            f1_refined - detect_bw, f1_refined + detect_bw, alpha=0.15, color="green"
-        )
 
         ax2.axhline(
             noise_floor,
@@ -397,23 +379,20 @@ def measure_spectral_purity(audio_path, f0, f1, detect_bw=150, plot=False):
             linewidth=1.5,
         )
 
-        ax2.set_xlim(zoom_start, zoom_end)
+        ax2.set_xlim(zoom_start, min(zoom_end, freqs[-1]))
         ax2.set_xlabel("Frequency (Hz)")
         ax2.set_ylabel("Power (dB)")
-        ax2.set_title(
-            f"Inter-tone Region (Isolation: f0={isolation_f0:.1f} dB, f1={isolation_f1:.1f} dB)",
-        )
+        ax2.set_title("Inter-tone Region")
         ax2.grid(True, alpha=0.3)
 
-        plt.tight_layout(pad=0.4)
+        plt.tight_layout(pad=0.2)
+        fig.subplots_adjust(top=0.94, bottom=0.10, left=0.08, right=0.99)
         fig.legend(
             legend_handles, legend_labels,
             loc="center left",
-            bbox_to_anchor=(0.70, 0.27),
+            bbox_to_anchor=(0.71, 0.27),
         )
-        extracted_subfolder = extract_subfolder_name(audio_path)
-        folder_path = os.path.join("spectral_purity", extracted_subfolder)
-        save_plot_to_results_folder(plt, folder_path, Path(audio_path).stem + ".png")
+        save_plot_to_results_folder(plt, "spectral_purity", Path(audio_path).stem + ".png")
         plt.close()
 
     return results
