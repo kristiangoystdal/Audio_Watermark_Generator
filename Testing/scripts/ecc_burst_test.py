@@ -269,11 +269,12 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     """Plot the result matrix as a heatmap with the theoretical correction boundary."""
     plt.rcParams.update(
         {
-            "font.size": 10,
-            "axes.labelsize": 10,
-            "axes.titlesize": 11,
-            "xtick.labelsize": 9,
-            "ytick.labelsize": 9,
+            "font.size": 14,
+            "axes.labelsize": 14,
+            "axes.titlesize": 15,
+            "xtick.labelsize": 13,
+            "ytick.labelsize": 13,
+            "legend.fontsize": 13,
         }
     )
 
@@ -309,7 +310,7 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
         color="black",
         linestyle="--",
         linewidth=1.5,
-        label=f"RS limit: ⌊ECC/2⌋ × 8 × {SYMBOL_MS:.1f} ms",
+        label=f"RS limit: ⌊$N_{{ECC}}$/2⌋ × 8 × {SYMBOL_MS:.1f} ms",
         zorder=5,
     )
     ax.scatter(theory_burst, theory_ecc, color="black", s=18, zorder=6)
@@ -317,11 +318,29 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
     from matplotlib.patches import Patch
 
     ax.set_xlabel("Burst error duration (ms)")
-    ax.set_ylabel("ECC parity bytes")
+    ax.set_ylabel("$N_{ECC}$ parity bytes")
     # ax.set_title("ECC Burst Error Correction — single centred burst, zeroed samples")
     ax.set_yticks(ecc_levels)
     ax.set_xlim(burst_durations[0] - BURST_STEP_MS, burst_durations[-1] + BURST_STEP_MS)
     ax.grid(False)
+
+    # Semi-transparent grid at cell boundaries, so individual test points stand out
+    burst_arr = np.array(burst_durations, dtype=float)
+    ecc_arr = np.array(ecc_levels, dtype=float)
+    x_edges = np.concatenate((
+        [burst_arr[0] - BURST_STEP_MS / 2],
+        (burst_arr[:-1] + burst_arr[1:]) / 2,
+        [burst_arr[-1] + BURST_STEP_MS / 2],
+    ))
+    y_edges = np.concatenate((
+        [ecc_arr[0] - 5],
+        (ecc_arr[:-1] + ecc_arr[1:]) / 2,
+        [ecc_arr[-1] + 5],
+    ))
+    ax.set_xticks(x_edges, minor=True)
+    ax.set_yticks(y_edges, minor=True)
+    ax.tick_params(which="minor", length=0)
+    ax.grid(which="minor", color="white", alpha=0.3, linewidth=0.6)
 
     cmap = plt.colormaps["RdYlGn"]
     legend_entries = [
@@ -329,7 +348,7 @@ def plot_results(ecc_levels, burst_durations, results, csv_path: str) -> None:
         Patch(facecolor=cmap(0.0), label="Fail"),
         ax.get_lines()[0],  # RS limit line
     ]
-    legend = ax.legend(handles=legend_entries, loc="upper right")
+    legend = ax.legend(handles=legend_entries, loc="center right")
     legend.get_frame().set_alpha(0.7)
     legend.get_frame().set_linewidth(0.5)
 
@@ -385,7 +404,7 @@ def main() -> None:
 if __name__ == "__main__":
     # Set to a CSV path to plot without rerunning the test, e.g.:
     # PLOT_CSV = "results/ecc_burst_test/ecc_burst_20240101_120000.csv"
-    PLOT_CSV = "results/ecc_burst_test/ecc_burst_20260603_115059.csv"
+    PLOT_CSV = "results/ecc_burst_test/ecc_burst_20260528_125919.csv"
 
     if PLOT_CSV:
         if not os.path.exists(PLOT_CSV):
