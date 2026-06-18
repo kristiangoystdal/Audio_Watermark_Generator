@@ -1,0 +1,50 @@
+RTC Drift Measurement Log
+Started: 2026-06-02 15:03:32
+Port: /dev/cu.usbmodem207836C058311
+============================================================
+Timer: time.monotonic() (immune to NTP, anchored to wall clock at start)
+============================================================
+
+[RECONNECT] 2026-06-02 15:03:32
+[TRIGGER] Real: 15:03:39.173, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.177, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.181, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.185, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.189, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.193, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.197, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.201, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.205, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.209, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.213, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.217, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.221, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.225, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.229, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.233, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.237, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.241, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.245, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.249, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.253, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.257, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.261, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.265, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.269, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.273, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.277, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.281, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.285, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.289, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.293, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.297, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.301, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.305, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.309, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.313, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.317, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.321, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.325, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.329, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.333, Module: 13:03:38, TICK=7337
+[TRIGGER] Real: 15:03:39.337, Module: 13:03:39, TICK=7337

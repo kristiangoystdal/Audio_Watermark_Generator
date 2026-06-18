@@ -1,0 +1,928 @@
+#!/usr/bin/env python3
+"""
+RTC Drift Analyzer - Calculates module clock drift from TXT files.
+
+Reads [TRIGGER] logs with format:
+  [TRIGGER] Real: HH:MM:SS.mmm, Module: HH:MM:SS
+
+Directory structure expected:
+  test_files/rtc_measurements/drift/
+    module_A/log1.txt
+    module_A/log2.txt   (multiple files per module are combined)
+    module_B/log1.txt
+    module_C.txt        (root-level files also supported)
+    ...
+
+Outputs:
+  results/drift/
+    module_A/  drift_report.txt
+    module_A/  drift_plot.png
+    module_B/  drift_report.txt
+    module_B/  drift_plot.png
+    ...
+    drift_results.csv   (all modules combined)
+    drift_plot_all.png  (combined comparison)
+"""
+
+import re
+from pathlib import Path
+from datetime import datetime, timedelta, date as date_type
+
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+DRIFT_DIR = Path("test_files/rtc_measurements/drift")
+RESULTS_DIR = Path("results/drift")
+FILTER_OUTLIERS = False
+
+
+# ---------------------------------------------------------------------------
+# Parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_txt_file(filepath):
+    """
+    Parse [TRIGGER] log file.
+    Returns list of (real_datetime, module_datetime, offset_seconds).
+
+    Format:
+      [TRIGGER] Real: HH:MM:SS.mmm, Module: HH:MM:SS
+
+    Offset = real_time - module_time (positive = module is slow/behind)
+
+    Date is read from the "Started: YYYY-MM-DD" header line so that files
+    from different days produce distinct timestamps when combined.
+    Falls back to 2026-01-01 if no header is found.
+    """
+    measurements = []
+    trigger_pattern = (
+        r"\[TRIGGER\]\s+Real:\s+(\d+):(\d+):([\d.]+),\s+Module:\s+(\d+):(\d+):(\d+)"
+    )
+    date_pattern = r"Started:\s+(\d{4}-\d{2}-\d{2})"
+    log_date = None
+
+    with open(filepath, "r") as f:
+        for line_num, line in enumerate(f, 1):
+            if log_date is None:
+                dm = re.search(date_pattern, line)
+                if dm:
+                    log_date = datetime.strptime(dm.group(1), "%Y-%m-%d").date()
+
+            match = re.search(trigger_pattern, line)
+            if not match:
+                continue
+
+            try:
+                rh = int(match.group(1))
+                rm = int(match.group(2))
+                rs_float = float(match.group(3))
+
+                mh = int(match.group(4))
+                mm = int(match.group(5))
+                ms_int = int(match.group(6))
+
+                # Convert to seconds since midnight
+                real_seconds = rh * 3600 + rm * 60 + rs_float
+                module_seconds = mh * 3600 + mm * 60 + ms_int
+
+                # Offset: positive = module behind (module is slow)
+                offset = real_seconds - module_seconds
+
+                # Create datetime with microsecond precision
+                rs_int = int(rs_float)
+                rs_micros = int((rs_float - rs_int) * 1e6)
+                ref = log_date if log_date else date_type(2026, 1, 1)
+                real_dt = datetime(
+                    ref.year, ref.month, ref.day, rh, rm, rs_int, microsecond=rs_micros
+                )
+                module_dt = datetime(ref.year, ref.month, ref.day, mh, mm, ms_int)
+
+                measurements.append((real_dt, module_dt, offset))
+
+            except (ValueError, IndexError) as e:
+                print(f"    Warning: Could not parse line {line_num}: {line.strip()}")
+                continue
+
+    return measurements
+
+
+# ---------------------------------------------------------------------------
+# Statistics
+# ---------------------------------------------------------------------------
+
+
+def linear_regression(x, y):
+    """
+    Compute slope and intercept of best-fit line using least squares.
+
+    Args:
+        x: list of x values (time in seconds)
+        y: list of y values (offset in seconds)
+
+    Returns:
+        (slope, intercept) where y = slope*x + intercept
+    """
+    n = len(x)
+    if n < 2:
+        return 0.0, 0.0
+
+    x_mean = sum(x) / n
+    y_mean = sum(y) / n
+    numerator = sum((xi - x_mean) * (yi - y_mean) for xi, yi in zip(x, y))
+    denominator = sum((xi - x_mean) ** 2 for xi in x)
+
+    if denominator == 0:
+        return 0.0, y_mean
+
+    slope = numerator / denominator
+    intercept = y_mean - slope * x_mean
+    return slope, intercept
+
+
+def filter_outliers(measurements):
+    """
+    Remove outlier measurements using median absolute deviation (MAD).
+    Outliers are measurements whose offset deviates > 3*MAD from the median.
+    Falls back to 30-second threshold when MAD=0 (no variation).
+
+    Args:
+        measurements: list of (real_dt, module_dt, offset) tuples
+
+    Returns:
+        Filtered list of measurements
+    """
+    if len(measurements) < 2:
+        return measurements
+
+    offsets = [m[2] for m in measurements]
+    sorted_off = sorted(offsets)
+    n = len(sorted_off)
+    median = sorted_off[n // 2]
+
+    # Median absolute deviation
+    deviations = sorted([abs(o - median) for o in offsets])
+    mad = deviations[n // 2]
+
+    # Threshold: 3*MAD, with small fallback for zero-variance case
+    threshold = max(3.0 * mad, 0.01)
+
+    filtered = [
+        (dt_real, dt_mod, o)
+        for dt_real, dt_mod, o in measurements
+        if abs(o - median) <= threshold
+    ]
+
+    return filtered
+
+
+def compute_rolling_mean(measurements, window=None):
+    """
+    Smooth measurements with a centered rolling mean.
+    Window size is adaptive: ~1/10 of measurement count, clamped to [3, 30].
+    Returns list of (datetime, smoothed_offset) — one per measurement.
+    """
+    n = len(measurements)
+    if n == 0:
+        return []
+    if n == 1:
+        return [(measurements[0][0], measurements[0][2])]
+
+    if window is None:
+        window = max(3, min(n // 10, 30))
+
+    half = window // 2
+    result = []
+    for i in range(n):
+        lo = max(0, i - half)
+        hi = min(n, i + half + 1)
+        pts = measurements[lo:hi]
+        mean_offset = sum(m[2] for m in pts) / len(pts)
+        result.append((measurements[i][0], mean_offset))
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Analysis
+# ---------------------------------------------------------------------------
+
+
+def analyze_module_files(module_name, txt_paths):
+    """
+    Read and analyze one or more TXT files for a module.
+
+    Returns dict with analysis results, or None if insufficient data.
+    """
+    all_measurements = []
+    file_raw_counts = {}
+    for p in txt_paths:
+        parsed = parse_txt_file(p)
+        file_raw_counts[p.name] = len(parsed)
+        all_measurements.extend(parsed)
+
+    if not all_measurements:
+        return None
+
+    all_measurements.sort(key=lambda m: m[0])
+
+    # Keep first trigger per module second (= tick edge)
+    first_per_sec = {}
+    for m in all_measurements:
+        key = (m[1].year, m[1].month, m[1].day, m[1].hour, m[1].minute, m[1].second)
+        if key not in first_per_sec:
+            first_per_sec[key] = m
+
+    # Only keep seconds where the previous module second is also present
+    deduped = []
+    for key in sorted(first_per_sec):
+        dt = datetime(*key)
+        prev_dt = dt - timedelta(seconds=1)
+        prev_key = (
+            prev_dt.year,
+            prev_dt.month,
+            prev_dt.day,
+            prev_dt.hour,
+            prev_dt.minute,
+            prev_dt.second,
+        )
+        if prev_key in first_per_sec:
+            deduped.append(first_per_sec[key])
+
+    clean = filter_outliers(deduped) if FILTER_OUTLIERS else deduped
+
+    # Debug: show per-file contribution and what was filtered
+    kept_real_dts = {m[0] for m in clean}
+    for p in txt_paths:
+        raw_n = file_raw_counts[p.name]
+        parsed = parse_txt_file(p)
+        if not parsed:
+            print(
+                f"    [debug] {p.name}: {raw_n} triggers → 0 unique seconds (empty file)"
+            )
+            continue
+        file_mod_seconds = set()
+        for m in parsed:
+            file_mod_seconds.add((m[1].hour, m[1].minute, m[1].second))
+        in_deduped = [
+            m
+            for m in deduped
+            if (m[1].hour, m[1].minute, m[1].second) in file_mod_seconds
+        ]
+        n_kept = sum(1 for m in in_deduped if m[0] in kept_real_dts)
+        reasons = [
+            f"offset {m[2]:+.3f}s filtered as outlier"
+            for m in in_deduped
+            if m[0] not in kept_real_dts
+        ]
+        reason_str = f" → {'; '.join(reasons)}" if reasons else ""
+        if not in_deduped:
+            reason_str = " → no consecutive second pair found"
+        print(
+            f"    [debug] {p.name}: {raw_n} triggers → {len(file_mod_seconds)} unique sec(s) → {len(in_deduped)} after continuity check → {n_kept} kept{reason_str}"
+        )
+
+    if not clean:
+        return None
+
+    if len(clean) == 2:
+        dt_s = (clean[1][0] - clean[0][0]).total_seconds()
+        d_offset = clean[1][2] - clean[0][2]
+        slope = d_offset / dt_s if dt_s > 0 else 0.0
+        intercept = clean[0][2]
+        windows = [(clean[0][0], clean[0][2]), (clean[1][0], clean[1][2])]
+    else:
+        t0 = clean[0][0]
+        x_raw = [(m[0] - t0).total_seconds() for m in clean]
+        y_raw = [m[2] for m in clean]
+        slope, intercept = linear_regression(x_raw, y_raw)
+        windows = [(m[0], m[2]) for m in clean]
+
+    offsets = [m[2] for m in clean]
+    time_span_s = (clean[-1][0] - clean[0][0]).total_seconds()
+    time_span_h = time_span_s / 3600
+
+    return {
+        "module": module_name,
+        "all_measurements": clean,  # (real_dt, module_dt, offset)
+        "windows": windows,  # (mean_dt, mean_offset)
+        "drift_ppm": slope * 1e6,
+        "drift_s_per_day": slope * 86400,
+        "drift_s_per_hour": slope * 3600,
+        "drift_s_per_minute": slope * 60,
+        "initial_offset": clean[0][2],
+        "final_offset": clean[-1][2],
+        "avg_offset": sum(offsets) / len(offsets),
+        "n_measurements": len(clean),
+        "n_windows": len(windows),
+        "discarded": len(all_measurements) - len(clean),
+        "time_span_seconds": time_span_s,
+        "time_span_hours": time_span_h,
+        "regression_slope": slope,
+        "regression_intercept": intercept,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+
+def format_offset(seconds):
+    """Format offset as ±HH:MM:SS"""
+    sign = "-" if seconds < 0 else "+"
+    seconds = abs(float(seconds))
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+    return f"{sign}{h:02d}:{m:02d}:{s:02d}"
+
+
+def write_module_report(result, report_path):
+    """Write detailed drift report for one module."""
+    lines = []
+    lines.append("=" * 75)
+    lines.append(f"RTC DRIFT REPORT — {result['module'].upper()}")
+    lines.append("=" * 75)
+    lines.append("")
+
+    # Data summary
+    lines.append("DATA SUMMARY")
+    lines.append("-" * 75)
+    lines.append(f"  Total measurements  : {result['n_measurements']}")
+    lines.append(f"  Discarded (outliers): {result['discarded']}")
+    lines.append(f"  Windowed points     : {result['n_windows']}")
+    lines.append(
+        f"  Time span           : {result['time_span_hours']:.3f} hours ({result['time_span_seconds']:.0f} sec)"
+    )
+    lines.append("")
+
+    # Offset summary
+    lines.append("OFFSET SUMMARY")
+    lines.append("-" * 75)
+    lines.append(f"  Initial offset      : {format_offset(result['initial_offset'])}")
+    lines.append(f"  Final offset        : {format_offset(result['final_offset'])}")
+    lines.append(f"  Average offset      : {format_offset(result['avg_offset'])}")
+    lines.append("")
+
+    # Drift rates
+    lines.append("DRIFT RATE")
+    lines.append("-" * 75)
+    lines.append(f"  Overall drift rate  : {result['drift_ppm']:+.4f} ppm")
+    lines.append(f"  Drift per minute    : {result['drift_s_per_minute']:+.6f} seconds")
+    lines.append(f"  Drift per hour      : {result['drift_s_per_hour']:+.4f} seconds")
+    lines.append(f"  Drift per day       : {result['drift_s_per_day']:+.2f} seconds")
+    lines.append(
+        f"  Drift per month     : {result['drift_s_per_day'] * 30:+.1f} seconds ({result['drift_s_per_day'] * 30 / 60:+.2f} min)"
+    )
+    lines.append(
+        f"  Drift per year      : {result['drift_s_per_day'] * 365:+.0f} seconds ({result['drift_s_per_day'] * 365 / 3600:+.2f} hours)"
+    )
+    lines.append("")
+
+    # Direction
+    if result["drift_ppm"] > 0.01:
+        direction = "SLOW — module losing time"
+    elif result["drift_ppm"] < -0.01:
+        direction = "FAST — module gaining time"
+    else:
+        direction = "STABLE — negligible drift"
+    lines.append(f"  Direction           : {direction}")
+    lines.append("")
+
+    # Sample measurements
+    lines.append("=" * 75)
+    lines.append("SAMPLE MEASUREMENTS (first 50)")
+    lines.append("=" * 75)
+    for i, (real_dt, module_dt, offset) in enumerate(result["all_measurements"][:50]):
+        real_str = real_dt.strftime("%H:%M:%S.%f")[:-3]
+        module_str = module_dt.strftime("%H:%M:%S")
+        lines.append(f"  {real_str}  {module_str}  offset={offset:+.3f}s")
+
+    if len(result["all_measurements"]) > 50:
+        lines.append(
+            f"  ... ({len(result['all_measurements']) - 50} more measurements)"
+        )
+
+    lines.append("=" * 75)
+
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("\n".join(lines))
+
+
+def write_summary_csv(results, csv_path):
+    """Write summary CSV with all modules."""
+    lines = [
+        "module,n_measurements,n_windows,time_span_hours,"
+        "initial_offset_s,final_offset_s,avg_offset_s,"
+        "drift_ppm,drift_s_per_hour,drift_s_per_day"
+    ]
+
+    for r in results:
+        line = (
+            f"{r['module']},"
+            f"{r['n_measurements']},"
+            f"{r['n_windows']},"
+            f"{r['time_span_hours']:.4f},"
+            f"{r['initial_offset']:.3f},"
+            f"{r['final_offset']:.3f},"
+            f"{r['avg_offset']:.3f},"
+            f"{r['drift_ppm']:.4f},"
+            f"{r['drift_s_per_hour']:.6f},"
+            f"{r['drift_s_per_day']:.4f}"
+        )
+        lines.append(line)
+
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_path.write_text("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Plotting
+# ---------------------------------------------------------------------------
+
+
+MODULE_COLORS = {
+    "red": "#e53935",
+    "blue": "#1e88e5",
+    "green": "#43a047",
+    "yellow": "#fdd835",
+    "blank": "#757575",
+}
+
+
+def _module_color(module_name):
+    key = module_name.lower().replace("module_", "")
+    return MODULE_COLORS.get(key, None)
+
+
+def _module_plot_colors(module_name):
+    """Return (scatter_color, line_color, reg_color) for a module's individual plot."""
+    base = _module_color(module_name)
+    if base:
+        reg = "#880000" if base == "#e53935" else "red"
+        return base, base, reg
+    return "steelblue", "darkblue", "red"
+
+
+def plot_module(result, plot_path):
+    """Create detailed plot for one module showing offset drift over time."""
+    fig, ax = plt.subplots(figsize=(14, 6))
+
+    # Extract data
+    real_times = [m[0] for m in result["all_measurements"]]
+    offsets = [m[2] for m in result["all_measurements"]]
+
+    # Relative offset (baseline = first measurement)
+    baseline = offsets[0]
+    offsets_rel = [o - baseline for o in offsets]
+
+    # Regression line spanning full measurement range
+    t0 = real_times[0]
+    t_end = real_times[-1]
+    span_s = (t_end - t0).total_seconds()
+    reg_times = [t0, t_end]
+    reg_y = [
+        result["regression_slope"] * 0 + result["regression_intercept"] - baseline,
+        result["regression_slope"] * span_s + result["regression_intercept"] - baseline,
+    ]
+
+    scatter_color, _, reg_color = _module_plot_colors(result["module"])
+
+    # Plot
+    ax.scatter(
+        real_times,
+        offsets_rel,
+        alpha=0.8,
+        s=40,
+        color=scatter_color,
+        zorder=3,
+        label=f"Raw measurements ({result['n_measurements']} points)",
+    )
+    ax.plot(
+        reg_times,
+        reg_y,
+        "--",
+        color=reg_color,
+        alpha=0.8,
+        linewidth=2,
+        label=f"Fit: {result['drift_ppm']:+.3f} ppm ({result['drift_s_per_day']:+.2f} s/day)",
+        zorder=4,
+    )
+
+    ax.set_title(
+        f"RTC Drift — {result['module'].upper()} | {result['time_span_hours']:.2f}h span",
+        fontsize=14,
+        fontweight="bold",
+    )
+    ax.set_xlabel("Local Time", fontsize=11)
+    ax.set_ylabel("Offset change (seconds)", fontsize=11)
+    ax.legend(loc="best", fontsize=10)
+    ax.grid(True, alpha=0.3)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+
+    # Format x-axis as time
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+
+    fig.tight_layout()
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_ms_at_second_change(result, plot_path=None):
+    """Plot the millisecond value of real time at each module second change."""
+    # all_measurements already filtered to first-of-each-module-second in analyze_module_files
+    measurements = result["all_measurements"]
+    real_times = [m[0] for m in measurements]
+
+    def sub_second_ms(real_dt, mod_dt):
+        real_s = (
+            real_dt.hour * 3600
+            + real_dt.minute * 60
+            + real_dt.second
+            + real_dt.microsecond / 1e6
+        )
+        mod_s = mod_dt.hour * 3600 + mod_dt.minute * 60 + mod_dt.second
+        return ((real_s - mod_s) % 1) * 1000
+
+    ms_values = [sub_second_ms(m[0], m[1]) for m in measurements]
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+
+    color = _module_color(result["module"]) or "steelblue"
+    ax.scatter(real_times, ms_values, s=12, alpha=0.6, color=color, zorder=2)
+    ax.plot(real_times, ms_values, linewidth=0.8, alpha=0.4, color=color, zorder=1)
+
+    ax.set_title(
+        f"Real clock ms when module second ticks — {result['module'].upper()}",
+        fontsize=13,
+        fontweight="bold",
+    )
+    ax.set_xlabel("Real timestamp", fontsize=11)
+    ax.set_ylabel("ms into real second (0–999)", fontsize=11)
+    ax.set_ylim(-10, 1010)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.axhline(500, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+    ax.grid(True, alpha=0.3)
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+
+    fig.tight_layout()
+
+    if plot_path:
+        plot_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+
+    # plt.show()
+    plt.close(fig)
+
+
+def plot_ms_all_modules(results, plot_path=None):
+    """Combined ms-at-second-change plot for all modules."""
+    if not results:
+        return
+
+    fig, ax = plt.subplots(figsize=(14, 6))
+    fallback_colors = list(plt.cm.tab10.colors)
+
+    def sub_second_ms(real_dt, mod_dt):
+        real_s = (
+            real_dt.hour * 3600
+            + real_dt.minute * 60
+            + real_dt.second
+            + real_dt.microsecond / 1e6
+        )
+        mod_s = mod_dt.hour * 3600 + mod_dt.minute * 60 + mod_dt.second
+        return ((real_s - mod_s) % 1) * 1000
+
+    for i, result in enumerate(results):
+        color = (
+            _module_color(result["module"]) or fallback_colors[i % len(fallback_colors)]
+        )
+        measurements = result["all_measurements"]
+        real_times = [m[0] for m in measurements]
+        ms_values = [sub_second_ms(m[0], m[1]) for m in measurements]
+
+        ax.scatter(real_times, ms_values, s=10, alpha=0.5, color=color, zorder=2)
+        ax.plot(
+            real_times,
+            ms_values,
+            linewidth=0.8,
+            alpha=0.4,
+            color=color,
+            zorder=1,
+            label=result["module"],
+        )
+
+    ax.set_title(
+        "Real clock ms when module second ticks — all modules",
+        fontsize=13,
+        fontweight="bold",
+    )
+    ax.set_xlabel("Real timestamp", fontsize=11)
+    ax.set_ylabel("ms into real second (0–999)", fontsize=11)
+    ax.set_ylim(-10, 1010)
+    ax.axhline(0, color="black", linewidth=0.8, linestyle=":")
+    ax.axhline(500, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+    ax.legend(loc="best", fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S"))
+    ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+
+    fig.tight_layout()
+
+    if plot_path:
+        plot_path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+
+    # plt.show()
+    plt.close(fig)
+
+
+def plot_all_modules(results, plot_path):
+    """Create combined comparison plot for all modules."""
+    if not results:
+        return
+
+    fig, axes = plt.subplots(2, 1, figsize=(14, 11))
+    fallback_colors = list(plt.cm.tab10.colors)
+
+    # Determine time unit based on the longest module span
+    max_span_s = max(r["time_span_seconds"] for r in results)
+    if max_span_s >= 7200:
+        time_divisor, time_unit = 3600, "hours"
+    elif max_span_s >= 120:
+        time_divisor, time_unit = 60, "minutes"
+    else:
+        time_divisor, time_unit = 1, "seconds"
+
+    # Top: all offsets on one graph
+    for i, r in enumerate(results):
+        color = _module_color(r["module"]) or fallback_colors[i % len(fallback_colors)]
+        label = r["module"].replace("module_", "Module ").title()
+
+        measurements = r["all_measurements"]
+        if not measurements:
+            continue
+
+        t0 = measurements[0][0]
+        baseline = measurements[0][2]
+
+        raw_elapsed = [(m[0] - t0).total_seconds() / time_divisor for m in measurements]
+        raw_offs_rel = [m[2] - baseline for m in measurements]
+
+        span_s = (measurements[-1][0] - t0).total_seconds()
+        reg_elapsed = [0, span_s / time_divisor]
+        reg_offs_rel = [
+            r["regression_slope"] * 0 + r["regression_intercept"] - baseline,
+            r["regression_slope"] * span_s + r["regression_intercept"] - baseline,
+        ]
+
+        axes[0].scatter(
+            raw_elapsed,
+            raw_offs_rel,
+            color=color,
+            s=30,
+            alpha=0.8,
+            zorder=3,
+            label=label,
+        )
+        axes[0].plot(
+            reg_elapsed,
+            reg_offs_rel,
+            "--",
+            color=color,
+            linewidth=1.5,
+            alpha=0.7,
+            zorder=2,
+        )
+
+    axes[0].set_title(
+        "All Modules — Offset Drift Over Time", fontsize=13, fontweight="bold"
+    )
+    axes[0].set_xlabel(f"Elapsed time ({time_unit})", fontsize=11)
+    axes[0].set_ylabel("Offset change (seconds)", fontsize=11)
+    axes[0].legend(ncol=min(3, len(results)), fontsize=10, loc="best")
+    axes[0].grid(True, alpha=0.3)
+    axes[0].axhline(0, color="black", linewidth=0.8, linestyle=":")
+    axes[0].set_xlim(left=0)
+
+    # Bottom: drift rates as bar chart
+    module_names = [r["module"].replace("module_", "").title() for r in results]
+    ppms = [r["drift_ppm"] for r in results]
+    bar_colors = [
+        _module_color(r["module"]) or fallback_colors[i % len(fallback_colors)]
+        for i, r in enumerate(results)
+    ]
+
+    bars = axes[1].bar(
+        module_names,
+        ppms,
+        color=bar_colors,
+        edgecolor="black",
+        linewidth=0.8,
+        alpha=0.8,
+    )
+    axes[1].set_title("Drift Rate Comparison", fontsize=13, fontweight="bold")
+    axes[1].set_xlabel("Module", fontsize=11)
+    axes[1].set_ylabel("Drift rate (ppm)", fontsize=11)
+    axes[1].axhline(0, color="black", linewidth=0.8)
+    axes[1].grid(True, axis="y", alpha=0.3)
+    _margin = max(abs(max(ppms)), abs(min(ppms)), 1e-6) * 0.20
+    axes[1].set_ylim(min(0, min(ppms)) - _margin, max(0, max(ppms)) + _margin)
+
+    # Add value labels on bars
+    y_vals = ppms
+    ppm_range = max(y_vals) - min(y_vals) if len(y_vals) > 1 else abs(y_vals[0]) + 1
+    ppm_range = max(ppm_range, 1e-6)  # Avoid division by zero
+
+    for bar, ppm in zip(bars, ppms):
+        y_pos = (
+            bar.get_height() + ppm_range * 0.05
+            if ppm >= 0
+            else bar.get_height() - ppm_range * 0.08
+        )
+        axes[1].text(
+            bar.get_x() + bar.get_width() / 2,
+            y_pos,
+            f"{ppm:.3f}",
+            ha="center",
+            va="bottom" if ppm >= 0 else "top",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+    fig.tight_layout()
+    plot_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(plot_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Combined plot: {plot_path}")
+
+
+# ---------------------------------------------------------------------------
+# Module discovery
+# ---------------------------------------------------------------------------
+
+
+def collect_module_files(drift_dir):
+    """
+    Group TXT files by their parent subfolder.
+
+    Returns dict: {module_name: [Path, ...]} — all files in a subfolder combined.
+    Module name is the subfolder name for files in subdirectories,
+    or just "{stem}" for files in the root of drift_dir.
+    """
+    if not drift_dir.exists():
+        print(f"Error: Directory not found: {drift_dir}")
+        return {}
+
+    groups = {}
+    for txt_path in sorted(drift_dir.rglob("*.txt")):
+        if " copy" in txt_path.name:
+            continue
+        rel = txt_path.relative_to(drift_dir)
+
+        if rel.parent == Path("."):
+            module_name = txt_path.stem
+        else:
+            module_name = str(rel.parent)
+
+        groups.setdefault(module_name, []).append(txt_path)
+
+    return dict(sorted(groups.items()))
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+
+def main():
+    """Main entry point."""
+    print()
+    print("=" * 75)
+    print("RTC DRIFT ANALYZER v2")
+    print("=" * 75)
+    print()
+
+    module_files = collect_module_files(DRIFT_DIR)
+
+    if not module_files:
+        print(f"No TXT files found in {DRIFT_DIR}")
+        return
+
+    print(
+        f"Found {sum(len(v) for v in module_files.values())} TXT file(s) across {len(module_files)} module(s):"
+    )
+    for mod, paths in module_files.items():
+        print(f"\n  [{mod}]")
+        for p in paths:
+            print(f"    {p.relative_to(DRIFT_DIR)}")
+    print()
+
+    results = []
+    for module_name, txt_paths in module_files.items():
+        print(f"\n{'='*75}")
+        print(f"Analyzing: {module_name}")
+        print(f"{'='*75}")
+
+        result = analyze_module_files(module_name, txt_paths)
+
+        if result is None:
+            print("  ⚠ SKIPPED — insufficient data (< 2 windows)")
+            continue
+
+        # Print summary
+        print(
+            f"  ✓ {result['n_measurements']} measurements (discarded: {result['discarded']})"
+        )
+        print(
+            f"  ✓ {result['n_windows']} windows, {result['time_span_hours']:.3f} hours span"
+        )
+        print(f"  ✓ Drift: {result['drift_ppm']:+.4f} ppm")
+        print(
+            f"    └─ {result['drift_s_per_day']:+.2f} s/day | {result['drift_s_per_hour']:+.4f} s/hour"
+        )
+        print(
+            f"    └─ Initial: {format_offset(result['initial_offset'])}, "
+            f"Final: {format_offset(result['final_offset'])}"
+        )
+
+        # Write report
+        report_path = RESULTS_DIR / result["module"] / "drift_report.txt"
+        write_module_report(result, report_path)
+        print(f"  → Report: {report_path}")
+
+        # Plot drift over time
+        plot_path = RESULTS_DIR / result["module"] / "drift_plot.png"
+        plot_module(result, plot_path)
+        print(f"  → Drift plot: {plot_path}")
+
+        # Plot ms values at each module second change
+        ms_plot_path = RESULTS_DIR / result["module"] / "ms_changes_plot.png"
+        plot_ms_at_second_change(result, ms_plot_path)
+        print(f"  → MS plot: {ms_plot_path}")
+
+        results.append(result)
+
+    if not results:
+        print("\n⚠ No valid results to write.")
+        return
+
+    print(f"\n{'='*75}")
+    print("Summary")
+    print(f"{'='*75}\n")
+
+    # Write summary CSV
+    csv_path = RESULTS_DIR / "drift_results.csv"
+    write_summary_csv(results, csv_path)
+    print(f"Summary CSV: {csv_path}\n")
+
+    # Plot all modules combined
+    plot_all_path = RESULTS_DIR / "drift_plot_all.png"
+    plot_all_modules(results, plot_all_path)
+
+    # Combined ms-at-second-change plot for all modules
+    ms_all_path = RESULTS_DIR / "ms_changes_plot_all.png"
+    plot_ms_all_modules(results, ms_all_path)
+    print(f"Combined MS plot: {ms_all_path}")
+
+    # Print summary table — compute adaptive column widths from actual data
+    directions = []
+    for r in results:
+        if r["drift_ppm"] > 0.01:
+            directions.append("SLOW (losing)")
+        elif r["drift_ppm"] < -0.01:
+            directions.append("FAST (gaining)")
+        else:
+            directions.append("STABLE")
+
+    col_module = max(len("Module"), max(len(r["module"]) for r in results))
+    col_ppm = max(len("PPM"), max(len(f"{r['drift_ppm']:.4f}") for r in results))
+    col_sday = max(
+        len("S/Day"), max(len(f"{r['drift_s_per_day']:.4f}") for r in results)
+    )
+    col_dir = max(len("Direction"), max(len(d) for d in directions))
+
+    sep = f"+-{'-'*col_module}-+-{'-'*col_ppm}-+-{'-'*col_sday}-+-{'-'*col_dir}-+"
+    print(f"\n{sep}")
+    print(
+        f"| {'Module':<{col_module}} | {'PPM':>{col_ppm}} | {'S/Day':>{col_sday}} | {'Direction':>{col_dir}} |"
+    )
+    print(sep)
+    for r, direction in zip(results, directions):
+        print(
+            f"| {r['module']:<{col_module}} | {r['drift_ppm']:>{col_ppm}.4f} | {r['drift_s_per_day']:>{col_sday}.4f} | {direction:>{col_dir}} |"
+        )
+    print(f"{sep}\n")
+
+
+if __name__ == "__main__":
+    main()

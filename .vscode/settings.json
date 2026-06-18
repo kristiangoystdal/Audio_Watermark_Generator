@@ -1,0 +1,5 @@
+{
+    "cmake.sourceDirectory": "/Users/einarbergslid/GITHUB/Audio_Watermark_Generator/Firmware/Drivers/CMSIS/DSP/Source/MatrixFunctions",
+    "python.languageServer": "None",
+    "python-envs.defaultEnvManager": "ms-python.python:system"
+}
